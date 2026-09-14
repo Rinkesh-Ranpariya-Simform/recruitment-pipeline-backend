@@ -104,6 +104,12 @@ the spec is wrong, update the spec and get it re-approved rather than letting co
 |---|---|---|---|
 | [authentication](specs/features/authentication/spec.md) | ✅ approved | [✅ drafted](specs/features/authentication/plan.md) | — |
 
+**No authenticated user can create an account.** There is no `POST /api/users`; all provisioning is
+`POST /api/auth/signup` (curl/Postman) or `npm run db:seed`. `GET /api/users` exists, recruiter-gated,
+but has no frontend caller. Note **SEC-11.1** in the spec — signup is anonymous and role-accepting, and
+is the *only* creation path, so anyone who can reach the API can mint a recruiter. That must be closed
+before this API is reachable from anywhere but localhost.
+
 Authentication blocks everything else — §6 requires every action to be tied to a real
 authenticated user, and the query-level scoping above has nothing to parameterise on without it.
 The frontend counterpart is

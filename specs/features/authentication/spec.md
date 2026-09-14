@@ -19,7 +19,7 @@ This backend must:
 3. Expose the authenticated user's identity and role.
 4. Reject every unauthenticated request to a protected endpoint with `401`.
 5. Reject every authenticated-but-unauthorized request with `403`.
-6. Let a recruiter provision interviewer accounts, without that path ever being able to mint a recruiter.
+6. Provision every account — both roles — from the API itself (curl/Postman/seed), with **no client-facing account-creation path**.
 7. Never emit a password, password hash, or raw token in any response body or log line.
 
 Success means: from the moment this ships, `req.user = { id, role }` is a guaranteed precondition for every subsequent pipeline endpoint, and the query-level authorization the POC's core hard case depends on (brief §3.2) has something real to parameterise on.
@@ -58,9 +58,10 @@ This spec therefore introduces the first zod schemas, the first middleware chain
 Settled, not open:
 
 - **Two roles only** — `INTERVIEWER` and `RECRUITER`. `HIRING_MANAGER` (the brief's optional stretch actor) is excluded from this POC entirely, including from the enum.
-- **Recruiters are bootstrapped from the backend** (seed script, or a direct `POST /api/auth/signup` from curl/Postman). **Interviewers are created by an authenticated recruiter** via the API.
+- **Every account of either role is provisioned from the backend** — the seed script, or a direct `POST /api/auth/signup` from curl/Postman. There is no in-product account creation, and no endpoint exists whose purpose is to let one user create another.
 - **Split-token model** — a short-lived access token the client holds only in memory, and a long-lived opaque refresh token in an `HttpOnly` cookie with server-side revocation.
 - **No signup UI exists**, so `POST /api/auth/signup` issues no session — it creates a record only.
+- **`GET /api/users` is retained but has no client.** It stays `RECRUITER`-gated and exists so an operator can list interviewers over HTTP; the frontend never calls it.
 
 ---
 
@@ -69,11 +70,11 @@ Settled, not open:
 | Actor | Authenticated? | Can do against this API |
 |---|---|---|
 | **Anonymous caller** | No | `POST /api/auth/login` and `POST /api/auth/signup` only. Every other endpoint returns `401`. |
-| **Interviewer** (`INTERVIEWER`) | Yes | Log in, refresh, read own identity via `/api/auth/me`, log out. **Cannot** create or list users — `403`. |
-| **Recruiter** (`RECRUITER`) | Yes | Everything an interviewer can do, plus create interviewer accounts and list existing interviewers. |
-| **Operator / developer** | N/A (shell access) | Bootstrap recruiters via `npm run db:seed` or a direct `POST /api/auth/signup`. Not an HTTP actor in normal operation. |
+| **Interviewer** (`INTERVIEWER`) | Yes | Log in, refresh, read own identity via `/api/auth/me`, log out. **Cannot** list users — `403`. Cannot create a user by any route. |
+| **Recruiter** (`RECRUITER`) | Yes | Everything an interviewer can do, plus list existing interviewers via `GET /api/users`. **Creates no accounts** — provisioning is not a recruiter capability. |
+| **Operator / developer** | N/A (shell or HTTP client) | **The only account-creating actor.** Provisions every user of either role via `npm run db:seed` or `POST /api/auth/signup` from curl/Postman. |
 
-**Deliberate POC trade-off, stated explicitly:** `POST /api/auth/signup` is anonymous and accepts a `role`. Anyone who can reach the API can therefore create a `RECRUITER` and see candidate contact details. This is acceptable **only** because the POC runs locally and the endpoint exists solely to bootstrap the first recruiter. It is called out here so it is not mistaken for an oversight. The recruiter-facing path (`POST /api/users`) does **not** share this weakness — it cannot create a recruiter under any input.
+**Deliberate POC trade-off, stated explicitly:** `POST /api/auth/signup` is anonymous, accepts a `role`, and is the **only** way to create an account over HTTP. Anyone who can reach the API can therefore create a `RECRUITER` and see candidate contact details. This is acceptable **only** because the POC runs locally and the endpoint exists solely as an operator tool. It is called out here so it is not mistaken for an oversight, and tracked as **SEC-11.1** — the single item that must be closed before this API is reachable from anywhere but localhost.
 
 ---
 
@@ -87,9 +88,9 @@ Settled, not open:
 
 **US-04** — As **any user**, I want logout to actually revoke my session server-side, not merely clear a client cookie.
 
-**US-05** — As a **recruiter**, I want an endpoint to create interviewer accounts so that I can onboard a panel without an engineer running a script.
+**US-05** — As an **operator**, I want a single API call that creates an account of either role so that I can provision the whole panel from Postman without touching the database by hand.
 
-**US-06** — As a **recruiter**, I want to list existing interviewers so that I don't create a duplicate account for someone.
+**US-06** — As a **recruiter**, I want to list existing interviewers over the API so that I can confirm who has an account before asking an operator to provision another.
 
 **US-07** — As a **security reviewer**, I want a stolen refresh token to be detectable, so the POC has a defensible answer to "what happens if a token leaks?"
 
@@ -106,21 +107,22 @@ Settled, not open:
 - **FR-1.3** `role` is one of `INTERVIEWER` | `RECRUITER`, stored as a Postgres enum — never a free-text column.
 - **FR-1.4** A plaintext password is **never** persisted. Only a bcrypt hash (cost 12) is stored.
 
-### FR-2 — Account creation (bootstrap path)
+### FR-2 — Account creation (the only path)
 
-- **FR-2.1** `POST /api/auth/signup` accepts `{ name, email, password, role }`, is anonymous, and creates a user.
+- **FR-2.1** `POST /api/auth/signup` accepts `{ name, email, password, role }`, is anonymous, and creates a user. It is the **sole** account-creation endpoint for both roles.
 - **FR-2.2** It **creates only** — it issues no access token and sets no cookie. The created user logs in normally afterwards.
 - **FR-2.3** A duplicate email returns `409 EMAIL_TAKEN`.
 - **FR-2.4** It returns the **safe user representation** (FR-6) with `201`.
-- **FR-2.5** No frontend page calls this endpoint; it exists for curl/Postman/seed use.
+- **FR-2.5** **No frontend page calls this endpoint, and none ever will** — it exists for curl/Postman/seed use only. The frontend has no account-creation surface of any kind (XFE-6).
+- **FR-2.6** **There is no authenticated user-creation endpoint.** No role, recruiter included, can create another user through the API. An account exists because an operator called this endpoint or ran the seed.
 
-### FR-3 — Account creation (recruiter path)
+### FR-3 — User listing
 
-- **FR-3.1** `POST /api/users` requires an authenticated user whose role is `RECRUITER`.
-- **FR-3.2** Its request body is `{ name, email, password }`. **`role` is not part of the schema.** The created user's role is hard-coded to `INTERVIEWER` in the service layer.
-- **FR-3.3** If a client sends `role` in the body it is **ignored — not honoured, and not an error** — because the zod schema strips unknown keys. A request containing `"role": "RECRUITER"` must produce an `INTERVIEWER`.
-- **FR-3.4** A non-recruiter receives `403 FORBIDDEN`; an unauthenticated caller receives `401 UNAUTHENTICATED`.
-- **FR-3.5** `GET /api/users` requires `RECRUITER` and returns all users with role `INTERVIEWER`, ordered by `createdAt` descending, each as a safe user representation.
+- **FR-3.1** `GET /api/users` requires an authenticated user whose role is `RECRUITER`.
+- **FR-3.2** It returns all users with role `INTERVIEWER`, ordered by `createdAt` descending, each as a safe user representation (FR-6).
+- **FR-3.3** A non-recruiter receives `403 FORBIDDEN`; an unauthenticated caller receives `401 UNAUTHENTICATED`.
+- **FR-3.4** An empty result is `200 { "users": [] }` — never `404`.
+- **FR-3.5** **This endpoint has no frontend caller.** It is retained as an operator/verification tool and as the one place `requireRole` is exercised in this feature. Adding a UI for it is a later, separate decision.
 
 ### FR-4 — Login
 
@@ -175,10 +177,11 @@ Full frontend behaviour is specified in [../../../../frontend/specs/features/aut
 - **XFE-1** The client holds the access token **in memory only** and sends it as `Authorization: Bearer`. The backend therefore must **not** rely on a cookie for access-token transport, and must not assume the client can recover a token after a page reload — that is what `POST /api/auth/refresh` is for.
 - **XFE-2** The client sends credentialed cross-origin requests (`credentials: 'include'`), so CORS must be configured with an explicit origin and `credentials: true` (BE-7).
 - **XFE-3** The client treats any `401` as "refresh once, then replay once". The backend must therefore make `401` genuinely recoverable via `/refresh` and must not return `401` for authorization failures — those are `403` (AZ-2).
-- **XFE-4** The client maps `details` from a `400 VALIDATION_ERROR` onto individual form fields, so `details` must be keyed by **request-body field name** (VAL-5).
+- **XFE-4** The client maps `details` from a `400 VALIDATION_ERROR` onto individual form fields, so `details` must be keyed by **request-body field name** (VAL-5). **The login form is the only form in the client**, so in practice this applies to `POST /api/auth/login` alone — but the rule is a contract-wide guarantee, not a login-specific one.
 - **XFE-5** The client renders `message` verbatim to end users, so every `message` must be user-safe copy (ERR-1).
-- **XFE-6** The client's login page offers no signup and no password reset, so no such endpoint is required.
+- **XFE-6** **The client has no account-creation surface at all** — no signup page, no password reset, no interviewer-provisioning page. It calls exactly four endpoints: `login`, `refresh`, `me`, `logout`. `POST /api/auth/signup` and `GET /api/users` have **no client caller** and must not be shaped around one.
 - **XFE-7** The client's route guard reads only the **presence** of the refresh cookie. The cookie name is therefore part of the contract: `refresh_token`.
+- **XFE-8** The client renders a 403 view when any call returns `403 FORBIDDEN`, even on a route it believed was permitted. `403` must therefore stay distinct from `401` (AZ-2) even though no endpoint the client calls is role-gated today.
 
 ---
 
@@ -196,7 +199,7 @@ backend/src/
 ├── middleware/{requireAuth,requireRole,validate,errorHandler,requestId}.ts
 ├── modules/
 │   ├── auth/{auth.routes,auth.controller,auth.service,auth.schema}.ts
-│   └── users/{users.routes,users.controller,users.service,users.schema}.ts
+│   └── users/{users.routes,users.controller,users.service}.ts   # read-only: no schema, no body to validate
 └── prisma/seed.ts
 ```
 
@@ -206,7 +209,7 @@ backend/src/
 
 - **BE-2.1** `zod` is added as a backend dependency (it does not exist there today) so backend and frontend validate against mirrored rules.
 - **BE-2.2** A `validate(schema)` middleware parses the body **before the controller runs**. Invalid input never reaches business logic — an explicit check in brief §6.
-- **BE-2.3** Schemas strip unknown keys, so `role` on `POST /api/users` is dropped rather than passed through.
+- **BE-2.3** Schemas strip unknown keys, so an unexpected field is dropped rather than passed into a Prisma `data` object. `signupSchema` is the only schema that accepts a `role`, and it accepts it deliberately (FR-2.1).
 
 ### BE-3 — Password handling
 
@@ -259,7 +262,7 @@ A single Express error middleware converts every thrown `AppError` into the flat
 | `auth.refresh.rotated` | info | `userId`, `familyId`, `requestId` |
 | `auth.refresh.reuse_detected` | **error** | `userId`, `familyId`, `action: 'family_revoked'` |
 | `auth.logout` | info | `userId`, `familyId` |
-| `user.created` | info | `createdUserId`, `role`, `actorUserId` (null for signup) |
+| `user.created` | info | `createdUserId`, `role`, `source: 'signup' \| 'seed'` — **there is no actor**, because no authenticated user can create another |
 | `authz.denied` | warn | `userId`, `role`, `method`, `path` |
 
 **Never logged, at any level:** plaintext passwords, bcrypt hashes, raw or hashed refresh tokens, access tokens, `Cookie` / `Set-Cookie` / `Authorization` header values, `JWT_SECRET`.
@@ -270,7 +273,7 @@ A single Express error middleware converts every thrown `AppError` into the flat
 
 All endpoints are JSON and prefixed `/api`. Every error response uses the shape in [Error Handling](#error-handling).
 
-### `POST /api/auth/signup` — anonymous · bootstrap only
+### `POST /api/auth/signup` — anonymous · operator only · **the only way to create an account**
 
 ```jsonc
 // Request
@@ -336,21 +339,7 @@ Returns `204` **even when no cookie was sent or the token was already invalid** 
 
 Errors: `401 UNAUTHENTICATED` (missing / malformed / expired token, or the user no longer exists)
 
-### `POST /api/users` — Bearer · `RECRUITER`
-
-```jsonc
-// Request — note: no `role` field
-{ "name": "Ivan Interviewer", "email": "ivan@example.com", "password": "hunter2hunter2" }
-```
-
-```jsonc
-// 201 Created — role is always INTERVIEWER
-{ "user": { "id": 7, "name": "Ivan Interviewer", "email": "ivan@example.com", "role": "INTERVIEWER", "createdAt": "2026-09-14T11:00:00.000Z" } }
-```
-
-Errors: `400 VALIDATION_ERROR` · `401 UNAUTHENTICATED` · `403 FORBIDDEN` · `409 EMAIL_TAKEN` · `500 INTERNAL_ERROR`
-
-### `GET /api/users` — Bearer · `RECRUITER`
+### `GET /api/users` — Bearer · `RECRUITER` · no frontend caller
 
 ```jsonc
 // 200 OK — interviewers only, newest first
@@ -361,12 +350,17 @@ An empty result is `{ "users": [] }` with `200` — never `404`.
 
 Errors: `401 UNAUTHENTICATED` · `403 FORBIDDEN` · `500 INTERNAL_ERROR`
 
+### Removed endpoint
+
+**`POST /api/users` no longer exists.** A request to it returns `404 NOT_FOUND` in the standard error shape, like any other unknown route (EC-16). It is not a `405`, and it is not a stub — the route is simply not registered. Account creation is `POST /api/auth/signup` only (FR-2.1, FR-2.6).
+
 ### Contract invariants
 
 1. `passwordHash` appears in **zero** response bodies.
 2. Raw or hashed refresh tokens appear in **zero** response bodies — the refresh token exists only in the `Set-Cookie` header.
-3. The user object shape is identical across all five endpoints that return one.
+3. The user object shape is identical across all **four** endpoints that return one (`signup`, `login`, `me`, `users`).
 4. Every non-2xx response body matches `{ code, message, details? }`.
+5. **Exactly one endpoint writes a `User` row**: `POST /api/auth/signup`. Nothing else in the API creates, edits, or deletes a user.
 
 ---
 
@@ -439,12 +433,12 @@ model RefreshToken {
 | `POST /api/auth/refresh` | cookie-gated | cookie-gated | cookie-gated |
 | `POST /api/auth/logout` | ✅ (204) | ✅ | ✅ |
 | `GET /api/auth/me` | ❌ 401 | ✅ | ✅ |
-| `POST /api/users` | ❌ 401 | ❌ **403** | ✅ |
 | `GET /api/users` | ❌ 401 | ❌ **403** | ✅ |
+| `POST /api/users` | ❌ 404 — route removed | ❌ 404 | ❌ 404 |
 
 ### Non-negotiable rules
 
-- **AZ-1** Every endpoint enforces its own rule independently of any client-side guard. AC-B27 proves it by calling `POST /api/users` directly with an interviewer's token.
+- **AZ-1** Every endpoint enforces its own rule independently of any client-side guard. AC-B27 proves it by calling `GET /api/users` directly with an interviewer's token — the client never calls that endpoint at all, so the server is provably the only thing enforcing it.
 - **AZ-2** `401` means *"we don't know who you are"*; `403` means *"we know, and you may not"*. They are never interchanged.
 - **AZ-3** A role is read from the verified JWT claim. It is never read from a request body, query parameter, or client-supplied header.
 - **AZ-4** This feature establishes `req.user` only. The query-level scoping the brief demands (interviewer → only assigned candidates) is built on top of it by later features.
@@ -465,7 +459,7 @@ These rules are authoritative; the frontend mirrors them for responsiveness only
 - **VAL-1** The 72-byte password ceiling is bcrypt's silent truncation point. It is enforced, not ignored — otherwise two different long passwords could authenticate the same account.
 - **VAL-2** No composition requirements (uppercase/digit/symbol) — length only, deliberately, to keep the POC demoable.
 - **VAL-3** Email normalisation (`trim().toLowerCase()`) happens inside the zod schema via `.transform()`, so every downstream consumer receives the normalised value and no code path can forget to normalise.
-- **VAL-4** `POST /api/users` has **no `role` in its schema**; unknown keys are stripped. Sending one is not a `400` — it is silently ignored (FR-3.3).
+- **VAL-4** There are exactly **two** body schemas in this feature — `signupSchema` and `loginSchema`. `GET /api/users` takes no body and therefore no `validate()` in its chain. Any later endpoint that writes a user must add its own schema; none exists today.
 - **VAL-5** Validation failures return **all** field errors at once, keyed by request-body field name, so the client can display every problem in one pass.
 - **VAL-6** `POST /api/auth/login` validates **shape only** (`email` looks like an email, `password` is a non-empty string). It does **not** apply the 8-character minimum — doing so would reveal that no account can have a short password, and would return `400` where `401` belongs.
 
@@ -488,9 +482,9 @@ Flat, with `message` at the top level — chosen so the frontend's existing `api
 | 400 | `VALIDATION_ERROR` | "Invalid request body" | zod rejects the payload |
 | 401 | `INVALID_CREDENTIALS` | "Invalid email or password" | Login: unknown email **or** wrong password |
 | 401 | `UNAUTHENTICATED` | "Authentication required" | Missing/malformed/expired access token; invalid/expired/reused refresh token |
-| 403 | `FORBIDDEN` | "You do not have access to this resource" | Authenticated, wrong role |
-| 404 | `NOT_FOUND` | "Resource not found" | Unknown route |
-| 409 | `EMAIL_TAKEN` | "An account with this email already exists" | Unique constraint violation on `User.email` |
+| 403 | `FORBIDDEN` | "You do not have access to this resource" | Authenticated, wrong role — `GET /api/users` as an interviewer is the only case today |
+| 404 | `NOT_FOUND` | "Resource not found" | Unknown route — **including `POST /api/users`**, which no longer exists |
+| 409 | `EMAIL_TAKEN` | "An account with this email already exists" | Unique constraint violation on `User.email` — reachable only via `POST /api/auth/signup` and the seed |
 | 500 | `INTERNAL_ERROR` | "Something went wrong" | Anything unhandled |
 
 ### Rules
@@ -515,12 +509,12 @@ Flat, with `message` at the top level — chosen so the frontend's existing `api
 | EC-06 | Two identical signups race | One succeeds; the other hits the unique constraint → `409` (ERR-4). Never two rows, never a `500`. |
 | EC-07 | `"  Ada@Example.COM "` vs `"ada@example.com"` | Same account. Normalisation in the schema (VAL-3) means login and creation agree. |
 | EC-08 | 100-character password | `400` with an explicit message — not silently truncated to 72 bytes by bcrypt (VAL-1). |
-| EC-09 | Client sends `role: "RECRUITER"` to `POST /api/users` | Key stripped; an `INTERVIEWER` is created; `201`. **Must be checked explicitly (AC-B26).** |
+| EC-09 | Any caller `POST`s to `/api/users` | `404 NOT_FOUND` in the standard error shape. The route is not registered at all, so there is no privilege check to get wrong. **Must be checked explicitly (AC-B26).** |
 | EC-10 | `JWT_SECRET` missing or shorter than 32 chars at boot | Process **exits with a clear message** and binds no port. Never a default or generated secret. |
 | EC-11 | Valid JWT whose user row was deleted | `requireAuth` resolves the user, finds none, returns `401`. A token is never trusted to imply existence. |
 | EC-12 | Clock skew between issuer and verifier | `jsonwebtoken` verification allows `clockTolerance: 30` seconds. Beyond that it is a normal `401`. |
 | EC-13 | Signup body omits `role` | `400 VALIDATION_ERROR`. There is no default role (MIG-2). |
-| EC-14 | Recruiter creates an interviewer using their own email | `409 EMAIL_TAKEN`. Emails are globally unique across roles, not per role. |
+| EC-14 | Operator signs up an `INTERVIEWER` using an email that already belongs to a `RECRUITER` | `409 EMAIL_TAKEN`. Emails are globally unique **across** roles, not per role — one person cannot hold two accounts. |
 | EC-15 | `Authorization` header present but not `Bearer <token>` | `401`, never `500`, and the response never explains why parsing failed. |
 | EC-16 | Request to an unknown route | `404 NOT_FOUND` in the standard error shape — not Express's default HTML page. |
 
@@ -537,10 +531,12 @@ Flat, with `message` at the top level — chosen so the frontend's existing `api
 - **SEC-7 — Strict CORS.** Explicit `origin`, `credentials: true`, never a wildcard.
 - **SEC-8 — Secrets from the environment only.** `JWT_SECRET` is validated at boot with a minimum length and has no fallback (EC-10). `.env` is gitignored; `.env.example` carries placeholders only.
 - **SEC-9 — Hashing.** bcrypt cost 12, per-password salt (bcrypt's default), verified with `bcrypt.compare` and never a string equality check.
-- **SEC-10 — Least-privilege creation path.** `POST /api/users` cannot produce a privileged account under any input (FR-3.2, EC-09). Escalation via a tampered body is structurally impossible, not merely validated against.
+- **SEC-10 — No authenticated write path to `User`.** No endpoint lets one authenticated user create, modify, or delete another. The attack surface for privilege escalation *through an authenticated session* is therefore empty: there is no body to tamper with, because there is no such request. Note what this does **not** cover — the anonymous creation path, which is SEC-11.1 below.
 - **SEC-11 — Known accepted gaps** (stated so a reviewer need not find them):
-  - No rate limiting or lockout on login — online brute force is unmitigated in this POC.
-  - `POST /api/auth/signup` is anonymous and role-accepting; anyone reaching the API can create a recruiter.
+  - **SEC-11.1 — The sole account-creation endpoint is anonymous and role-accepting.** `POST /api/auth/signup` takes a `role` from an unauthenticated request body. Anyone who can reach the API can mint a `RECRUITER` and, once later features land, read candidate contact details. **This is the single most serious gap in the feature.** There is no lower-privileged alternative to prefer: this one endpoint is the whole of account provisioning, not merely a bootstrap beside a safer path.
+    **Mitigating conditions this depends on:** the API binds only to localhost, it is never port-forwarded or tunnelled, and `FRONTEND_ORIGIN` is a local origin.
+    **Required before any non-localhost exposure** — not optional, and not a later nicety: gate `POST /api/auth/signup` behind a shared operator secret (an `X-Bootstrap-Token` header compared against an env var, rejecting with `404` rather than `401` so the endpoint's existence is not advertised), **or** remove the endpoint entirely and make `npm run db:seed` the only provisioning route. Either is a small change; the point is that it must be a deliberate one, made before exposure and not after.
+  - No rate limiting or lockout on login — online brute force is unmitigated in this POC. Combined with SEC-11.1, an exposed instance is trivially compromised.
   - A leaked access token is valid for up to 15 minutes and cannot be revoked early.
   - Logout revokes the refresh family but does not invalidate already-issued access tokens.
 
@@ -553,7 +549,7 @@ Flat, with `message` at the top level — chosen so the frontend's existing `api
 - **PERF-3** `GET /api/auth/me` completes in **< 30 ms** p95 — one primary-key lookup with an explicit `select`.
 - **PERF-4** `requireAuth` performs **at most one** database query per request. JWT verification is in-process.
 - **PERF-5** Every refresh-token lookup uses the `tokenHash` unique index; family revocation uses the `familyId` index. **No query in this feature sequentially scans `RefreshToken`.**
-- **PERF-6** `GET /api/users` returns interviewers unpaginated. Acceptable at POC scale (tens of users) and explicitly **not** the pattern for candidate-scale endpoints, which the brief requires to be indexed aggregates.
+- **PERF-6** `GET /api/users` returns interviewers unpaginated. Acceptable at POC scale (tens of users), and doubly so now that no UI polls it. Explicitly **not** the pattern for candidate-scale endpoints, which the brief requires to be indexed aggregates.
 - **PERF-7** Middleware ordering puts `requireAuth` before `validate` on protected routes, so an unauthenticated request is rejected without paying parsing cost.
 
 ---
@@ -566,6 +562,7 @@ Checking against the **real PostgreSQL database** is not optional: the query-lev
 
 ### Account creation
 
+- **AC-B00** — **Given** the running API, **when** every registered route is enumerated, **then** `POST /api/users` is **absent**, and `POST /api/auth/signup` is the only route that writes a `User` row (contract invariant 5).
 - **AC-B01** — **Given** no user exists with `ada@example.com`, **when** `POST /api/auth/signup` is called with a valid name, email, password and `role: "RECRUITER"`, **then** the response is `201`, the body is `{ user: { id, name, email, role: "RECRUITER", createdAt } }`, **no** `Set-Cookie` header is present, and the body contains no `passwordHash` and no token.
 - **AC-B02** — **Given** a user already exists with `ada@example.com`, **when** `POST /api/auth/signup` is called with that email, **then** the response is `409 EMAIL_TAKEN` and exactly one user row exists.
 - **AC-B03** — **Given** a signup request with `password: "short"`, **when** it is submitted, **then** the response is `400 VALIDATION_ERROR`, `details.password` is non-empty, and no user row is created.
@@ -605,11 +602,11 @@ Checking against the **real PostgreSQL database** is not optional: the query-lev
 
 ### Authorization
 
-- **AC-B25** — **Given** a recruiter's access token, **when** `POST /api/users` is called with `{ name, email, password }`, **then** the response is `201` and the created user's role is `INTERVIEWER`.
-- **AC-B26** — **Given** a recruiter's access token, **when** `POST /api/users` is called with `{ name, email, password, role: "RECRUITER" }`, **then** the response is `201` **and the created user's role is `INTERVIEWER`** — the `role` key is ignored, not honoured.
-- **AC-B27** — **Given** an **interviewer's** access token, **when** `POST /api/users` is called, **then** the response is `403 FORBIDDEN` and **no user row is created**.
-- **AC-B28** — **Given** no access token, **when** `POST /api/users` is called, **then** the response is `401` — not `403`.
-- **AC-B29** — **Given** an interviewer's access token, **when** `GET /api/users` is called, **then** the response is `403`.
+- **AC-B25** — **Given** an operator with no session at all, **when** `POST /api/auth/signup` is called with `role: "INTERVIEWER"`, **then** the response is `201` and the created user's role is `INTERVIEWER` — provisioning needs no authenticated actor.
+- **AC-B26** — **Given** a **recruiter's** access token, **when** `POST /api/users` is called with `{ name, email, password }`, **then** the response is `404 NOT_FOUND` in the standard error shape and **no user row is created**. The endpoint is gone, not merely forbidden (EC-09).
+- **AC-B27** — **Given** an **interviewer's** access token, **when** `GET /api/users` is called, **then** the response is `403 FORBIDDEN`. This is the criterion that proves server-side role enforcement, since no client ever calls this endpoint (AZ-1).
+- **AC-B28** — **Given** no access token, **when** `GET /api/users` is called, **then** the response is `401` — not `403`, and not `404`.
+- **AC-B29** — **Given** a recruiter's access token, **when** `GET /api/users` is called, **then** the response is `200` and every returned user has `role: "INTERVIEWER"`.
 - **AC-B30** — **Given** a recruiter's access token and three existing interviewers plus two recruiters, **when** `GET /api/users` is called, **then** exactly the three interviewers are returned, newest first, and no recruiter appears.
 - **AC-B31** — **Given** a recruiter's access token and no interviewers, **when** `GET /api/users` is called, **then** the response is `200` with `{ users: [] }` — not `404`.
 
@@ -629,6 +626,8 @@ Explicitly excluded. Each is a deliberate decision, not an omission.
 
 | Excluded | Note |
 |---|---|
+| **Authenticated user provisioning (`POST /api/users`)** | No role can create an account through the API. Provisioning is `POST /api/auth/signup` or `npm run db:seed`, both operator actions. |
+| **Protecting `POST /api/auth/signup`** | It stays anonymous and role-accepting in this POC. An operator token / bootstrap secret is specified as the *required* fix before non-localhost exposure (SEC-11.1) but is **not built here**. |
 | **Password reset / forgot password** | No reset tokens, no email. A forgotten password means recreating the account. |
 | **Email verification** | Accounts are usable immediately on creation. |
 | **MFA / TOTP** | Email + password only. |

@@ -4,6 +4,8 @@
 > **Counterpart:** [../../../../frontend/specs/features/authentication/plan.md](../../../../frontend/specs/features/authentication/plan.md)
 > **Status:** Ready for review
 
+**Account provisioning in one line:** `POST /api/auth/signup` (operator-called, from curl/Postman) or `npm run db:seed`. There is no authenticated user-creation endpoint. The `users` module is read-only — one route, `GET /api/users`, no schema file. See **SEC-11.1** in the spec for the exposure this carries; this plan does not mitigate it.
+
 ---
 
 ## Architecture Impact
@@ -49,10 +51,13 @@ This is a backend plan. The frontend work is planned in [../../../../frontend/sp
 | Attach `Authorization: Bearer <token>` | The access token is returned in the body, never set as a cookie |
 | Key its cookie-presence middleware on the name `refresh_token` | BE-7.3 fixes that name |
 | Treat `401` as refresh-and-retry, `403` as terminal | AZ-2 — the two are never interchanged |
-| Map `body.details` onto form fields | VAL-5 keys `details` by request-body field name |
+| Map `body.details` onto form fields | VAL-5 keys `details` by request-body field name (login is the only form) |
 | Render `body.message` verbatim | ERR-1 guarantees user-safe copy |
+| **Call exactly four endpoints** — `login`, `refresh`, `me`, `logout` | FR-2.6 / XFE-6: there is no account-creation UI, and `GET /api/users` has no client |
 
 **No frontend change is required by this plan beyond the above** — the client has no existing auth code to migrate.
+
+**Note:** the frontend has no `/team` page and no provisioning form. Neither side ships a consumer for `POST /api/users`; that endpoint does not exist.
 
 ---
 
@@ -162,24 +167,25 @@ All paths relative to `backend/`. Every entry is **NEW** unless marked MODIFIED.
 | POST | `/logout` | controller |
 | GET | `/me` | `requireAuth` → controller |
 
-### Users module
+### Users module — read-only
 
-**`src/modules/users/users.schema.ts`** — NEW
-- `createInterviewerSchema` — `{ name, email, password }`. **No `role` key**, unknown keys stripped (FR-3.3, AC-B26).
+The module is **listing only**. It writes nothing, so it has no schema file and no `validate()` in any chain.
 
 **`src/modules/users/users.service.ts`** — NEW
-- `createInterviewer(input)` — reuses `auth.service`'s hashing helper, `prisma.user.create({ data: { ...input, role: 'INTERVIEWER' } })` with `role` **literal in the service, never from input**. Same `P2002` → `EmailTakenError` translation.
-- `listInterviewers()` — `findMany({ where: { role: 'INTERVIEWER' }, orderBy: { createdAt: 'desc' }, select: SAFE_USER_SELECT })` (AC-B30).
+- `listInterviewers()` — `findMany({ where: { role: 'INTERVIEWER' }, orderBy: { createdAt: 'desc' }, select: SAFE_USER_SELECT })` (AC-B29, AC-B30).
+- **This is the module's entire surface.** There is no `createInterviewer`; account creation lives in `auth.service.signup` and nowhere else (FR-2.6, contract invariant 5).
 
 **`src/modules/users/users.controller.ts`** / **`users.routes.ts`** — NEW
-- `POST /` → `requireAuth` → `requireRole('RECRUITER')` → `validate(createInterviewerSchema)` → controller → 201.
 - `GET /` → `requireAuth` → `requireRole('RECRUITER')` → controller → 200 `{ users }`.
+- **No `POST` route is registered.** A `POST /api/users` therefore falls through to `notFound` and returns the standard JSON `404` (EC-09, AC-B26). Do **not** add a `405`-returning stub or a commented-out route — an absent route is the guarantee.
+- ~~`users.schema.ts`~~ — **not created.** Nothing in this module parses a body.
 
 ### Shared select constant
 
 **`src/modules/users/user.select.ts`** — NEW
 - `export const SAFE_USER_SELECT = { id: true, name: true, email: true, role: true, createdAt: true } as const;`
 - **Responsibility:** the single definition of the safe user projection. Imported by both modules. `passwordHash` is absent by construction, satisfying FR-6.3 — this is the mechanism that makes AC-B32 hold, and the same discipline candidate contact fields will need later.
+- **Placement note:** it lives under `modules/users/` but is consumed by `auth.service` too. If a third module needs it, move it to `lib/` rather than importing across module boundaries a second time.
 
 ### App wiring
 
@@ -261,8 +267,9 @@ All **NEW** — no existing endpoint changes shape, so nothing here is BREAKING.
 | `/api/auth/refresh` | POST | — (cookie) | `200 { accessToken, expiresIn }` + rotated `Set-Cookie` | 401, 500 | refresh cookie |
 | `/api/auth/logout` | POST | — (cookie) | `204` + cleared cookie | — (never errors) | refresh cookie |
 | `/api/auth/me` | GET | — | `200 { user }` | 401 | Bearer |
-| `/api/users` | POST | `{ name, email, password }` | `201 { user }` | 400, 401, 403, 409, 500 | Bearer + RECRUITER |
 | `/api/users` | GET | — | `200 { users: [] }` | 401, 403, 500 | Bearer + RECRUITER |
+
+**`POST /api/users` is not implemented.** The route is never registered, so it falls through to `notFound` like any unknown path. Do not add it as a `403`-returning or `405`-returning stub (R-12).
 
 `GET /` is **MODIFIED** only in that it moves into `app.ts`; its `{ message }` response is unchanged, so the frontend's existing `ApiStatusCard` keeps working.
 
@@ -286,7 +293,8 @@ Full bodies and headers: [spec.md § API Contract](./spec.md#api-contract).
 | `Authorization: Bearer` scheme | Backend | `apiFetch` header construction |
 | `expiresIn: 900` | Backend | Any client-side expiry assumption (currently none — the client is reactive) |
 | `401` = recoverable, `403` = terminal | Backend | The refresh interceptor's entire branch logic |
-| `GET /api/users` returns `{ users: [] }` not `404` | Backend | Empty-state rendering |
+| **No account-creation endpoint for authenticated users** | Backend | The frontend must ship no creation UI — if one is added, it has nothing to call |
+| `GET /api/users` has **no** client caller | Agreed on both sides | Nothing today; recorded so that building a UI on it is a deliberate cross-repo decision, not an accident |
 
 **Recommended practice:** when any row above changes, update both specs in the same PR pair and note the cross-repo dependency in both descriptions.
 
@@ -353,11 +361,24 @@ curl -i -H "Authorization: Bearer $TOKEN" localhost:3000/api/auth/me
 curl -i localhost:3000/api/auth/me
 #    proves: AC-B13 — 401 UNAUTHENTICATED with no Authorization header
 
+curl -i -H "Authorization: Bearer <interviewer token>" localhost:3000/api/users
+#    proves: AC-B27 — 403 FORBIDDEN, not 401
+
 curl -i -X POST localhost:3000/api/users \
   -H 'Content-Type: application/json' \
-  -H "Authorization: Bearer <interviewer token>" \
+  -H "Authorization: Bearer $TOKEN" \
   -d '{"name":"X","email":"x@y.z","password":"password123"}'
-#    proves: AC-B27 — 403 FORBIDDEN, not 401, and no row created
+#    proves: AC-B26 — 404 NOT_FOUND even for a recruiter, and no row created.
+#            The endpoint is gone; this must not return 201, 403, or 405.
+```
+
+Account provisioning during the pass is done the same way an operator would do it:
+
+```bash
+curl -i -X POST localhost:3000/api/auth/signup \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"Ivan","email":"ivan@example.com","password":"hunter2hunter2","role":"INTERVIEWER"}'
+#    proves: AC-B25 — 201 with role INTERVIEWER, from an entirely unauthenticated caller
 ```
 
 ### Checks needing particular care
@@ -375,6 +396,7 @@ These are the criteria a careless `curl` will appear to pass while the guarantee
   psql "$DATABASE_URL" -c 'SELECT count(*) FROM "RefreshToken" WHERE "familyId" = '"'"'…'"'"' AND "revokedAt" IS NULL;'
   ```
   Expect one `200`, one `401`, and a count of **≤ 1**. Two sequential requests prove nothing. This is the pattern the later concurrent-feedback requirement will reuse.
+- **AC-B00 / AC-B26 (the endpoint is actually gone)** — it is easy to "verify" a removal by not testing it. Two checks, both required: print the router's registered routes (or `grep -rn "post(" src/modules/users/`) and confirm nothing registers a `POST` on the users router; **and** `curl -i -X POST` it with a *recruiter's* token and read the status as `404`. A `403` means a route still exists and is merely gated; a `405` means a stub was added. Neither is the spec.
 - **AC-B32 (no `passwordHash` anywhere)** — pipe every response in the pass through one file (`curl -s … >> responses.log`), then `grep -c passwordHash responses.log` once at the end. Expect `0`. Checking endpoint by endpoint is how an endpoint added later slips through.
 - **AC-B33 (boot failure)** — run `JWT_SECRET= npm run dev` in its own shell; confirm a non-zero exit and that nothing is listening (`curl localhost:3000` refuses).
 - **AC-B36 (idempotent seed)** — run `npm run db:seed` twice, then `SELECT count(*) FROM "User";`.
@@ -399,7 +421,8 @@ None is forced by this plan. The frontend plan owns its own manual pass.
 | R-8 | **Manual verification mutates the development database.** Several criteria need a deleted user, a revoked family, or an emptied table. | Losing the seeded state mid-pass, and checks that no longer start from a known baseline. | `npm run db:seed` is idempotent (AC-B36) — re-run it to restore the baseline between checks, and do destructive checks last. |
 | R-9 | **Prisma 7 `prisma-client` generator**, not `prisma-client-js`. Output is `src/generated/prisma` and gitignored. | Imports from `@prisma/client` fail; CI without a `prisma generate` step fails. | Import from `../generated/prisma/client.js`. Add `prisma generate` to a `postinstall` script. |
 | R-10 | **Cookie `Path=/api/auth`** means the cookie is not sent to other endpoints — correct, but easy to misread as a bug when debugging. | Time lost chasing a non-issue. | Comment it in `lib/cookies.ts` referencing BE-7.4. |
-| R-11 | **Anonymous role-accepting signup** is a real privilege-escalation path. | Anyone reaching the API can mint a RECRUITER. | Accepted and documented (SEC-11). Not mitigated by this plan. If the POC is ever exposed beyond localhost, this must be closed first. |
+| R-11 | **Anonymous role-accepting signup is the *only* creation path**, so it carries the whole of provisioning with no lower-privileged alternative beside it. | Anyone reaching the API can mint a RECRUITER, and there is no safer path to prefer. | Accepted and documented (SEC-11.1). **Not mitigated by this plan.** Binding to localhost is the only thing standing in front of it. Before any exposure: gate signup behind an operator secret or delete it in favour of the seed. Raise this explicitly at implementation review rather than letting it pass silently. |
+| R-12 | **An absent endpoint is easy to half-build.** A `POST /api/users` route that merely 403s, or a `405` stub, both look "done" in a diff. | The spec says `404`; anything else opens an authenticated write path to `User`. | Verify by route enumeration *and* by `curl` as a recruiter (see § Verification Commands). AC-B00 and AC-B26 are both required — neither alone catches it. |
 
 ---
 
@@ -413,10 +436,10 @@ Each step should leave the repo type-checking and the existing `GET /` working.
 4. **`lib/` primitives** — `prisma`, `logger`, `errors`, `password`, `tokens`, `cookies`. All pure or singleton; no HTTP yet.
 5. **Middleware** — `requestId`, `errorHandler`, `notFound`, `validate`. Wire into `app.ts` and confirm by hand that `GET /` still returns `{ message }` and an unknown route returns the JSON 404 (AC-B35).
 6. **`app.ts` / `server.ts` split.** Export `app`; `server.ts` only listens.
-7. **Auth module — signup + login.** Schemas, service, controller, routes. Walk AC-B01–AC-B11 with `curl` as soon as the routes respond — this confirms the safe-`select` discipline early, while the surface is still small.
+7. **Auth module — signup + login.** Schemas, service, controller, routes. Walk AC-B00–AC-B11 with `curl` as soon as the routes respond — this confirms the safe-`select` discipline early, while the surface is still small. Signup is now the **only** creation path, so it also becomes the tool you use to provision test accounts for every later step.
 8. **`requireAuth` + `GET /me`.** Then AC-B12–AC-B16. Establishes `req.user` for everything downstream.
 9. **Refresh + rotation + logout.** The hardest part: the transaction, family revocation, reuse detection. Then AC-B17–AC-B24, including the concurrency check (AC-B21) — see § Verification Commands for how to fire it properly.
-10. **`requireRole` + users module.** Then AC-B25–AC-B31 — especially AC-B26 (`role` ignored) and AC-B27 (403 vs 401).
+10. **`requireRole` + users module (listing only).** Then AC-B25–AC-B31 — especially AC-B26 (`POST /api/users` is `404`, not `403`) and AC-B27/AC-B28 (`403` vs `401` on the `GET`). Register **only** the `GET` route (R-12).
 11. **Seed script.** Then AC-B36.
 12. **Cross-cutting invariants.** AC-B32's response sweep and AC-B34.
 13. **Full manual acceptance pass.** Every command in § Verification Commands, then every row of § Acceptance Criteria Mapping, against a freshly seeded database.
@@ -433,6 +456,7 @@ The third column is the **manual check** — this repo has no automated tests. R
 
 | Acceptance Criterion | Implementation | Manual Verification |
 |---|---|---|
+| AC-B00 — only signup writes a `User` row | `users.routes.ts` (GET only), `auth.routes.ts` | Enumerate registered routes / `grep -rn "\.post(" src/modules/users/` → no match; signup is the sole `User`-writing route |
 | AC-B01 — signup returns 201, safe user, no cookie | `auth.service.signup`, `auth.controller.signup`, `user.select.ts` | `POST /api/auth/signup` with a fresh email → `201`, body is the safe user, **no** `Set-Cookie`, no `passwordHash`, no token |
 | AC-B02 — duplicate email → 409, one row | `auth.service.signup` P2002 catch, `lib/errors.ts` | Repeat the same signup → `409 EMAIL_TAKEN`; `psql`: `SELECT count(*) FROM "User" WHERE email = …` returns `1` |
 | AC-B03 — short password → 400, no row | `auth.schema.signupSchema`, `middleware/validate.ts` | Signup with a 4-character password → `400`; no new row in `"User"` |
@@ -457,11 +481,11 @@ The third column is the **manual check** — this repo has no automated tests. R
 | AC-B22 — logout 204, cookie cleared, family revoked | `auth.service.logout`, `lib/cookies.clearRefreshCookie` | `curl -i -b cookies.txt .../logout` → `204`, `Set-Cookie` with `Max-Age=0`; every family row shows `revokedAt` |
 | AC-B23 — logged-out cookie → 401 on refresh | `auth.service.refresh` | Reuse the pre-logout cookie jar against `/refresh` → `401` |
 | AC-B24 — logout with no cookie → 204 | `auth.controller.logout` | `curl -i -X POST .../logout` with no cookie → `204`, not an error |
-| AC-B25 — recruiter creates INTERVIEWER | `users.service.createInterviewer` | `POST /api/users` with the recruiter's token → `201`; the created row's `role` is `INTERVIEWER` |
-| AC-B26 — `role` in body **ignored** | `users.schema` (no `role` key), literal role in service | Send `"role":"RECRUITER"` in the body → `201` and the row is still `INTERVIEWER` (EC-09) |
-| AC-B27 — interviewer → 403, no row | `middleware/requireRole.ts` | `POST /api/users` with an interviewer's token → `403 FORBIDDEN`; `SELECT count(*)` unchanged |
-| AC-B28 — no token → 401, not 403 | `requireAuth` before `requireRole` in `users.routes.ts` | `POST /api/users` with no header → `401`, never `403` |
-| AC-B29 — `GET /users` as interviewer → 403 | `requireRole('RECRUITER')` | `GET /api/users` with an interviewer's token → `403` |
+| AC-B25 — unauthenticated signup creates an INTERVIEWER | `auth.service.signup` | `POST /api/auth/signup` with `role: "INTERVIEWER"` and **no** `Authorization` header → `201`; the created row's `role` is `INTERVIEWER` |
+| AC-B26 — `POST /api/users` is **404** | `users.routes.ts` registers no `POST`; `middleware/notFound.ts` | Call it with a **recruiter's** token → `404 NOT_FOUND` in the JSON error shape; `SELECT count(*) FROM "User"` unchanged. A `403` or `405` is a failure (R-12) |
+| AC-B27 — `GET /users` as interviewer → 403 | `middleware/requireRole.ts` | `GET /api/users` with an interviewer's token → `403 FORBIDDEN`, and `authz.denied` appears in the log |
+| AC-B28 — no token → 401, not 403 or 404 | `requireAuth` before `requireRole` in `users.routes.ts` | `GET /api/users` with no header → `401`, never `403` |
+| AC-B29 — every listed user is an INTERVIEWER | `users.service.listInterviewers` where clause | `GET /api/users` as the recruiter → every element has `"role": "INTERVIEWER"` |
 | AC-B30 — only interviewers, newest first | `users.service.listInterviewers` where + orderBy | `GET /api/users` as the recruiter → no `RECRUITER` in the list, `createdAt` descending |
 | AC-B31 — empty list → `200 { users: [] }` | `users.controller` | Delete all interviewers, then `GET /api/users` → `200` with `{ "users": [] }`, not `404` |
 | AC-B32 — `passwordHash` in **no** response | `user.select.ts` (explicit select everywhere) | Append every response in the pass to one log, then `grep -c passwordHash` → `0` (see § Verification Commands) |
