@@ -102,7 +102,7 @@ the spec is wrong, update the spec and get it re-approved rather than letting co
 
 | Feature | spec | plan | code |
 |---|---|---|---|
-| [authentication](specs/features/authentication/spec.md) | ✅ approved | [✅ drafted](specs/features/authentication/plan.md) | — |
+| [authentication](specs/features/authentication/spec.md) | ✅ approved | [✅ approved](specs/features/authentication/plan.md) | ✅ implemented |
 
 **No authenticated user can create an account.** There is no `POST /api/users`; all provisioning is
 `POST /api/auth/signup` (curl/Postman) or `npm run db:seed`. `GET /api/users` exists, recruiter-gated,

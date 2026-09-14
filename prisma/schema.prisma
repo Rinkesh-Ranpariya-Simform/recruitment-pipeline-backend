@@ -7,9 +7,34 @@ datasource db {
   provider = "postgresql"
 }
 
+enum Role {
+  INTERVIEWER
+  RECRUITER
+}
+
 model User {
-  id        Int      @id @default(autoincrement())
-  name      String
-  email     String   @unique
-  createdAt DateTime @default(now())
+  id           Int      @id @default(autoincrement())
+  name         String
+  email        String   @unique // stored lowercased + trimmed
+  passwordHash String // bcrypt, cost 12 — never selected into a response
+  role         Role
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  refreshTokens RefreshToken[]
+}
+
+model RefreshToken {
+  id        String    @id @default(uuid())
+  userId    Int
+  tokenHash String    @unique // sha256 of the raw token; the raw value is never stored
+  familyId  String // rotation lineage — one family per login
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([familyId])
 }
