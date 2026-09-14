@@ -78,11 +78,15 @@ them; a shape that redacts them after fetching is one missed call site away from
   overlap, not just two sequential ones.
 - **Pipeline/ageing queries**: counts per stage per role, and ageing at current stage, must be
   computed as indexed SQL aggregates — never by loading every candidate into memory. Expect this
-  to be tested against simulated scale (200 roles / 20,000 candidates).
+  to be verified against simulated scale (200 roles / 20,000 candidates).
 
-## Testing expectations
+## Verification expectations
 
-Tests should specifically cover, not just exercise happy paths:
+**This project has no automated test suite.** Verification is manual — `curl` against the running
+API, plus `psql` where the proof is database state. Automated tests are a deliberate later
+decision; do not add a test runner, test files, or test dependencies unless asked.
+
+Manual verification must specifically cover, not just exercise happy paths:
 1. An interviewer fetching a candidate outside their assignment, by ID, is refused at the query.
 2. An override without a recorded actor + reason is rejected.
 3. Two interviewers submitting feedback for the same round concurrently (fired concurrently, not
@@ -92,8 +96,24 @@ Tests should specifically cover, not just exercise happy paths:
 
 ## Development process (Spec-Driven Development)
 
-[recruitment-pipeline.md](../recruitment-pipeline.md) (and an approved implementation plan, when
-one exists) is the source of truth for behavior. Before implementing, re-read the relevant part
+Feature specs live in `specs/features/<feature>/`, each holding `spec.md` (what & why) and
+`plan.md` (how). Phases run in that order and each is approved before the next begins; if implementation reveals
+the spec is wrong, update the spec and get it re-approved rather than letting code and spec drift.
+
+| Feature | spec | plan | code |
+|---|---|---|---|
+| [authentication](specs/features/authentication/spec.md) | ✅ approved | [✅ drafted](specs/features/authentication/plan.md) | — |
+
+Authentication blocks everything else — §6 requires every action to be tied to a real
+authenticated user, and the query-level scoping above has nothing to parameterise on without it.
+The frontend counterpart is
+[../frontend/specs/features/authentication/spec.md](../frontend/specs/features/authentication/spec.md);
+the two share one API contract, so a change to endpoints, the error shape, or the cookie name
+must be made in both.
+
+[recruitment-pipeline.md](../recruitment-pipeline.md) (and an approved spec/plan, where one
+exists) is the source of truth for behavior. Where an approved spec is more specific than the
+brief, the spec wins; where it is silent, the brief governs. Before implementing, re-read the relevant part
 of the spec and inspect existing code for a route/service/pattern that already fits — don't assume
 a model, middleware, or utility exists without checking. Flag ambiguities instead of guessing at
 unspecified behavior (e.g. who besides recruiters can override, exact concurrent-feedback policy —
@@ -106,7 +126,7 @@ query in multiple handlers; extract it once assignment-scoped queries exist in m
 
 **Security is non-negotiable, not a nice-to-have**: never hard-code secrets (use `.env`, already
 gitignored), never trust a client-supplied role/ID for authorization, never log credentials or
-raw feedback/contact data, and never disable a validation or authorization check to make a test or
+raw feedback/contact data, and never disable a validation or authorization check to make a check or
 a demo pass. If a requested change would create one of these, stop and say so rather than
 implementing it.
 
@@ -123,7 +143,7 @@ existing data as a shortcut. Use `prisma migrate dev` to create migrations, don'
 endpoints, no new dependencies unless the existing stack (Express, Prisma, zod-equivalent) can't
 already do it. Preserve existing behavior in code you touch unless the spec explicitly changes it.
 
-**Before calling it done**: run lint, type-check, and the relevant tests; verify against the spec
+**Before calling it done**: run lint and type-check, then verify against the spec by hand
 (including the query-level-exclusion requirement above); and report what changed, what was
 verified, and any deviation or unresolved ambiguity — don't paper over a gap between the spec and
 what got built.
