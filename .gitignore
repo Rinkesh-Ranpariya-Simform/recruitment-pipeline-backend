@@ -1,0 +1,14 @@
+node_modules/
+dist/
+
+# Prisma generated client (regenerated via `prisma generate`, don't commit)
+src/generated/
+
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# Logs
+npm-debug.log*
+*.log
