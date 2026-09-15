@@ -1,21 +1,21 @@
 import type { NextFunction, Request, Response } from 'express';
 import { ForbiddenError, UnauthenticatedError } from '../lib/errors.js';
-import type { Role } from '../generated/prisma/enums.js';
+import type { UserRole } from '../generated/prisma/enums.js';
 
 /**
- * Role gate (FR-7.2). Always composed AFTER `requireAuth`.
+ * Restricts a route to certain `UserRole`s. Always composed after `requireAuth`.
  *
- * The role is read from `req.user`, which came from a verified JWT claim — never
- * from a body, query parameter or client-supplied header (AZ-3).
+ * This gates on the caller's user role — nothing to do with `Role`, the open
+ * requisition model. The role comes from `req.user`, i.e. a verified JWT claim,
+ * never from a body, query parameter or header.
  *
- * A mismatch is 403, never 401: the two are never interchanged, because the
- * client treats 401 as "refresh and retry" and 403 as terminal (AZ-2, XFE-3).
+ * A mismatch is always 403, never 401: the client treats 401 as "refresh and
+ * retry" and 403 as terminal.
  */
-export function requireRole(...roles: Role[]) {
+export function requireRole(...roles: UserRole[]) {
   return (req: Request, _res: Response, next: NextFunction): void => {
     if (req.user === undefined) {
-      // Defensive: reaching here means the route composed requireRole without
-      // requireAuth. "We don't know who you are" is the honest answer.
+      // Only reachable if a route used requireRole without requireAuth.
       next(new UnauthenticatedError());
       return;
     }

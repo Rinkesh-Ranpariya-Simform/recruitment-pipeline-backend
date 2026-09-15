@@ -14,7 +14,7 @@ center is **restricted data excluded at the query, not filtered after the fact**
 
 | Role | Can do |
 |---|---|
-| Interviewer | View/submit feedback only for candidates+rounds they're assigned to |
+| Interviewer | View/submit feedback only for candidates+rounds they're assigned to. **No access to roles** — all four `/api/roles` endpoints, reads included, are `RECRUITER`-only |
 | Recruiter | Full pipeline visibility, assign interviewers, stage overrides, contact details |
 | Hiring manager (stretch) | View pipeline/ageing for their own open roles |
 
@@ -103,6 +103,18 @@ the spec is wrong, update the spec and get it re-approved rather than letting co
 | Feature | spec | plan | code |
 |---|---|---|---|
 | [authentication](specs/features/authentication/spec.md) | ✅ approved | [✅ approved](specs/features/authentication/plan.md) | ✅ implemented |
+| [roles](specs/features/roles/spec.md) | ✅ approved | [✅ drafted](specs/features/roles/plan.md) | ⬜ not started |
+
+The roles plan renames the `Role` **enum** to `UserRole` so the name `Role` can mean *open requisition*.
+From that point on: **`UserRole` is who you are; `Role` is an open req.** `requireRole` keeps its name — it
+gates on the caller's `UserRole`. The rename changes no API contract; the column, the values and the JWT
+claim are all untouched.
+
+**Every `/api/roles` route carries `requireRole(UserRole.RECRUITER)` — the two reads as well as the two
+writes** (roles spec AZ-1, revised after implementation; reads were briefly open to any authenticated user).
+An interviewer's legitimate need — the title of the req behind *their* round — is served by the rounds
+feature from an **assignment-scoped** query, which is the same shape the candidate rule above demands. Do not
+reintroduce a broad roles read to satisfy a narrow need.
 
 **No authenticated user can create an account.** There is no `POST /api/users`; all provisioning is
 `POST /api/auth/signup` (curl/Postman) or `npm run db:seed`. `GET /api/users` exists, recruiter-gated,

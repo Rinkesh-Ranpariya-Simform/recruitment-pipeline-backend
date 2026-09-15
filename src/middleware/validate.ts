@@ -1,6 +1,7 @@
 import type { NextFunction, Request, Response } from 'express';
 import { z } from 'zod';
-import { ValidationError, type ErrorDetails } from '../lib/errors.js';
+import { ValidationError } from '../lib/errors.js';
+import { toErrorDetails } from './zod-details.js';
 
 /**
  * The validation boundary (BE-2.2). Invalid input never reaches a service.
@@ -16,15 +17,10 @@ export function validate(schema: z.ZodType) {
 
     if (!result.success) {
       // Every field error at once, keyed by request-body field name, so the
-      // client can show all problems in one pass (VAL-5, XFE-4).
-      const details: ErrorDetails = {};
-
-      for (const issue of result.error.issues) {
-        const key = issue.path.length > 0 ? issue.path.join('.') : '_';
-        (details[key] ?? []).push(issue.message);
-      }
-
-      next(new ValidationError(details));
+      // client can show all problems in one pass (VAL-5, VAL-6, XFE-4). The
+      // fold lives in `zod-details.ts` — shared with the param and query
+      // middlewares, and the home of the BE-5 fix.
+      next(new ValidationError(toErrorDetails(result.error.issues)));
       return;
     }
 

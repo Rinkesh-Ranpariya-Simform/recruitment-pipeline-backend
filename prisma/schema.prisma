@@ -7,9 +7,20 @@ datasource db {
   provider = "postgresql"
 }
 
-enum Role {
+// RENAMED from `Role`. `UserRole` is who you are; `Role` (below) is an open req.
+// Prisma models and enums share one namespace, so `model Role` and `enum Role`
+// cannot coexist — the rename is a hard requirement, not a preference. The
+// column, the values and the JWT claim are all untouched (MIG-2).
+enum UserRole {
   INTERVIEWER
   RECRUITER
+}
+
+/// The whole of a role's lifecycle. A Postgres enum, never a free-text column
+/// (FR-1.2).
+enum RoleStatus {
+  OPEN
+  CLOSED
 }
 
 model User {
@@ -17,7 +28,7 @@ model User {
   name         String
   email        String   @unique // stored lowercased + trimmed
   passwordHash String // bcrypt, cost 12 — never selected into a response
-  role         Role
+  role         UserRole
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -37,4 +48,29 @@ model RefreshToken {
 
   @@index([userId])
   @@index([familyId])
+}
+
+/// An open requisition — the thing candidates are considered against (FR-1.1).
+///
+/// It references NO person: there is no hiring manager in this POC, so there is
+/// no relation to embed and nothing here that could leak user data (FR-7.2,
+/// SEC-2). It also has no foreign key, so it participates in no cascade and
+/// nothing can be orphaned (MIG-6).
+model Role {
+  id          Int    @id @default(autoincrement())
+  title       String
+  description String
+
+  // No default in the schema: the service sets OPEN explicitly on create, so
+  // the rule lives where it can be read, not in a column definition
+  // (FR-4.3, MIG-3).
+  status RoleStatus
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Both added now, not after a slow query is observed — the brief expects the
+  // query plan to be defensible at 200 roles (MIG-5, PERF-1).
+  @@index([status, createdAt]) // GET /api/roles?status=OPEN — filter and sort in one index
+  @@index([createdAt]) // GET /api/roles — the unfiltered listing's ORDER BY
 }

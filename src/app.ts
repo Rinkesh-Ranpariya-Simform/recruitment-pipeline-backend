@@ -11,6 +11,7 @@ import { errorHandler } from './middleware/errorHandler.js';
 import { notFound } from './middleware/notFound.js';
 import { requestId } from './middleware/requestId.js';
 import { authRouter } from './modules/auth/auth.routes.js';
+import { rolesRouter } from './modules/roles/roles.routes.js';
 import { usersRouter } from './modules/users/users.routes.js';
 
 /**
@@ -32,8 +33,9 @@ app.use(cors({ origin: env.FRONTEND_ORIGIN, credentials: true }));
 app.use(express.json());
 app.use(cookieParser());
 
-// Health check. The frontend's ApiStatusCard already polls this; its shape is
-// unchanged by this feature.
+// Health check. No frontend surface polls it — it is for operators and for
+// `docker compose` readiness. Its `{ message }` shape is a published contract,
+// so keep it stable rather than reshaping it for a future caller.
 app.get('/', (_req, res) => {
   res.json({ message: 'My API is working!' });
 });
@@ -42,6 +44,10 @@ app.use('/api/auth', authRouter);
 // Read-only: a GET route and nothing else. `POST /api/users` is not registered
 // anywhere and therefore falls through to `notFound` (EC-09, AC-B26).
 app.use('/api/users', usersRouter);
+// Four routes; `DELETE /api/roles/:roleId` is deliberately not among them and
+// therefore falls through to `notFound` (FR-6.4, EC-08). This must be mounted
+// BEFORE `notFound`, or every roles path 404s.
+app.use('/api/roles', rolesRouter);
 
 // Terminal 404 in the standard error shape, then the error handler last.
 app.use(notFound);

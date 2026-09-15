@@ -193,6 +193,9 @@ The module is **listing only**. It writes nothing, so it has no schema file and 
 - **Remove:** the inline `GET /` handler, the `console.log`, the inline `PORT`/`FRONTEND_ORIGIN` reads.
 - **Add:** `import { env } from './config/env.js'` as the **first** import (so a bad env fails before anything else), the middleware order above, `cookieParser()`, `credentials: true` on CORS, `app.use('/api/auth', authRouter)`, `app.use('/api/users', usersRouter)`, `notFound`, `errorHandler`.
 - **Keep:** `GET /` as a health check — the frontend's `ApiStatusCard` already polls it.
+  **Revision (post-roles):** the frontend deleted `ApiStatusCard` as dead code. `GET /` is kept
+  regardless, now justified as an operator / `docker compose` readiness probe rather than by a
+  client that polls it.
 - **Split:** export `app` from a new `src/app.ts` and keep `server.ts` as the listener only, so the wired app can be imported without binding a port.
 
 ### Seed
@@ -271,7 +274,7 @@ All **NEW** — no existing endpoint changes shape, so nothing here is BREAKING.
 
 **`POST /api/users` is not implemented.** The route is never registered, so it falls through to `notFound` like any unknown path. Do not add it as a `403`-returning or `405`-returning stub (R-12).
 
-`GET /` is **MODIFIED** only in that it moves into `app.ts`; its `{ message }` response is unchanged, so the frontend's existing `ApiStatusCard` keeps working.
+`GET /` is **MODIFIED** only in that it moves into `app.ts`; its `{ message }` response is unchanged, so the frontend's existing `ApiStatusCard` keeps working. (**Post-roles:** `ApiStatusCard` has since been deleted from the frontend. The `{ message }` shape stays stable anyway — it is a published contract, and the route now serves operators and container health checks.)
 
 Full bodies and headers: [spec.md § API Contract](./spec.md#api-contract).
 

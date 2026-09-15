@@ -1,0 +1,16 @@
+{
+  // Typecheck-only pass for the files that live outside `src`.
+  //
+  // `tsconfig.json` sets `rootDir: ./src` so that `dist` mirrors `src` and
+  // `npm start` can resolve `dist/server.js`. That necessarily puts
+  // `prisma/seed.ts` and `prisma.config.ts` out of scope — both are run
+  // directly (by `tsx` and the Prisma CLI respectively) and are never built,
+  // but they still need to be typechecked. This config does that and emits
+  // nothing.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": "."
+  },
+  "include": ["prisma/**/*.ts", "prisma.config.ts"]
+}

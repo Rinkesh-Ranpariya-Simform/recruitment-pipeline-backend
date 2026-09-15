@@ -1,5 +1,5 @@
 import { prisma } from '../../lib/prisma.js';
-import { Role } from '../../generated/prisma/enums.js';
+import { UserRole } from '../../generated/prisma/enums.js';
 import type { SafeUser } from '../auth/auth.service.js';
 import { SAFE_USER_SELECT } from './user.select.js';
 
@@ -12,7 +12,7 @@ import { SAFE_USER_SELECT } from './user.select.js';
  */
 export async function listInterviewers(): Promise<SafeUser[]> {
   return prisma.user.findMany({
-    where: { role: Role.INTERVIEWER },
+    where: { role: UserRole.INTERVIEWER },
     orderBy: { createdAt: 'desc' },
     select: SAFE_USER_SELECT,
   });

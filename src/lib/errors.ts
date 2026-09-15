@@ -15,6 +15,7 @@ export type ErrorCode =
   | 'FORBIDDEN'
   | 'NOT_FOUND'
   | 'EMAIL_TAKEN'
+  | 'ROLE_NOT_CLOSED'
   | 'INTERNAL_ERROR';
 
 /** Field-keyed validation messages, keyed by request-body field name (VAL-5). */
@@ -86,5 +87,23 @@ export class EmailTakenError extends AppError {
   constructor() {
     super(409, 'EMAIL_TAKEN', 'An account with this email already exists');
     this.name = 'EmailTakenError';
+  }
+}
+
+/**
+ * 409 — `DELETE /api/roles/:roleId` on a role that is still `OPEN` (FR-6.6).
+ *
+ * Deleting a requisition is deliberately a TWO-STEP act: close it, then delete
+ * it. This is what remains of the original no-delete rule — an open req is in
+ * circulation, and the one thing a destructive endpoint must not do is make it
+ * a single misclick away from gone.
+ *
+ * The message names the remedy, because it is rendered verbatim by the client
+ * and "conflict" on its own tells a recruiter nothing.
+ */
+export class RoleNotClosedError extends AppError {
+  constructor() {
+    super(409, 'ROLE_NOT_CLOSED', 'Close the role before deleting it');
+    this.name = 'RoleNotClosedError';
   }
 }

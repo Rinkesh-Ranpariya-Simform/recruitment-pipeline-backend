@@ -39,4 +39,3 @@ if (!parsed.success) {
 }
 
 export const env = Object.freeze(parsed.data);
-export type Env = typeof env;

@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import jwt from 'jsonwebtoken';
 import type { JwtPayload, SignOptions } from 'jsonwebtoken';
 import { env } from '../config/env.js';
-import { Role } from '../generated/prisma/enums.js';
+import { UserRole } from '../generated/prisma/enums.js';
 
 /**
  * The only module that imports `jsonwebtoken` and `node:crypto` (BE-4).
@@ -14,7 +14,7 @@ import { Role } from '../generated/prisma/enums.js';
  */
 export interface AccessTokenClaims {
   sub: number;
-  role: Role;
+  role: UserRole;
 }
 
 /** Access token: short-lived, stateless, carries nothing sensitive (BE-4.1, AC-B10). */
@@ -56,7 +56,7 @@ export function verifyAccessToken(token: string): AccessTokenClaims {
   const sub = Number(payload.sub);
   const role = (payload as JwtPayload).role;
 
-  if (!Number.isInteger(sub) || (role !== Role.INTERVIEWER && role !== Role.RECRUITER)) {
+  if (!Number.isInteger(sub) || (role !== UserRole.INTERVIEWER && role !== UserRole.RECRUITER)) {
     throw new Error('Malformed access-token claims');
   }
 

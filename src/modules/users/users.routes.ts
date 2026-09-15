@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { Role } from '../../generated/prisma/enums.js';
+import { UserRole } from '../../generated/prisma/enums.js';
 import { requireAuth } from '../../middleware/requireAuth.js';
 import { requireRole } from '../../middleware/requireRole.js';
 import * as usersController from './users.controller.js';
@@ -18,4 +18,4 @@ export const usersRouter = Router();
  * other path that does not exist — the absence IS the guarantee (EC-09,
  * AC-B26, R-12). Do not add one.
  */
-usersRouter.get('/', requireAuth, requireRole(Role.RECRUITER), usersController.list);
+usersRouter.get('/', requireAuth, requireRole(UserRole.RECRUITER), usersController.list);

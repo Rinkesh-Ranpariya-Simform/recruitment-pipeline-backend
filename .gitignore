@@ -12,3 +12,24 @@ src/generated/
 # Logs
 npm-debug.log*
 *.log
+
+# Compiled output. `tsc` writes to `dist/` (see tsconfig.json `outDir`), but
+# these patterns catch artifacts from an older config that emitted beside the
+# source. `src/types/express.d.ts` is hand-written, not generated, so it is
+# negated back in below.
+src/**/*.js
+src/**/*.js.map
+src/**/*.d.ts
+src/**/*.d.ts.map
+!src/types/express.d.ts
+prisma/**/*.js
+prisma/**/*.js.map
+prisma/**/*.d.ts
+prisma/**/*.d.ts.map
+/prisma.config.js
+/prisma.config.js.map
+/prisma.config.d.ts
+/prisma.config.d.ts.map
+
+# Editor/manual backups
+*.bak

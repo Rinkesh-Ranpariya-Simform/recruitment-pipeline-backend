@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { Role } from '../../generated/prisma/enums.js';
+import { UserRole } from '../../generated/prisma/enums.js';
 
 /**
  * The two body schemas in this feature (VAL-4). `GET /api/users` takes no body
@@ -38,7 +38,7 @@ export const signupSchema = z.object({
     .refine((value) => Buffer.byteLength(value, 'utf8') <= 72, 'Password must be at most 72 bytes'),
   // Required, with no default: no code path may silently mint a privileged
   // account (MIG-2, EC-13, AC-B04).
-  role: z.enum(Role, 'Role must be one of INTERVIEWER, RECRUITER'),
+  role: z.enum(UserRole, 'Role must be one of INTERVIEWER, RECRUITER'),
 });
 
 /**

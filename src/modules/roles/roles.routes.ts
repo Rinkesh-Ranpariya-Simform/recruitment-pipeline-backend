@@ -1,0 +1,78 @@
+import { Router } from 'express';
+import { UserRole } from '../../generated/prisma/enums.js';
+import { requireAuth } from '../../middleware/requireAuth.js';
+import { requireRole } from '../../middleware/requireRole.js';
+import { validate } from '../../middleware/validate.js';
+import { validateParams } from '../../middleware/validateParams.js';
+import { validateQuery } from '../../middleware/validateQuery.js';
+import * as rolesController from './roles.controller.js';
+import {
+  createRoleSchema,
+  listRolesQuerySchema,
+  roleIdParamSchema,
+  updateRoleSchema,
+} from './roles.schema.js';
+
+export const rolesRouter = Router();
+
+/**
+ * Every route here is recruiter-only, reads included. An interviewer gets
+ * `403 FORBIDDEN` from all five.
+ *
+ * Middleware order matters: auth and authorization run before validation, so
+ * an anonymous caller always gets 401, and an interviewer gets 403 whether
+ * their request is malformed or names a role that doesn't exist. The API
+ * doesn't help an unauthorized caller fix their payload.
+ *
+ * The client hiding the "New role" button is only an affordance — this is the
+ * check that enforces it.
+ */
+rolesRouter.get(
+  '/',
+  requireAuth,
+  requireRole(UserRole.RECRUITER),
+  validateQuery(listRolesQuerySchema),
+  rolesController.list,
+);
+
+rolesRouter.get(
+  '/:roleId',
+  requireAuth,
+  requireRole(UserRole.RECRUITER),
+  validateParams(roleIdParamSchema),
+  rolesController.get,
+);
+
+rolesRouter.post(
+  '/',
+  requireAuth,
+  requireRole(UserRole.RECRUITER),
+  validate(createRoleSchema),
+  rolesController.create,
+);
+
+rolesRouter.patch(
+  '/:roleId',
+  requireAuth,
+  requireRole(UserRole.RECRUITER),
+  validateParams(roleIdParamSchema),
+  validate(updateRoleSchema),
+  rolesController.update,
+);
+
+/**
+ * A hard delete — the row is gone.
+ *
+ * Only a `CLOSED` role can be deleted; an `OPEN` one answers
+ * `409 ROLE_NOT_CLOSED` and is left alone, so removing a requisition is always
+ * two deliberate steps rather than one misclick. That check lives in the
+ * service because it needs to read the role's status; middleware only sees
+ * the id.
+ */
+rolesRouter.delete(
+  '/:roleId',
+  requireAuth,
+  requireRole(UserRole.RECRUITER),
+  validateParams(roleIdParamSchema),
+  rolesController.remove,
+);
