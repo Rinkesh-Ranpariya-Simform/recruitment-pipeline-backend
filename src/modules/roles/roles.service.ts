@@ -1,9 +1,9 @@
 import type { Logger } from 'pino';
 import { Prisma } from '../../generated/prisma/client.js';
-import { RoleStatus } from '../../generated/prisma/enums.js';
-import { NotFoundError, RoleNotClosedError } from '../../lib/errors.js';
+import { RoleStatus, UserRole } from '../../generated/prisma/enums.js';
+import { NotFoundError, RoleHasApplicationsError, RoleNotClosedError } from '../../lib/errors.js';
 import { prisma } from '../../lib/prisma.js';
-import { ROLE_SELECT } from './role.select.js';
+import { PUBLIC_ROLE_SELECT, ROLE_SELECT } from './role.select.js';
 import type { CreateRoleInput, ListRolesQuery, UpdateRoleInput } from './roles.schema.js';
 
 /**
@@ -23,11 +23,56 @@ export interface Role {
   updatedAt: Date;
 }
 
+/** What a non-recruiter gets: `Role` minus `updatedAt` (FR-4.5). */
+export type PublicRole = Omit<Role, 'updatedAt'>;
+
 export interface Pagination {
   page: number;
   pageSize: number;
   total: number;
   totalPages: number;
+}
+
+/**
+ * THE role-aware query decision, and there is exactly one of it (FR-4.3).
+ *
+ * Both read endpoints call this. A second copy is what makes this kind of rule
+ * rot: the day someone adds a third read, the version they forget is the one
+ * that leaks.
+ *
+ * For a non-recruiter, `status: OPEN` goes into the `where` clause **before the
+ * query runs** (FR-4.4, AZ-4) — for the page, for the `count` behind the pager,
+ * and for the single-role read. A `CLOSED` requisition is never fetched, so it
+ * cannot be leaked by a mapping mistake downstream.
+ *
+ * Predicates are ANDed rather than overwritten, which is why a candidate's
+ * `?status=CLOSED` returns an empty page rather than being silently rewritten to
+ * OPEN or rejected outright (FR-4.7, EC-04, AC-B17). `status = OPEN AND status =
+ * CLOSED` matches nothing, which is the honest answer to that request.
+ */
+export function buildRoleWhere(
+  query: Pick<ListRolesQuery, 'q' | 'status'>,
+  actorRole: UserRole,
+): Prisma.RoleWhereInput {
+  const and: Prisma.RoleWhereInput[] = [];
+
+  if (actorRole !== UserRole.RECRUITER) {
+    and.push({ status: RoleStatus.OPEN });
+  }
+
+  // An omitted status still means all statuses for a recruiter, not a hidden
+  // default of OPEN.
+  if (query.status !== undefined) {
+    and.push({ status: query.status });
+  }
+
+  // Title only — `description` is deliberately not searched (FR-4.6, D-11).
+  // This is a parameterised Prisma filter, never interpolated SQL (SEC-7).
+  if (query.q !== undefined) {
+    and.push({ title: { contains: query.q, mode: 'insensitive' } });
+  }
+
+  return and.length === 0 ? {} : { AND: and };
 }
 
 /**
@@ -50,25 +95,38 @@ function translatePrismaError(error: unknown): never {
  * The page and its `count` run in one transaction and share the same `where`,
  * so `total` always describes the same snapshot as the rows beside it.
  */
-export async function listRoles(query: ListRolesQuery): Promise<{
-  roles: Role[];
+export async function listRoles(
+  query: ListRolesQuery,
+  actorRole: UserRole,
+): Promise<{
+  roles: Role[] | PublicRole[];
   pagination: Pagination;
 }> {
-  // An omitted status means all statuses, not a hidden default of OPEN.
-  const where = query.status === undefined ? {} : { status: query.status };
+  const where = buildRoleWhere(query, actorRole);
 
-  const [roles, total] = await prisma.$transaction([
-    prisma.role.findMany({
-      where,
-      // `id desc` is the tiebreak: without it, two roles sharing a `createdAt`
-      // could be repeated or skipped across pages.
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-      skip: (query.page - 1) * query.pageSize,
-      take: query.pageSize,
-      select: ROLE_SELECT,
-    }),
-    prisma.role.count({ where }),
-  ]);
+  const page = {
+    where,
+    // `id desc` is the tiebreak: without it, two roles sharing a `createdAt`
+    // could be repeated or skipped across pages.
+    orderBy: [{ createdAt: 'desc' as const }, { id: 'desc' as const }],
+    skip: (query.page - 1) * query.pageSize,
+    take: query.pageSize,
+  };
+
+  // Branched rather than a ternary on `select`, so each call keeps its own
+  // inferred row type. The `count` carries the SAME `where` as the page,
+  // including the forced OPEN predicate — a count over a wider set than the
+  // rows beside it is both wrong and slower (PERF-5).
+  const [roles, total] =
+    actorRole === UserRole.RECRUITER
+      ? await prisma.$transaction([
+          prisma.role.findMany({ ...page, select: ROLE_SELECT }),
+          prisma.role.count({ where }),
+        ])
+      : await prisma.$transaction([
+          prisma.role.findMany({ ...page, select: PUBLIC_ROLE_SELECT }),
+          prisma.role.count({ where }),
+        ]);
 
   return {
     roles,
@@ -83,9 +141,25 @@ export async function listRoles(query: ListRolesQuery): Promise<{
   };
 }
 
-/** A well-formed id with no matching row is a 404, never an empty 200. */
-export async function getRole(roleId: number): Promise<Role> {
-  const role = await prisma.role.findUnique({ where: { id: roleId }, select: ROLE_SELECT });
+/**
+ * A well-formed id with no matching row is a 404, never an empty 200.
+ *
+ * For a non-recruiter the `OPEN` predicate is part of the lookup (FR-4.8), so a
+ * `CLOSED` requisition and one that never existed produce the **same** 404 with
+ * the same body. That indistinguishability is the point: a 403 here, or a
+ * different message, would confirm the requisition exists and turn the endpoint
+ * into an enumeration oracle (SEC-4, ERR-4, AC-B18/AC-B19).
+ *
+ * `findFirst`, not `findUnique`, because the predicate is id + status rather
+ * than a unique key alone.
+ */
+export async function getRole(roleId: number, actorRole: UserRole): Promise<Role | PublicRole> {
+  const where = { id: roleId, ...buildRoleWhere({}, actorRole) };
+
+  const role =
+    actorRole === UserRole.RECRUITER
+      ? await prisma.role.findFirst({ where, select: ROLE_SELECT })
+      : await prisma.role.findFirst({ where, select: PUBLIC_ROLE_SELECT });
 
   if (role === null) {
     throw new NotFoundError();
@@ -208,25 +282,46 @@ export async function updateRole(
  * have.
  */
 export async function deleteRole(roleId: number, actorId: number, log: Logger): Promise<void> {
-  await prisma.$transaction(async (tx) => {
-    const existing = await tx.role.findUnique({
-      where: { id: roleId },
-      select: { status: true },
+  try {
+    await prisma.$transaction(async (tx) => {
+      const existing = await tx.role.findUnique({
+        where: { id: roleId },
+        select: { status: true },
+      });
+
+      // Existence first, status second — a role that isn't there is a 404, not a
+      // conflict about its status.
+      if (existing === null) {
+        throw new NotFoundError();
+      }
+
+      // An OPEN requisition is still in circulation: it has to be closed first.
+      // Checked BEFORE the applications rule, so a recruiter is always told the
+      // first of the two steps they need (candidate spec FR-8.3, AC-B46).
+      if (existing.status !== RoleStatus.CLOSED) {
+        throw new RoleNotClosedError();
+      }
+
+      await tx.role.delete({ where: { id: roleId } });
     });
-
-    // Existence first, status second — a role that isn't there is a 404, not a
-    // conflict about its status.
-    if (existing === null) {
-      throw new NotFoundError();
+  } catch (error) {
+    // `Application.roleId` is `onDelete: Restrict`, so Postgres refuses this
+    // delete when anyone has applied (candidate spec FR-8.1, FR-8.2).
+    //
+    // Derived from the constraint violation, NOT from a preceding
+    // `application.count()`: a count could be invalidated by an apply committing
+    // between the check and the delete, and this refusal must hold under exactly
+    // that race (FR-8.4, EC-07, AC-B49). Same discipline as `EMAIL_TAKEN`.
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2003') {
+      log.warn(
+        { event: 'role.delete.refused', actorId, roleId, reason: 'has_applications' },
+        'role delete refused — role has applications',
+      );
+      throw new RoleHasApplicationsError();
     }
 
-    // An OPEN requisition is still in circulation: it has to be closed first.
-    if (existing.status !== RoleStatus.CLOSED) {
-      throw new RoleNotClosedError();
-    }
-
-    await tx.role.delete({ where: { id: roleId } });
-  });
+    throw error;
+  }
 
   // Logged after the transaction commits, so it never claims a deletion that
   // was rolled back. With the row gone, this line is the only surviving record

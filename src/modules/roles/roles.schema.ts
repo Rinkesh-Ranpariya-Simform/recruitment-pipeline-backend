@@ -91,6 +91,22 @@ export const roleIdParamSchema = z.object({
  * and never `NaN`.
  */
 export const listRolesQuerySchema = z.object({
+  /**
+   * Title search (candidate spec FR-4.6, VAL-2, VAL-3).
+   *
+   * Capped at 120 — the same ceiling as `title`, since a term longer than the
+   * column it searches cannot match anything and should not reach the database.
+   *
+   * `.transform` turns a term that is empty after trimming into `undefined`, so
+   * `?q=` and no `q` at all produce the same page and a client clearing its
+   * search box needs no special case (EC-13).
+   */
+  q: z
+    .string('Search term must be text')
+    .trim()
+    .max(120, 'Search term must be at most 120 characters')
+    .transform((value) => (value === '' ? undefined : value))
+    .optional(),
   status: z.enum(RoleStatus, 'Status must be one of OPEN, CLOSED').optional(),
   page: z.coerce
     .number('Page must be an integer of at least 1')

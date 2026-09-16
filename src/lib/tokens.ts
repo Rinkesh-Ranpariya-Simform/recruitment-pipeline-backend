@@ -41,6 +41,23 @@ export function signAccessToken(claims: AccessTokenClaims): {
 }
 
 /**
+ * Whether a claim is a role this API issues.
+ *
+ * Derived from the `UserRole` enum rather than a list of literals. The literal
+ * form — `role !== INTERVIEWER && role !== RECRUITER` — was what this function
+ * used until the candidate feature, and it rejected every `CANDIDATE` token with
+ * a 401 before `requireRole` ever ran. Adding a third literal would have fixed
+ * that case and left the next one, so the check now reads the enum: a role added
+ * to the schema is accepted here without an edit.
+ *
+ * This is a shape check, not an authorization one. Deciding what a role may do
+ * is `requireRole`'s job, on a route.
+ */
+function isUserRole(value: unknown): value is UserRole {
+  return typeof value === 'string' && Object.hasOwn(UserRole, value);
+}
+
+/**
  * Verifies and narrows a token's claims. Throws on anything unacceptable —
  * malformed, bad signature, expired, or claims of an unexpected shape. Callers
  * turn every throw into an identical 401 (AC-B14).
@@ -56,7 +73,7 @@ export function verifyAccessToken(token: string): AccessTokenClaims {
   const sub = Number(payload.sub);
   const role = (payload as JwtPayload).role;
 
-  if (!Number.isInteger(sub) || (role !== UserRole.INTERVIEWER && role !== UserRole.RECRUITER)) {
+  if (!Number.isInteger(sub) || !isUserRole(role)) {
     throw new Error('Malformed access-token claims');
   }
 

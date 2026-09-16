@@ -10,6 +10,7 @@ import express from 'express';
 import { errorHandler } from './middleware/errorHandler.js';
 import { notFound } from './middleware/notFound.js';
 import { requestId } from './middleware/requestId.js';
+import { applicationsRouter } from './modules/applications/applications.routes.js';
 import { authRouter } from './modules/auth/auth.routes.js';
 import { rolesRouter } from './modules/roles/roles.routes.js';
 import { usersRouter } from './modules/users/users.routes.js';
@@ -44,10 +45,13 @@ app.use('/api/auth', authRouter);
 // Read-only: a GET route and nothing else. `POST /api/users` is not registered
 // anywhere and therefore falls through to `notFound` (EC-09, AC-B26).
 app.use('/api/users', usersRouter);
-// Four routes; `DELETE /api/roles/:roleId` is deliberately not among them and
-// therefore falls through to `notFound` (FR-6.4, EC-08). This must be mounted
-// BEFORE `notFound`, or every roles path 404s.
+// Five routes. The two GETs are open to any authenticated user; the three
+// writes are recruiter-only (candidate spec FR-4.1, FR-4.2). Mounted BEFORE
+// `notFound`, or every roles path 404s.
 app.use('/api/roles', rolesRouter);
+// Two routes, both CANDIDATE-only. `GET /api/applications/:id` is deliberately
+// not among them and therefore falls through to `notFound` (FR-6.8, EC-09).
+app.use('/api/applications', applicationsRouter);
 
 // Terminal 404 in the standard error shape, then the error handler last.
 app.use(notFound);

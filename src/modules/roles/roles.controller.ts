@@ -1,4 +1,5 @@
 import type { Request, Response } from 'express';
+import type { UserRole } from '../../generated/prisma/enums.js';
 import { UnauthenticatedError } from '../../lib/errors.js';
 import type {
   CreateRoleInput,
@@ -29,9 +30,33 @@ function actorId(req: Request): number {
   return req.user.id;
 }
 
-/** An empty result is `200 { roles: [], pagination }`, never a 404. */
+/**
+ * The caller's user role, which the two reads scope their query by.
+ *
+ * Read from `req.user` — established by `requireAuth` from a verified token —
+ * and never from a body, query parameter or header (AZ-4). The controller only
+ * passes it through; the decision it drives lives in `buildRoleWhere`.
+ */
+function actorRole(req: Request): UserRole {
+  if (req.user === undefined) {
+    throw new UnauthenticatedError(); // Unreachable behind requireAuth.
+  }
+
+  return req.user.role;
+}
+
+/**
+ * An empty result is `200 { roles: [], pagination }`, never a 404.
+ *
+ * A non-recruiter's page contains only OPEN requisitions, and the pager's
+ * `total` counts only those — enforced in the service's query, not here
+ * (candidate spec FR-4.4).
+ */
 export async function list(req: Request, res: Response): Promise<void> {
-  const { roles, pagination } = await rolesService.listRoles(req.validatedQuery as ListRolesQuery);
+  const { roles, pagination } = await rolesService.listRoles(
+    req.validatedQuery as ListRolesQuery,
+    actorRole(req),
+  );
 
   res.status(200).json({ roles, pagination });
 }
@@ -39,7 +64,7 @@ export async function list(req: Request, res: Response): Promise<void> {
 export async function get(req: Request, res: Response): Promise<void> {
   const { roleId } = req.validatedParams as RoleIdParam;
 
-  const role = await rolesService.getRole(roleId);
+  const role = await rolesService.getRole(roleId, actorRole(req));
 
   res.status(200).json({ role });
 }

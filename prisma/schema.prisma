@@ -14,6 +14,33 @@ datasource db {
 enum UserRole {
   INTERVIEWER
   RECRUITER
+  // Added by the candidate feature (FR-1.1). The ONLY role `POST /api/auth/signup`
+  // can produce — the value is a literal in the service, not a request field, so
+  // the endpoint cannot mint a privileged account (SEC-1, closing SEC-11.1).
+  CANDIDATE
+}
+
+/// Where a LIVE application sits (FR-5.4, MIG-4).
+///
+/// The brief's §3.1 stage set, minus the terminal outcomes, which live on
+/// `ApplicationStatus` instead. Keeping the two value sets disjoint is what makes
+/// the contradictory state the two-column design risks — `ACTIVE` + `REJECTED` —
+/// unrepresentable, so no CHECK constraint is needed.
+enum PipelineStage {
+  APPLIED
+  SCREEN
+  INTERVIEW
+  OFFER
+}
+
+/// Whether an application is still live, and if not, how it ended (MIG-4).
+///
+/// `WITHDRAWN` is deliberately absent (D-8): nothing in this POC can produce it,
+/// and an enum value no code path writes is a lie in the schema.
+enum ApplicationStatus {
+  ACTIVE
+  HIRED
+  REJECTED
 }
 
 /// The whole of a role's lifecycle. A Postgres enum, never a free-text column
@@ -33,6 +60,7 @@ model User {
   updatedAt    DateTime @updatedAt
 
   refreshTokens RefreshToken[]
+  applications  Application[]
 }
 
 model RefreshToken {
@@ -73,4 +101,60 @@ model Role {
   // query plan to be defensible at 200 roles (MIG-5, PERF-1).
   @@index([status, createdAt]) // GET /api/roles?status=OPEN — filter and sort in one index
   @@index([createdAt]) // GET /api/roles — the unfiltered listing's ORDER BY
+
+  applications Application[]
+}
+
+/// A candidate's application to one requisition (FR-5, MIG-3).
+///
+/// UNIQUE on (candidateUserId, roleId): one person, one application per
+/// requisition. This replaces the earlier POC trade-off (D-6) that allowed
+/// repeat applies — the pipeline view counting the same person several times in
+/// one column was the cost, and it is not one worth paying.
+///
+/// The constraint lives HERE, in the database, not as a `findFirst` in the
+/// service. A read-then-write check loses to two concurrent applies and would
+/// let both commit; a unique index cannot (EC-06). The service maps the
+/// resulting `P2002` to `409 ALREADY_APPLIED`.
+///
+/// A candidate may still hold applications to any number of DIFFERENT roles —
+/// the constraint is on the pair, not on `candidateUserId`.
+model Application {
+  id Int @id @default(autoincrement())
+
+  candidateUserId Int
+  roleId          Int
+
+  // No defaults in the schema: the service sets all three explicitly, so the
+  // rule lives where it can be read. Same reasoning as `Role.status` (MIG-3).
+  status       ApplicationStatus
+  currentStage PipelineStage
+
+  /// When `currentStage` was last entered — the ageing column the pipeline
+  /// feature computes "time at current stage" from. Written here because the
+  /// write path is here; adding it later means backfilling every row with a
+  /// value nobody can derive (MIG-3).
+  stageEnteredAt DateTime
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  candidate User @relation(fields: [candidateUserId], references: [id], onDelete: Cascade)
+
+  /// `Restrict`, not `Cascade` (D-5, MIG-7). This is the answer the roles spec's
+  /// FR-6.10 demanded of the first model to reference `Role`: an application is a
+  /// person's record of having applied, and erasing it as a side effect of
+  /// tidying a requisition list is the wrong default. Postgres rejects the
+  /// delete; the service maps `P2003` to `409 ROLE_HAS_APPLICATIONS`.
+  role Role @relation(fields: [roleId], references: [id], onDelete: Restrict)
+
+  /// One application per candidate per requisition. Repeat applies are rejected
+  /// by Postgres, so the rule holds under concurrency and for any writer —
+  /// including a future admin path or a seed script — not just this service.
+  @@unique([candidateUserId, roleId])
+
+  // Kept alongside the unique index above, which cannot serve this ORDER BY:
+  // its second column is `roleId`, not `createdAt`.
+  @@index([candidateUserId, createdAt]) // GET /api/applications — filter and sort in one index
+  @@index([roleId, currentStage]) // the pipeline aggregate, and the FK check behind Restrict
 }

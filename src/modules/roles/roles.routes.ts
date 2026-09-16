@@ -16,32 +16,36 @@ import {
 export const rolesRouter = Router();
 
 /**
- * Every route here is recruiter-only, reads included. An interviewer gets
- * `403 FORBIDDEN` from all five.
+ * The three WRITES are recruiter-only. The two READS are not, as of the
+ * candidate feature (spec FR-4.1, FR-4.2, and its "Revision to the roles
+ * feature").
  *
- * Middleware order matters: auth and authorization run before validation, so
- * an anonymous caller always gets 401, and an interviewer gets 403 whether
- * their request is malformed or names a role that doesn't exist. The API
+ * That reverses this module's earlier rule, deliberately: browsing open
+ * positions IS the job-list surface a candidate needs, and it is one-for-one
+ * with `GET /api/roles?status=OPEN`, so a second module would have been the same
+ * query behind a second name.
+ *
+ * **What widened is this guard, not the query.** A non-recruiter's `where`
+ * carries a forced `status: OPEN` and their `select` is `PUBLIC_ROLE_SELECT`
+ * (see `buildRoleWhere` in the service), so a CLOSED requisition is never
+ * fetched, never counted in the pager, and answers 404 on a direct read. The
+ * property the old rule protected — the whole hiring picture is a recruiter's
+ * surface — still holds, one layer deeper.
+ *
+ * The cost, named: an interviewer regains a requisition read they were
+ * previously denied. Accepted (spec SEC-12.5).
+ *
+ * Middleware order matters: auth and authorization run before validation, so an
+ * anonymous caller always gets 401, and a non-recruiter gets 403 on a write
+ * whether their request is malformed or names a role that doesn't exist. The API
  * doesn't help an unauthorized caller fix their payload.
  *
- * The client hiding the "New role" button is only an affordance — this is the
- * check that enforces it.
+ * The client hiding the "New role" button is only an affordance — the guards on
+ * the writes below are what enforce it.
  */
-rolesRouter.get(
-  '/',
-  requireAuth,
-  requireRole(UserRole.RECRUITER),
-  validateQuery(listRolesQuerySchema),
-  rolesController.list,
-);
+rolesRouter.get('/', requireAuth, validateQuery(listRolesQuerySchema), rolesController.list);
 
-rolesRouter.get(
-  '/:roleId',
-  requireAuth,
-  requireRole(UserRole.RECRUITER),
-  validateParams(roleIdParamSchema),
-  rolesController.get,
-);
+rolesRouter.get('/:roleId', requireAuth, validateParams(roleIdParamSchema), rolesController.get);
 
 rolesRouter.post(
   '/',
@@ -68,6 +72,11 @@ rolesRouter.patch(
  * two deliberate steps rather than one misclick. That check lives in the
  * service because it needs to read the role's status; middleware only sees
  * the id.
+ *
+ * A closed role that candidates have applied to answers `409
+ * ROLE_HAS_APPLICATIONS` and is also left alone (candidate spec FR-8.2). That
+ * one is the database's refusal, surfaced — `Application.roleId` is
+ * `onDelete: Restrict` — not a count this service took first.
  */
 rolesRouter.delete(
   '/:roleId',

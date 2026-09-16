@@ -14,7 +14,8 @@ center is **restricted data excluded at the query, not filtered after the fact**
 
 | Role | Can do |
 |---|---|
-| Interviewer | View/submit feedback only for candidates+rounds they're assigned to. **No access to roles** — all four `/api/roles` endpoints, reads included, are `RECRUITER`-only |
+| Candidate | Read `OPEN` requisitions only · apply to one · list **their own** applications. The only role `POST /api/auth/signup` can create |
+| Interviewer | View/submit feedback only for candidates+rounds they're assigned to. May **read** requisitions (`OPEN` only); the three roles writes are recruiter-only |
 | Recruiter | Full pipeline visibility, assign interviewers, stage overrides, contact details |
 | Hiring manager (stretch) | View pipeline/ageing for their own open roles |
 
@@ -104,23 +105,46 @@ the spec is wrong, update the spec and get it re-approved rather than letting co
 |---|---|---|---|
 | [authentication](specs/features/authentication/spec.md) | ✅ approved | [✅ approved](specs/features/authentication/plan.md) | ✅ implemented |
 | [roles](specs/features/roles/spec.md) | ✅ approved | [✅ drafted](specs/features/roles/plan.md) | ⬜ not started |
+| [candidate](specs/features/candidate/spec.md) | ✅ approved | ⬜ skipped (implemented straight from the spec) | ✅ implemented — all 55 acceptance criteria verified by hand against the running API |
+
+The **candidate** feature added a third `UserRole`, made signup candidate-only, and introduced
+`Application`. It **deliberately reversed two rules that used to be stated below**; both paragraphs are now
+rewritten to match the code. No `plan.md` was written — it was implemented straight from the spec.
 
 The roles plan renames the `Role` **enum** to `UserRole` so the name `Role` can mean *open requisition*.
 From that point on: **`UserRole` is who you are; `Role` is an open req.** `requireRole` keeps its name — it
 gates on the caller's `UserRole`. The rename changes no API contract; the column, the values and the JWT
 claim are all untouched.
 
-**Every `/api/roles` route carries `requireRole(UserRole.RECRUITER)` — the two reads as well as the two
-writes** (roles spec AZ-1, revised after implementation; reads were briefly open to any authenticated user).
-An interviewer's legitimate need — the title of the req behind *their* round — is served by the rounds
-feature from an **assignment-scoped** query, which is the same shape the candidate rule above demands. Do not
-reintroduce a broad roles read to satisfy a narrow need.
+**The three `/api/roles` WRITES carry `requireRole(UserRole.RECRUITER)`. The two READS carry only
+`requireAuth`** (candidate spec FR-4.1/FR-4.2, which reversed the earlier recruiter-only rule). A candidate
+browsing open positions IS the job-list surface, one-for-one with `GET /api/roles?status=OPEN`, so a second
+module would have been the same query behind a second name.
+
+**What widened is the route guard, not the query.** `buildRoleWhere` in `roles.service.ts` forces
+`status: OPEN` into a non-recruiter's `where` — for the page, for the pager's `count`, and for the single
+read — and their projection is `PUBLIC_ROLE_SELECT`. A `CLOSED` requisition is never fetched, never counted,
+and answers `404` indistinguishably from one that never existed. **If you add a third roles read, route it
+through `buildRoleWhere`**; a second copy of that decision is how this rule rots.
+
+The cost, named: an interviewer regained a requisition read they were previously denied. The rounds feature
+should still carry the role title on its own **assignment-scoped** response rather than making a second call
+here — that is now a convention rather than something the API enforces.
 
 **No authenticated user can create an account.** There is no `POST /api/users`; all provisioning is
-`POST /api/auth/signup` (curl/Postman) or `npm run db:seed`. `GET /api/users` exists, recruiter-gated,
-but has no frontend caller. Note **SEC-11.1** in the spec — signup is anonymous and role-accepting, and
-is the *only* creation path, so anyone who can reach the API can mint a recruiter. That must be closed
-before this API is reachable from anywhere but localhost.
+`POST /api/auth/signup` (anonymous, **candidates only**) or `npm run db:seed` (everyone else).
+`GET /api/users` exists, recruiter-gated, but has no frontend caller.
+
+**SEC-11.1 is CLOSED** (candidate spec SEC-1). `signupSchema` has no `role` field and `auth.service.signup`
+writes the `CANDIDATE` literal, so no request value reaches that column — a body carrying
+`"role":"RECRUITER"` answers `201` with a candidate account. **There is now no HTTP path at all that creates
+an `INTERVIEWER` or a `RECRUITER`**; both come from the seed. Do not reintroduce a role field or a second
+creation path.
+
+What is still accepted, and still localhost-only: signup has no rate limit, no CAPTCHA and no email
+verification, so anyone who can reach it can create unlimited *candidate* accounts. A candidate can also
+apply to the same requisition without limit — there is deliberately no unique constraint on
+`(candidateUserId, roleId)` (candidate spec SEC-11).
 
 Authentication blocks everything else — §6 requires every action to be tied to a real
 authenticated user, and the query-level scoping above has nothing to parameterise on without it.

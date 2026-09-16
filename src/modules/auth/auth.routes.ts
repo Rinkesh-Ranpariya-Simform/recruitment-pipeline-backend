@@ -10,11 +10,18 @@ export const authRouter = Router();
  * The three anonymous endpoints in the API (FR-7.3). Adding a fourth is a
  * spec-level decision, not a local one.
  *
- * SEC-11.1: `/signup` is anonymous AND accepts a `role`, and it is the only
- * account-creation path there is. Anyone who can reach this API can mint a
- * RECRUITER. That is accepted ONLY because the POC binds to localhost. Before
- * this API is reachable from anywhere else, this route must be gated behind an
- * operator secret or deleted in favour of `npm run db:seed`.
+ * SEC-11.1 is CLOSED (candidate spec SEC-1). `/signup` is still anonymous and
+ * still the only HTTP account-creation path, but it no longer accepts a `role`:
+ * `signupSchema` has no such field and `auth.service.signup` writes the
+ * `CANDIDATE` literal, so no request value reaches that column. A body carrying
+ * `role` is stripped and answers 201 with a CANDIDATE account.
+ *
+ * Interviewers and recruiters are provisioned by `npm run db:seed` and by
+ * nothing else. Do not reintroduce a role field or a second creation path.
+ *
+ * What is still accepted, and still POC-only: this endpoint has no rate limit,
+ * no CAPTCHA and no email verification, so anyone who can reach it can create
+ * unlimited *candidate* accounts (spec SEC-12).
  */
 authRouter.post('/signup', validate(signupSchema), authController.signup);
 authRouter.post('/login', validate(loginSchema), authController.login);

@@ -1,5 +1,4 @@
 import { z } from 'zod';
-import { UserRole } from '../../generated/prisma/enums.js';
 
 /**
  * The two body schemas in this feature (VAL-4). `GET /api/users` takes no body
@@ -36,9 +35,19 @@ export const signupSchema = z.object({
     // (VAL-1, EC-08). Bytes, not characters — a multi-byte password hits this
     // sooner than its length suggests.
     .refine((value) => Buffer.byteLength(value, 'utf8') <= 72, 'Password must be at most 72 bytes'),
-  // Required, with no default: no code path may silently mint a privileged
-  // account (MIG-2, EC-13, AC-B04).
-  role: z.enum(UserRole, 'Role must be one of INTERVIEWER, RECRUITER'),
+  // THERE IS DELIBERATELY NO `role` FIELD (candidate spec FR-2.2, SEC-1).
+  //
+  // This schema is what closes SEC-11.1. Signup is anonymous and is still the
+  // only HTTP account-creation path, so a `role` it honoured meant anyone who
+  // could reach this API could mint a RECRUITER. The service now writes the
+  // CANDIDATE literal (FR-2.4) and no request value reaches that column at all.
+  //
+  // A body carrying `role` is STRIPPED, not rejected — zod's object default
+  // drops unknown keys, matching every other schema here. `{"role":"RECRUITER"}`
+  // therefore answers 201 with a CANDIDATE account (FR-2.3, AC-B04).
+  //
+  // Do not add it back. Interviewers and recruiters are provisioned by
+  // `npm run db:seed` and nowhere else (FR-3.1, FR-3.2).
 });
 
 /**

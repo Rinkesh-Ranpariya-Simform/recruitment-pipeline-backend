@@ -13,3 +13,24 @@ export const ROLE_SELECT = {
   createdAt: true,
   updatedAt: true,
 } as const;
+
+/**
+ * What a NON-RECRUITER gets from the two read endpoints (candidate spec FR-4.5).
+ *
+ * `updatedAt` is omitted: a candidate browsing open positions has no use for a
+ * requisition's internal editing churn.
+ *
+ * It omits nothing else, and that is deliberate rather than an oversight. `Role`
+ * references no person and carries no restricted column — there is simply
+ * nothing else here to exclude, so a wider divergence would cost the frontend a
+ * second type for no protection. **The protection is not this list.** It is the
+ * forced `status: OPEN` predicate in `buildRoleWhere` (FR-4.4): a `CLOSED`
+ * requisition is never fetched, so no mapping mistake can leak one.
+ */
+export const PUBLIC_ROLE_SELECT = {
+  id: true,
+  title: true,
+  description: true,
+  status: true,
+  createdAt: true,
+} as const;

@@ -90,6 +90,30 @@ the same pass.
 
 ---
 
+## Pending Revision 3 — reads become authenticated-open, and FR-6.10 is answered
+
+**Status: proposed, not yet approved.** Nothing below this heading has changed in the implementation. This
+note exists so this spec does not silently contradict a drafted one.
+
+The [candidate spec](../candidate/spec.md) proposes two changes to this feature:
+
+1. **`GET /api/roles` and `GET /api/roles/:roleId` drop `requireRole(UserRole.RECRUITER)`**, so a candidate
+   can browse open positions. This reverses *Revision — reads became recruiter-only* above. The three write
+   endpoints are untouched. What replaces the guard is a **query-level** rule: a non-recruiter's `where`
+   carries `status: OPEN` and their `select` is `PUBLIC_ROLE_SELECT`, so a `CLOSED` requisition is never
+   fetched and answers `404` — see that spec's *Revision to the roles feature* for the full argument and its
+   named cost.
+2. **FR-6.10 is answered.** `Application` is the first model to take a foreign key to `Role`, and it takes
+   `onDelete: Restrict`. `DELETE /api/roles/:roleId` on a `CLOSED` role with applications answers a **new**
+   `409 ROLE_HAS_APPLICATIONS`, derived from the `P2003` violation. The existing `409 ROLE_NOT_CLOSED` is
+   checked first.
+
+**If that spec is approved, the sections to revise here are:** AZ-1, AZ-2, the authorization matrix, the
+`403` row of the error table, ERR-4, EC-15/EC-16, SEC-1, XFE-8, FR-6.10, and AC-B02 / AC-B08 / AC-B09 /
+AC-B10 / AC-B18b. The frontend counterpart is revised in the same pass.
+
+---
+
 ## Background / Context
 
 The POC brief opens on the problem this feature is the first half of:
