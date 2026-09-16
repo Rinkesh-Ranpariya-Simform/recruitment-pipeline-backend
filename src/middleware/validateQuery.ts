@@ -4,8 +4,7 @@ import { ValidationError } from '../lib/errors.js';
 import { toErrorDetails } from './zod-details.js';
 
 /**
- * Query-string validation, coercion and defaulting (BE-2.1) — the API's first,
- * introduced by `GET /api/roles`.
+ * Query-string validation, coercion and defaulting (BE-2.1).
  *
  * WHY A NEW PROPERTY AND NOT `req.query = result.data`: in Express 5 `req.query`
  * is a GETTER and cannot be reassigned. The trick `validate()` uses for

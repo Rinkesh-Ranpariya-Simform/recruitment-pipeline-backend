@@ -20,7 +20,7 @@ import * as applicationsService from './applications.service.js';
  */
 function candidateUserId(req: Request): number {
   if (req.user === undefined) {
-    throw new UnauthenticatedError(); // Unreachable behind requireAuth; typed, not assumed.
+    throw new UnauthenticatedError();
   }
 
   return req.user.id;

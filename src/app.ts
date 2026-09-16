@@ -34,9 +34,8 @@ app.use(cors({ origin: env.FRONTEND_ORIGIN, credentials: true }));
 app.use(express.json());
 app.use(cookieParser());
 
-// Health check. No frontend surface polls it — it is for operators and for
-// `docker compose` readiness. Its `{ message }` shape is a published contract,
-// so keep it stable rather than reshaping it for a future caller.
+// For operators and `docker compose` readiness, not the frontend. The
+// `{ message }` shape is a published contract — keep it stable.
 app.get('/', (_req, res) => {
   res.json({ message: 'My API is working!' });
 });
@@ -45,14 +44,14 @@ app.use('/api/auth', authRouter);
 // Read-only: a GET route and nothing else. `POST /api/users` is not registered
 // anywhere and therefore falls through to `notFound` (EC-09, AC-B26).
 app.use('/api/users', usersRouter);
-// Five routes. The two GETs are open to any authenticated user; the three
-// writes are recruiter-only (candidate spec FR-4.1, FR-4.2). Mounted BEFORE
-// `notFound`, or every roles path 404s.
+// Reads are open to any authenticated user; writes are recruiter-only
+// (candidate spec FR-4.1, FR-4.2).
 app.use('/api/roles', rolesRouter);
 // Two routes, both CANDIDATE-only. `GET /api/applications/:id` is deliberately
 // not among them and therefore falls through to `notFound` (FR-6.8, EC-09).
 app.use('/api/applications', applicationsRouter);
 
-// Terminal 404 in the standard error shape, then the error handler last.
+// Last, and in this order: every unmatched path must reach `notFound` before
+// the error handler renders it.
 app.use(notFound);
 app.use(errorHandler);

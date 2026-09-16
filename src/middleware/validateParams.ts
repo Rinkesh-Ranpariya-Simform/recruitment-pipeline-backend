@@ -4,8 +4,7 @@ import { ValidationError } from '../lib/errors.js';
 import { toErrorDetails } from './zod-details.js';
 
 /**
- * Path-parameter validation (BE-2.1) — the API's first, introduced by
- * `/api/roles/:roleId`.
+ * Path-parameter validation (BE-2.1).
  *
  * The parsed result is assigned to `req.validatedParams`, NOT back onto
  * `req.params`. Controllers read `req.validatedParams` and never re-read

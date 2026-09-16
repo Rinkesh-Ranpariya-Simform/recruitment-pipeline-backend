@@ -2,9 +2,8 @@ import { z } from 'zod';
 import { RoleStatus } from '../../generated/prisma/enums.js';
 
 /**
- * Two request bodies, one path parameter, one query string. All of them strip
- * unknown keys (zod's default), so an unexpected field never reaches a Prisma
- * `data` object.
+ * All schemas here strip unknown keys (zod's default), so an unexpected field
+ * never reaches a Prisma `data` object.
  *
  * This is zod v4: enum messages use `z.enum(Values, 'message')`, not
  * `z.nativeEnum` or `{ message: … }`.
@@ -40,8 +39,7 @@ const descriptionField = z
 
 /**
  * No `status` field: every role is created OPEN, and closing one is a separate
- * action. A `status`, `id`, `createdAt` or `updatedAt` in the body is silently
- * stripped rather than rejected.
+ * action.
  */
 export const createRoleSchema = z.object({
   title: titleField,
@@ -66,11 +64,8 @@ export const updateRoleSchema = z
     'Provide at least one of title, description, status',
   );
 
-/**
- * Coerced here so the controller gets a real `number` and never parses one
- * itself. A non-numeric or non-positive `:roleId` is a 400 before any query
- * runs, rather than a 500 further down.
- */
+/** Coerced here, so a non-numeric or non-positive `:roleId` is a 400 at the
+ *  boundary rather than a 500 further down. */
 export const roleIdParamSchema = z.object({
   roleId: z.coerce
     .number('Role id must be a positive integer')
@@ -79,13 +74,8 @@ export const roleIdParamSchema = z.object({
 });
 
 /**
- * All three parameters are optional.
- *
  * An omitted `status` means all statuses, not a hidden default of OPEN — that
  * would hide closed roles without explaining why.
- *
- * `pageSize` is capped at 100 so no request can ask for an unbounded result
- * set. Asking for 101 is a 400, not a silent clamp.
  *
  * `.default()` handles `undefined` before coercion, so an omitted `page` is 1
  * and never `NaN`.

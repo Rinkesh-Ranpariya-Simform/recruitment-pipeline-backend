@@ -6,11 +6,8 @@ import { prisma } from '../../lib/prisma.js';
 import { APPLICATION_SELECT } from './application.select.js';
 
 /**
- * The two functions this module has. All Prisma access, the eligibility rule and
- * the event logging live here; the controller does none of it.
- *
- * Like the auth and roles services, these take `req.log` as an argument rather
- * than reaching for a global logger.
+ * All Prisma access, the eligibility rule and the event logging for
+ * applications; the controller does none of it.
  */
 
 export interface Application {
@@ -38,15 +35,9 @@ export interface Application {
  * `status`, `currentStage` and `stageEnteredAt` are literals (FR-5.4). Nothing
  * in the request influences them.
  *
- * **A candidate may apply to the same role only ONCE.** The rule is the
- * `@@unique([candidateUserId, roleId])` index, and the 409 below is that index's
- * `P2002` translated — there is deliberately no `findFirst` beforehand. A
- * read-then-write check has a window in which two concurrent applies both pass
- * it, and both would then commit; the index has no such window, so the second
- * request loses in Postgres and becomes `409 ALREADY_APPLIED` (EC-06).
- *
- * Applying to a DIFFERENT role is untouched: the constraint is on the pair, so a
- * candidate may hold as many applications as there are open requisitions.
+ * **A candidate may apply to the same role only ONCE**, enforced by the
+ * `@@unique([candidateUserId, roleId])` index rather than a preceding
+ * `findFirst` — see `AlreadyAppliedError` for why (EC-06).
  */
 export async function createApplication(
   roleId: number,
@@ -125,13 +116,10 @@ export async function createApplication(
  * brief's §3.2 discipline pointed at the new actor: a shape that never selects
  * another candidate's rows cannot leak them.
  *
- * There is deliberately no `getApplication(id)` here and no route for one
- * (FR-6.8). With no by-id surface there is no scoping rule on it to forget.
- *
  * One indexed query, served by `@@index([candidateUserId, createdAt])` — the
  * filter and the ORDER BY in one index, so there is no sort step (PERF-1).
  */
-export async function listApplications(candidateUserId: number): Promise<Application[]> {
+export async function listApplications(candidateUserId: number): Promise<Array<Application>> {
   return prisma.application.findMany({
     where: { candidateUserId },
     // `id desc` is the tiebreak, matching the roles listing: two applications

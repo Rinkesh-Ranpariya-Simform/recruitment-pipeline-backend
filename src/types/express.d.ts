@@ -15,11 +15,9 @@ import type { UserRole } from '../generated/prisma/enums.js';
  * `validateParams()` / `validateQuery()`. They exist because `req.query` is a
  * getter in Express 5 and cannot be reassigned (BE-2.2, R-2).
  *
- * They are `unknown` rather than generic because a single global `declare
- * global` augmentation cannot be typed per route, and `exactOptionalPropertyTypes`
- * rules out the usual escapes. Controllers cast at the point of use —
- * `req.validatedParams as RoleIdParam` — which is exactly the existing
- * `req.body as SignupInput` idiom. The cast is safe because the route that
+ * They are `unknown` rather than generic because a global augmentation cannot
+ * be typed per route. Controllers cast at the point of use —
+ * `req.validatedParams as RoleIdParam` — which is safe because the route that
  * reaches the controller is the route that installed the schema.
  */
 declare global {

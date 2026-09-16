@@ -24,7 +24,7 @@ import * as rolesService from './roles.service.js';
 /** The authenticated user's id. `requireAuth` runs before every route here. */
 function actorId(req: Request): number {
   if (req.user === undefined) {
-    throw new UnauthenticatedError(); // Unreachable behind requireAuth.
+    throw new UnauthenticatedError();
   }
 
   return req.user.id;
@@ -34,12 +34,11 @@ function actorId(req: Request): number {
  * The caller's user role, which the two reads scope their query by.
  *
  * Read from `req.user` — established by `requireAuth` from a verified token —
- * and never from a body, query parameter or header (AZ-4). The controller only
- * passes it through; the decision it drives lives in `buildRoleWhere`.
+ * and never from a body, query parameter or header (AZ-4).
  */
 function actorRole(req: Request): UserRole {
   if (req.user === undefined) {
-    throw new UnauthenticatedError(); // Unreachable behind requireAuth.
+    throw new UnauthenticatedError();
   }
 
   return req.user.role;
@@ -93,12 +92,7 @@ export async function update(req: Request, res: Response): Promise<void> {
   res.status(200).json({ role });
 }
 
-/**
- * `204 No Content` with an empty body — there is no role left to return.
- *
- * The CLOSED-only guard lives in the service; it's a domain rule, not an HTTP
- * one.
- */
+/** `204 No Content` with an empty body — there is no role left to return. */
 export async function remove(req: Request, res: Response): Promise<void> {
   const { roleId } = req.validatedParams as RoleIdParam;
 

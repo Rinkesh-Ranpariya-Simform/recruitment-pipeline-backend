@@ -65,7 +65,7 @@ export async function logout(req: Request, res: Response): Promise<void> {
 
 export async function me(req: Request, res: Response): Promise<void> {
   if (req.user === undefined) {
-    throw new UnauthenticatedError(); // Unreachable behind requireAuth; typed, not assumed.
+    throw new UnauthenticatedError();
   }
 
   const user = await authService.getById(req.user.id);

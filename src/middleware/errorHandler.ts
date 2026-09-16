@@ -5,7 +5,7 @@ import { logger } from '../lib/logger.js';
 interface ErrorBody {
   code: string;
   message: string;
-  details?: Record<string, string[]>;
+  details?: Record<string, Array<string>>;
 }
 
 /**

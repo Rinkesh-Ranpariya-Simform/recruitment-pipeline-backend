@@ -12,7 +12,7 @@ import type { UserRole } from '../generated/prisma/enums.js';
  * A mismatch is always 403, never 401: the client treats 401 as "refresh and
  * retry" and 403 as terminal.
  */
-export function requireRole(...roles: UserRole[]) {
+export function requireRole(...roles: Array<UserRole>) {
   return (req: Request, _res: Response, next: NextFunction): void => {
     if (req.user === undefined) {
       // Only reachable if a route used requireRole without requireAuth.

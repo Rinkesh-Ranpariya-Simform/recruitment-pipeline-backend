@@ -20,6 +20,10 @@ export default tseslint.config(
         'warn',
         { argsIgnorePattern: '^_', varsIgnorePattern: '^_' },
       ],
+      // Code conventions: Array<T> / ReadonlyArray<T>, never T[] or readonly T[].
+      '@typescript-eslint/array-type': ['error', { default: 'generic', readonly: 'generic' }],
+      // Object shapes are declared with `interface`, never `type X = { ... }`.
+      '@typescript-eslint/consistent-type-definitions': ['error', 'interface'],
     },
   },
   eslintConfigPrettier,

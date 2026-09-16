@@ -36,6 +36,23 @@ write path onto a candidate.
   The project must come up with `docker compose up` and no manual setup beyond a documented
   `.env` — keep a `docker-compose.yml` (Postgres + API) in sync with this as it's built out.
 
+## TypeScript conventions
+
+- **Arrays are `Array<T>`, never `T[]`** — and `ReadonlyArray<T>`, never `readonly T[]`. This
+  holds everywhere a type is written: rest parameters (`...roles: Array<UserRole>`), returns
+  (`Promise<Array<SafeUser>>`), locals (`const and: Array<Prisma.RoleWhereInput> = []`) and
+  nested positions (`Record<string, Array<string>>`).
+- **An object shape is an `interface`, never `type X = { … }`** — service return shapes,
+  middleware bodies, envelope types. `type` stays for what an interface genuinely can't express,
+  and only for that: unions (`ErrorCode`, `RotationOutcome`), and types derived from a value or
+  another type (`z.infer<typeof schema>`, `Omit<Role, 'updatedAt'>`, `typeof logger`).
+- Both are enforced by `@typescript-eslint/array-type` (`generic`) and
+  `@typescript-eslint/consistent-type-definitions` in `eslint.config.mjs`, and both are
+  autofixable — `npm run lint:fix`.
+- These are style rules with no bearing on the wire: `Array<T>` and `T[]` are the same type, so
+  nothing here changes a request or response shape. The frontend carries the identical pair of
+  rules, so a contract type mirrored in both repos is written the same way on both sides.
+
 ## Domain model to build out
 
 `schema.prisma` currently only has a placeholder `User`. At minimum the schema needs:

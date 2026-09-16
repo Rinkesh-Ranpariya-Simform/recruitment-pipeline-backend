@@ -20,12 +20,9 @@ export const ROLE_SELECT = {
  * `updatedAt` is omitted: a candidate browsing open positions has no use for a
  * requisition's internal editing churn.
  *
- * It omits nothing else, and that is deliberate rather than an oversight. `Role`
- * references no person and carries no restricted column — there is simply
- * nothing else here to exclude, so a wider divergence would cost the frontend a
- * second type for no protection. **The protection is not this list.** It is the
- * forced `status: OPEN` predicate in `buildRoleWhere` (FR-4.4): a `CLOSED`
- * requisition is never fetched, so no mapping mistake can leak one.
+ * It omits nothing else, deliberately: `Role` references no person and carries
+ * no restricted column. **The protection is not this list** — it is the forced
+ * `status: OPEN` predicate in `buildRoleWhere` (FR-4.4).
  */
 export const PUBLIC_ROLE_SELECT = {
   id: true,

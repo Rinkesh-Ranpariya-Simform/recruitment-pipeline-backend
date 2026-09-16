@@ -20,17 +20,13 @@ export const rolesRouter = Router();
  * candidate feature (spec FR-4.1, FR-4.2, and its "Revision to the roles
  * feature").
  *
- * That reverses this module's earlier rule, deliberately: browsing open
- * positions IS the job-list surface a candidate needs, and it is one-for-one
- * with `GET /api/roles?status=OPEN`, so a second module would have been the same
- * query behind a second name.
+ * That reverses this module's earlier rule deliberately: browsing open
+ * positions is one-for-one with `GET /api/roles?status=OPEN`, so a second
+ * module would have been the same query behind a second name.
  *
- * **What widened is this guard, not the query.** A non-recruiter's `where`
- * carries a forced `status: OPEN` and their `select` is `PUBLIC_ROLE_SELECT`
- * (see `buildRoleWhere` in the service), so a CLOSED requisition is never
- * fetched, never counted in the pager, and answers 404 on a direct read. The
- * property the old rule protected — the whole hiring picture is a recruiter's
- * surface — still holds, one layer deeper.
+ * **What widened is this guard, not the query.** A non-recruiter's rows are
+ * still narrowed to `status: OPEN` and `PUBLIC_ROLE_SELECT` — see
+ * `buildRoleWhere` in the service.
  *
  * The cost, named: an interviewer regains a requisition read they were
  * previously denied. Accepted (spec SEC-12.5).
@@ -67,16 +63,8 @@ rolesRouter.patch(
 /**
  * A hard delete — the row is gone.
  *
- * Only a `CLOSED` role can be deleted; an `OPEN` one answers
- * `409 ROLE_NOT_CLOSED` and is left alone, so removing a requisition is always
- * two deliberate steps rather than one misclick. That check lives in the
- * service because it needs to read the role's status; middleware only sees
- * the id.
- *
- * A closed role that candidates have applied to answers `409
- * ROLE_HAS_APPLICATIONS` and is also left alone (candidate spec FR-8.2). That
- * one is the database's refusal, surfaced — `Application.roleId` is
- * `onDelete: Restrict` — not a count this service took first.
+ * Both refusals (`ROLE_NOT_CLOSED`, `ROLE_HAS_APPLICATIONS`) live in the
+ * service rather than middleware, which only sees the id.
  */
 rolesRouter.delete(
   '/:roleId',

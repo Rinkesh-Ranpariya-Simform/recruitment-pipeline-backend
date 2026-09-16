@@ -7,8 +7,7 @@ import { PUBLIC_ROLE_SELECT, ROLE_SELECT } from './role.select.js';
 import type { CreateRoleInput, ListRolesQuery, UpdateRoleInput } from './roles.schema.js';
 
 /**
- * All Prisma access, status-transition logic and event logging for roles. These
- * five functions are the module's entire surface.
+ * All Prisma access, status-transition logic and event logging for roles.
  *
  * Like the auth service, these take `req.log` as an argument rather than
  * reaching for a global logger.
@@ -34,11 +33,7 @@ export interface Pagination {
 }
 
 /**
- * THE role-aware query decision, and there is exactly one of it (FR-4.3).
- *
- * Both read endpoints call this. A second copy is what makes this kind of rule
- * rot: the day someone adds a third read, the version they forget is the one
- * that leaks.
+ * THE role-aware query decision, shared by both read endpoints (FR-4.3).
  *
  * For a non-recruiter, `status: OPEN` goes into the `where` clause **before the
  * query runs** (FR-4.4, AZ-4) — for the page, for the `count` behind the pager,
@@ -54,7 +49,7 @@ export function buildRoleWhere(
   query: Pick<ListRolesQuery, 'q' | 'status'>,
   actorRole: UserRole,
 ): Prisma.RoleWhereInput {
-  const and: Prisma.RoleWhereInput[] = [];
+  const and: Array<Prisma.RoleWhereInput> = [];
 
   if (actorRole !== UserRole.RECRUITER) {
     and.push({ status: RoleStatus.OPEN });
@@ -99,7 +94,7 @@ export async function listRoles(
   query: ListRolesQuery,
   actorRole: UserRole,
 ): Promise<{
-  roles: Role[] | PublicRole[];
+  roles: Array<Role> | Array<PublicRole>;
   pagination: Pagination;
 }> {
   const where = buildRoleWhere(query, actorRole);
@@ -114,9 +109,7 @@ export async function listRoles(
   };
 
   // Branched rather than a ternary on `select`, so each call keeps its own
-  // inferred row type. The `count` carries the SAME `where` as the page,
-  // including the forced OPEN predicate — a count over a wider set than the
-  // rows beside it is both wrong and slower (PERF-5).
+  // inferred row type.
   const [roles, total] =
     actorRole === UserRole.RECRUITER
       ? await prisma.$transaction([
@@ -171,9 +164,6 @@ export async function getRole(roleId: number, actorRole: UserRole): Promise<Role
 /**
  * Every role is created OPEN. Set explicitly here rather than relying on a
  * column default, so the rule is visible in the code that applies it.
- *
- * `input` is the parsed schema output, so it carries only `title` and
- * `description` — anything else in the request body was already stripped.
  */
 export async function createRole(
   input: CreateRoleInput,
@@ -306,12 +296,9 @@ export async function deleteRole(roleId: number, actorId: number, log: Logger): 
     });
   } catch (error) {
     // `Application.roleId` is `onDelete: Restrict`, so Postgres refuses this
-    // delete when anyone has applied (candidate spec FR-8.1, FR-8.2).
-    //
-    // Derived from the constraint violation, NOT from a preceding
-    // `application.count()`: a count could be invalidated by an apply committing
-    // between the check and the delete, and this refusal must hold under exactly
-    // that race (FR-8.4, EC-07, AC-B49). Same discipline as `EMAIL_TAKEN`.
+    // delete when anyone has applied. Derived from the constraint violation
+    // rather than a preceding `count()`, which a concurrent apply would
+    // invalidate — see `RoleHasApplicationsError` (FR-8.1, FR-8.2, FR-8.4).
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2003') {
       log.warn(
         { event: 'role.delete.refused', actorId, roleId, reason: 'has_applications' },

@@ -7,7 +7,7 @@ import * as usersController from './users.controller.js';
 export const usersRouter = Router();
 
 /**
- * ONE route. Read-only.
+ * Read-only.
  *
  * `requireAuth` runs before `requireRole` so an anonymous caller gets 401 and an
  * authenticated non-recruiter gets 403 — the two are never interchanged

@@ -10,7 +10,7 @@ import { SAFE_USER_SELECT } from './user.select.js';
  * `auth.service.signup` and nowhere else — no role, recruiter included, can
  * create another user through the API (FR-2.6, contract invariant 5).
  */
-export async function listInterviewers(): Promise<SafeUser[]> {
+export async function listInterviewers(): Promise<Array<SafeUser>> {
   return prisma.user.findMany({
     where: { role: UserRole.INTERVIEWER },
     orderBy: { createdAt: 'desc' },

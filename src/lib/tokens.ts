@@ -43,12 +43,9 @@ export function signAccessToken(claims: AccessTokenClaims): {
 /**
  * Whether a claim is a role this API issues.
  *
- * Derived from the `UserRole` enum rather than a list of literals. The literal
- * form — `role !== INTERVIEWER && role !== RECRUITER` — was what this function
- * used until the candidate feature, and it rejected every `CANDIDATE` token with
- * a 401 before `requireRole` ever ran. Adding a third literal would have fixed
- * that case and left the next one, so the check now reads the enum: a role added
- * to the schema is accepted here without an edit.
+ * Derived from the `UserRole` enum rather than a list of literals, so a role
+ * added to the schema is accepted here without an edit. A literal list silently
+ * 401s every token carrying a role someone forgot to add.
  *
  * This is a shape check, not an authorization one. Deciding what a role may do
  * is `requireRole`'s job, on a route.

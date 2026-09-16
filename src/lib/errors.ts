@@ -21,7 +21,7 @@ export type ErrorCode =
   | 'INTERNAL_ERROR';
 
 /** Field-keyed validation messages, keyed by request-body field name (VAL-5). */
-export type ErrorDetails = Record<string, string[]>;
+export type ErrorDetails = Record<string, Array<string>>;
 
 export class AppError extends Error {
   readonly status: number;
@@ -101,11 +101,9 @@ export class EmailTakenError extends AppError {
  * loses to a second concurrent apply and would let both commit. Same discipline
  * as `EmailTakenError` and `RoleHasApplicationsError` (ERR-4, EC-06).
  *
- * The message says what the candidate can do next rather than restating the
- * status, because the client renders it verbatim. It names no application id and
- * no date: the candidate's own list is where those live.
- *
- * Applying to a DIFFERENT role is unaffected — the constraint is on the pair.
+ * The message names no application id and no date: the candidate's own list is
+ * where those live. Applying to a DIFFERENT role is unaffected — the constraint
+ * is on the pair.
  */
 export class AlreadyAppliedError extends AppError {
   constructor() {
@@ -120,10 +118,8 @@ export class AlreadyAppliedError extends AppError {
  * Deleting a requisition is deliberately a TWO-STEP act: close it, then delete
  * it. This is what remains of the original no-delete rule — an open req is in
  * circulation, and the one thing a destructive endpoint must not do is make it
- * a single misclick away from gone.
- *
- * The message names the remedy, because it is rendered verbatim by the client
- * and "conflict" on its own tells a recruiter nothing.
+ * a single misclick away from gone. The message names the remedy, because
+ * "conflict" on its own tells a recruiter nothing.
  */
 export class RoleNotClosedError extends AppError {
   constructor() {
@@ -139,7 +135,7 @@ export class RoleNotClosedError extends AppError {
  * Derived from the `P2003` foreign-key violation the delete itself raises, NOT
  * from a preceding `count()` — a check-then-delete loses to a concurrent apply
  * and would either 500 or delete a requisition someone just applied to
- * (FR-8.4, EC-07). Same discipline as `EmailTakenError` and `P2002`.
+ * (FR-8.4, EC-07).
  *
  * Checked AFTER `RoleNotClosedError` (FR-8.3), so a recruiter is always told the
  * first thing they need to do. The message names neither the count nor the

@@ -68,12 +68,9 @@ async function issueSession(user: SafeUser): Promise<Session> {
  *
  * **It can only ever create a `CANDIDATE`** (candidate spec FR-2.4). `role` is a
  * literal below, not `input.role`, and `signupSchema` has no such field to read
- * — so there is no input to validate, no branch to get wrong, and no escalation
- * path to reason about. This is what closes SEC-11.1.
- *
- * The consequence, stated plainly: there is now NO HTTP path that creates an
- * `INTERVIEWER` or a `RECRUITER`. Both are provisioned by `npm run db:seed`
- * (FR-3.1, FR-3.2) — a breaking change to a shipped contract (FR-3.4).
+ * — so there is no input to validate and no escalation path (SEC-11.1). No HTTP
+ * path creates an `INTERVIEWER` or `RECRUITER`; both come from `npm run db:seed`
+ * (FR-3.1, FR-3.2, FR-3.4).
  */
 export async function signup(input: SignupInput, log: Logger): Promise<SafeUser> {
   const passwordHash = await hashPassword(input.password);
@@ -136,7 +133,6 @@ export async function login(input: LoginInput, log: Logger): Promise<Session> {
       { event: 'auth.login.failure', email: input.email, reason: 'invalid_credentials' },
       'login failed',
     );
-    // Deliberately the same error as the unknown-email branch above.
     throw new InvalidCredentialsError();
   }
 

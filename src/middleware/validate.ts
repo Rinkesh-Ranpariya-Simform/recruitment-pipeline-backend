@@ -16,10 +16,6 @@ export function validate(schema: z.ZodType) {
     const result = schema.safeParse(req.body);
 
     if (!result.success) {
-      // Every field error at once, keyed by request-body field name, so the
-      // client can show all problems in one pass (VAL-5, VAL-6, XFE-4). The
-      // fold lives in `zod-details.ts` — shared with the param and query
-      // middlewares, and the home of the BE-5 fix.
       next(new ValidationError(toErrorDetails(result.error.issues)));
       return;
     }
