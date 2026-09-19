@@ -29,7 +29,14 @@ app.use(requestId);
 // An explicit origin, never a wildcard — which is incompatible with
 // credentialed requests in any case (BE-7.1, SEC-7). `credentials: true` is
 // what allows the client to send the refresh cookie cross-origin (XFE-2).
-app.use(cors({ origin: env.FRONTEND_ORIGIN, credentials: true }));
+//
+// `maxAge` caches the preflight for 10 minutes. Every call this API serves
+// carries `Authorization` or `Content-Type: application/json`, neither of which
+// is CORS-safelisted, so each one is preceded by an `OPTIONS`. Without a
+// `maxAge` the browser's own default applies — 5 seconds in Chrome — so in
+// practice every request paid for two round trips. This does not widen what is
+// allowed; it only stops re-asking the same question.
+app.use(cors({ origin: env.FRONTEND_ORIGIN, credentials: true, maxAge: 600 }));
 
 app.use(express.json());
 app.use(cookieParser());

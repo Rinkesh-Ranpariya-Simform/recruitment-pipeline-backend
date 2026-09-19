@@ -141,6 +141,10 @@ Settled, not open:
 - **FR-5.5** `POST /api/auth/refresh` reads the cookie, validates the token, **rotates** it (issues a new one, revokes the presented one), and returns a fresh access token.
 - **FR-5.6** **Reuse detection:** if an already-revoked refresh token is presented, the server revokes **every token in that family** and responds `401`. This is the stolen-token tripwire.
 - **FR-5.7** `POST /api/auth/logout` revokes the presented token's **entire family** and clears the cookie. It responds `204` even when no valid cookie was presented (idempotent).
+- **FR-5.8** **Expired refresh tokens are deleted, not kept forever (added during review).** Rotation only ever wrote rows and revoked them, so an active session grew the table by roughly one row per access-token lifetime — about 96 a day — with nothing removing any of it. `login` now deletes that user's rows whose `expiresAt` has passed.
+  - **Only expired rows.** A revoked but still-unexpired row is what a replayed token is matched against; removing those would turn a detected theft into an ordinary `unknown` 401 and leave the stolen family alive (FR-5.6).
+  - Knowingly given up: a token replayed *after its own expiry* no longer revokes its family. It is refused on its expiry regardless, so only the detection of an already-futile replay is lost.
+  - Placed at login, not refresh — login already pays ~200 ms of bcrypt, and `refresh` answers to a 50 ms budget (PERF-2). A failure is logged and swallowed: housekeeping never costs a user their login.
 - **FR-5.8** There is **no sliding access-token window and no server-driven refresh scheduling.** Refresh is client-initiated and reactive.
 
 ### FR-6 — Safe user representation
@@ -241,7 +245,7 @@ A single Express error middleware converts every thrown `AppError` into the flat
 
 ### BE-7 — CORS & cookies
 
-- **BE-7.1** `cors({ origin: FRONTEND_ORIGIN, credentials: true })` — an explicit origin, never `*` (which is incompatible with credentialed requests anyway).
+- **BE-7.1** `cors({ origin: FRONTEND_ORIGIN, credentials: true, maxAge: 600 })` — an explicit origin, never `*` (which is incompatible with credentialed requests anyway). `maxAge` was **added during review**: every call this API serves carries `Authorization` or `Content-Type: application/json`, neither CORS-safelisted, so each is preceded by an `OPTIONS`. With no `maxAge` the browser's own default applies — 5 seconds in Chrome — so in practice every request paid two round trips. It caches the preflight for 10 minutes and widens nothing.
 - **BE-7.2** `cookie-parser` is added to read the refresh cookie.
 - **BE-7.3** Cookie attributes: name `refresh_token`, `HttpOnly`, `SameSite=Lax`, `Path=/api/auth`, `Max-Age=86400`, and `Secure` whenever `NODE_ENV === 'production'`.
 - **BE-7.4** `Path=/api/auth` scopes the cookie so it is not attached to ordinary API calls — only to `refresh` and `logout`.

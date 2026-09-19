@@ -105,6 +105,50 @@ export async function signup(input: SignupInput, log: Logger): Promise<SafeUser>
 }
 
 /**
+ * Deletes this user's refresh tokens that are already past `expiresAt`.
+ *
+ * Nothing else ever removed a row. Every rotation writes a successor and
+ * revokes its predecessor, so one active session accumulates roughly a row per
+ * access-token lifetime — around 96 a day at the 15-minute TTL — and the table
+ * grew without bound for the life of the deployment.
+ *
+ * **Only expired rows go, and that limit is load-bearing.** A revoked but
+ * still-unexpired row is precisely what a replayed token is matched against:
+ * delete it and `refresh` reads the replay as `unknown` instead of `reused`,
+ * answers the same 401, and silently leaves the rest of the stolen family
+ * usable — the tripwire in FR-5.6 would fire on nothing.
+ *
+ * What is knowingly given up is narrower: once a stolen token is itself past
+ * `expiresAt`, replaying it no longer revokes its family, because the row it
+ * would have matched is gone. Accepted, and the standard line — such a token is
+ * refused on its own expiry and confers no access either way, so all that is
+ * lost is the *detection* of a replay that could not have succeeded. Retention
+ * for the whole window in which a token can still be redeemed is intact.
+ *
+ * Runs at login: a new family is starting, the request is already paying ~200ms
+ * of bcrypt, and it is one indexed delete on `@@index([userId])`. Deliberately
+ * NOT in `refresh`, which answers to a 50ms budget (PERF-2).
+ */
+async function pruneExpiredRefreshTokens(userId: number, log: Logger): Promise<void> {
+  try {
+    const { count } = await prisma.refreshToken.deleteMany({
+      where: { userId, expiresAt: { lte: new Date() } },
+    });
+
+    if (count > 0) {
+      log.info({ event: 'auth.tokens.pruned', userId, count }, 'expired refresh tokens pruned');
+    }
+  } catch (error) {
+    // Housekeeping must never cost a user their login. The rows it failed to
+    // remove are expired and therefore already unusable; the next login retries.
+    log.warn(
+      { event: 'auth.tokens.prune_failed', userId, err: error },
+      'expired refresh token prune failed',
+    );
+  }
+}
+
+/**
  * Unknown email and wrong password are indistinguishable to the caller: the
  * same error object, and the same bcrypt cost on both paths (SEC-2, SEC-3,
  * AC-B07, AC-B08).
@@ -137,6 +181,10 @@ export async function login(input: LoginInput, log: Logger): Promise<Session> {
   }
 
   const session = await issueSession(user);
+
+  // After the new family exists, so a prune that somehow removed too much still
+  // cannot cost this login its own token.
+  await pruneExpiredRefreshTokens(user.id, log);
 
   log.info({ event: 'auth.login.success', userId: user.id, role: user.role }, 'login succeeded');
 
