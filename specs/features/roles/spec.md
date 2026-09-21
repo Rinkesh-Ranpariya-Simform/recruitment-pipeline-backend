@@ -332,7 +332,7 @@ not by the UI not offering a button.
 - **FR-6.9** Deleting a role that does not exist is `404 NOT_FOUND`. **Existence is decided before status**, so
   an unknown id is never a `409` about a status it does not have (EC-14).
 - **FR-6.5** Closing a role has **no cascading effect** in this feature — there is nothing yet to cascade to.
-  What closing means for candidates already in flight is decided by the candidates feature, which must state
+  What closing means for candidates already in flight is decided by the candidate-access feature, which must state
   it explicitly rather than inherit silence from here.
 - **FR-6.10** **Deleting** has no cascading effect *yet*, for the same reason: `Role` has no inbound foreign
   key today (MIG-6). **The feature that adds the first one owns this decision and must state it** — whether a

@@ -5,7 +5,7 @@
 > **Scope:** `backend/` — Express 5 + Prisma 7 + PostgreSQL
 > **Counterpart:** [../../../../frontend/specs/features/audit/spec.md](../../../../frontend/specs/features/audit/spec.md)
 > **Depends on:** [../authentication/spec.md](../authentication/spec.md) — implemented · [../candidate/spec.md](../candidate/spec.md) — implemented
-> **Blocks:** [../pipeline/spec.md](../pipeline/spec.md) · [../interviews/spec.md](../interviews/spec.md) · [../feedback/spec.md](../feedback/spec.md) · [../candidates/spec.md](../candidates/spec.md)
+> **Blocks:** [../pipeline/spec.md](../pipeline/spec.md) · [../interviews/spec.md](../interviews/spec.md) · [../feedback/spec.md](../feedback/spec.md) · [../candidate-access/spec.md](../candidate-access/spec.md)
 > **Parent brief:** [../../../../recruitment-pipeline.md](../../../../recruitment-pipeline.md) §6
 
 ---
@@ -70,7 +70,7 @@ this audit row, in the same transaction"* and mean something concrete.
 
 | # | Question | Decision | Recorded in |
 |---|---|---|---|
-| D-1 | Where does this sit in the build order? | **First of the remaining five.** It is infrastructure; the other four write through it | this document, [../README.md](../README.md) |
+| D-1 | Where does this sit in the build order? | **First of the remaining five.** It is infrastructure; the other four write through it | this document, [../README.md](../../README.md) |
 | D-2 | Application log or database table? | **Table.** Pino stays for operations. `AuditLog` is the business record | FR-1 |
 | D-3 | Written how? | **`recordAudit(tx, …)` taking the transaction client**, called inside the same `$transaction` as the state change. Never the global `prisma` | FR-3, BE-2 |
 | D-4 | Is a failed audit write survivable? | **No.** It aborts the transaction, so the state change rolls back with it. A change nobody can trace does not happen | FR-3.4, EC-04 |
@@ -79,7 +79,7 @@ this audit row, in the same transaction"* and mean something concrete.
 | D-7 | What is in `metadata`? | A per-action **closed shape**, listed in FR-4. Ids, enum values and an override reason — never an email, a phone number, or the text of feedback notes | FR-4, SEC-3 |
 | D-8 | `action` as a Postgres enum or a string? | **Enum.** A free-text action column is how a typo becomes an unqueryable row | MIG-2 |
 | D-9 | Does the audit endpoint paginate? | **Yes**, on the shipped `{ page, pageSize, total, totalPages }` envelope. The table is append-only and grows without bound | FR-5.4, PERF-2 |
-| D-10 | Does this feature write any audit rows itself? | **One:** `CANDIDATE_CONTACT_UPDATED`, owned by the candidates feature. Every other action enum value is written by a later feature; they are all declared here so the enum is not altered five times | FR-4, MIG-3 |
+| D-10 | Does this feature write any audit rows itself? | **One:** `CANDIDATE_CONTACT_UPDATED`, owned by the candidate-access feature. Every other action enum value is written by a later feature; they are all declared here so the enum is not altered five times | FR-4, MIG-3 |
 
 ---
 
@@ -792,9 +792,9 @@ row needs an authenticated actor, and §6 of the brief forbids an anonymous path
 `entityType: APPLICATION` to mean anything.
 
 **Blocks:** [../pipeline/spec.md](../pipeline/spec.md), [../interviews/spec.md](../interviews/spec.md),
-[../feedback/spec.md](../feedback/spec.md), [../candidates/spec.md](../candidates/spec.md). Each
+[../feedback/spec.md](../feedback/spec.md), [../candidate-access/spec.md](../candidate-access/spec.md). Each
 calls `recordAudit` inside its own transaction and cannot be implemented before this ships. See
-[../README.md](../README.md) for the full order.
+[../README.md](../../README.md) for the full order.
 
 **New npm packages:** **none.** `Json` columns, Postgres enums and `$transaction` are Prisma 7
 features already in use.

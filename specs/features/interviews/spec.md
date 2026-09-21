@@ -6,7 +6,7 @@
 > **Counterpart:** [../../../../frontend/specs/features/interviews/spec.md](../../../../frontend/specs/features/interviews/spec.md)
 > **Depends on:** [../audit/spec.md](../audit/spec.md) · [../pipeline/spec.md](../pipeline/spec.md) — both must ship first
 > **Revises:** [../pipeline/spec.md](../pipeline/spec.md) FR-8.2 — the dashboard gains an interview count
-> **Blocks:** [../feedback/spec.md](../feedback/spec.md) · [../candidates/spec.md](../candidates/spec.md)
+> **Blocks:** [../feedback/spec.md](../feedback/spec.md) · [../candidate-access/spec.md](../candidate-access/spec.md)
 > **Parent brief:** [../../../../recruitment-pipeline.md](../../../../recruitment-pipeline.md) §3.2, §4, §6
 
 ---
@@ -614,7 +614,7 @@ model Interview {
 ///
 /// This is the row every interviewer-scoped query in the system joins against.
 /// `GET /api/interviews`, `GET /api/interviews/:id`, the feedback feature's
-/// insert precondition and the candidates feature's `getInterviewerCandidate`
+/// insert precondition and the candidate-access feature's `getInterviewerCandidate`
 /// all resolve authorization through `assignments.some.interviewerId`. It is
 /// introduced here, third in the build order, because the two features after it
 /// cannot express their rules without it.
@@ -669,7 +669,7 @@ model User {
   reasoning that put `@@unique([candidateUserId, roleId])` on `Application`.
 - **MIG-4** `@@index([interviewerId, createdAt])` is added now, not later. It serves "my interviews"
   and — more importantly — it is the index behind the `some: { interviewerId }` join that the
-  feedback and candidates features both depend on. **A sequential scan here would make the
+  feedback and candidate-access features both depend on. **A sequential scan here would make the
   authorization query the slowest thing in the system**, which is a bad property for the query the
   POC is judged on.
 - **MIG-5** Unassignment is a **hard delete** (D-10). There is no `deletedAt` column, because the
@@ -994,7 +994,7 @@ seeded interviewers', `$C` a candidate's. `$APP` is a seeded `ACTIVE` applicatio
   invariants 1, 2, 4).
 - **AC-B28** — **Given** `$R`, **when** `GET /api/interviews/$IV` is called and the body searched,
   **then** `"email"` appears **zero** times — the rule has no recruiter exception in this feature;
-  contact details are the candidates feature's surface (contract invariant 1).
+  contact details are the candidate-access feature's surface (contract invariant 1).
 - **AC-B29** — **Given** the codebase, **when** `INTERVIEWER_INTERVIEW_SELECT` in
   `interview.select.ts` is read, **then** it names neither `email` nor `candidateProfile` **nor**
   `assignments` (FR-5.3, SEC-1).
@@ -1078,7 +1078,7 @@ its summary endpoint.
 
 **Blocks:** [../feedback/spec.md](../feedback/spec.md) — feedback is authorized by an
 `InterviewAssignment` row and has nothing to join without this table.
-[../candidates/spec.md](../candidates/spec.md) — `getInterviewerCandidate()` walks
+[../candidate-access/spec.md](../candidate-access/spec.md) — `getInterviewerCandidate()` walks
 `applications → interviews → assignments`.
 
 **Revises:** [../pipeline/spec.md](../pipeline/spec.md) FR-8.2, FR-8.4, XFE-9, PERF-4, AC-B33 — see

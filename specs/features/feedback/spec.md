@@ -5,7 +5,7 @@
 > **Scope:** `backend/` — Express 5 + Prisma 7 + PostgreSQL
 > **Counterpart:** [../../../../frontend/specs/features/feedback/spec.md](../../../../frontend/specs/features/feedback/spec.md)
 > **Depends on:** [../audit/spec.md](../audit/spec.md) · [../pipeline/spec.md](../pipeline/spec.md) · [../interviews/spec.md](../interviews/spec.md) — all must ship first
-> **Blocks:** [../candidates/spec.md](../candidates/spec.md)
+> **Blocks:** [../candidate-access/spec.md](../candidate-access/spec.md)
 > **Parent brief:** [../../../../recruitment-pipeline.md](../../../../recruitment-pipeline.md) §3.2, §3.4, §3.6, §6
 
 ---
@@ -950,7 +950,7 @@ authorization for this feature; there is nothing to join without it.
 there and written here. [../pipeline/spec.md](../pipeline/spec.md) — `INTERVIEW_CANCELLED` sits
 beside the conflict codes that feature added, and EC-03 composes with its override race.
 
-**Blocks:** [../candidates/spec.md](../candidates/spec.md) — the recruiter candidate detail renders
+**Blocks:** [../candidate-access/spec.md](../candidate-access/spec.md) — the recruiter candidate detail renders
 the feedback this feature writes.
 
 **New npm packages:** **none.**

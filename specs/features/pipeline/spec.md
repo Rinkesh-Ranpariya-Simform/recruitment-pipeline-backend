@@ -5,7 +5,7 @@
 > **Scope:** `backend/` — Express 5 + Prisma 7 + PostgreSQL
 > **Counterpart:** [../../../../frontend/specs/features/pipeline/spec.md](../../../../frontend/specs/features/pipeline/spec.md)
 > **Depends on:** [../candidate/spec.md](../candidate/spec.md) — implemented · [../audit/spec.md](../audit/spec.md) — must ship first
-> **Blocks:** [../interviews/spec.md](../interviews/spec.md) · [../candidates/spec.md](../candidates/spec.md)
+> **Blocks:** [../interviews/spec.md](../interviews/spec.md) · [../candidate-access/spec.md](../candidate-access/spec.md)
 > **Parent brief:** [../../../../recruitment-pipeline.md](../../../../recruitment-pipeline.md) §3.1, §3.3, §3.5, §6
 
 ---
@@ -84,7 +84,7 @@ The schema was built anticipating this feature; this spec is where that anticipa
 | D-10 | Two recruiters move the same application at once? | **The first wins; the second gets `409 STAGE_CONFLICT`.** Enforced by a stage-guarded `updateMany` whose `count: 0` means someone else moved first — never a read-then-write | FR-6, EC-01 |
 | D-11 | Can a terminal application be moved? | **No.** `HIRED` and `REJECTED` are terminal. Any transition or override against one is `409 APPLICATION_NOT_ACTIVE` | FR-2.6, FR-4.6 |
 | D-12 | Does the dashboard count interviews? | **Not yet.** The `Interview` table does not exist at this point in the order. The interviews feature adds that tile as a Revision to this spec | FR-8.4 |
-| D-13 | Does this feature touch `GET /api/applications`? | **No.** It stays candidate-scoped and unpaged. A recruiter's view of applications is `GET /api/candidates`, owned by the candidates feature | Out of Scope |
+| D-13 | Does this feature touch `GET /api/applications`? | **No.** It stays candidate-scoped and unpaged. A recruiter's view of applications is `GET /api/candidates`, owned by the candidate-access feature | Out of Scope |
 
 ---
 
@@ -260,7 +260,7 @@ The schema was built anticipating this feature; this spec is where that anticipa
 - **FR-5.5** `reason` is **not** a column on `StageHistory` (D-7). A reader who needs it joins
   `StageOverride`, where it is `NOT NULL` and cannot be absent. Duplicating it would create a
   column that can disagree with itself.
-- **FR-5.6** History is written by this feature and **read** by the candidates feature, on the
+- **FR-5.6** History is written by this feature and **read** by the candidate-access feature, on the
   recruiter candidate detail. This feature adds no history-reading endpoint of its own — one more
   endpoint returning the same rows in a different envelope is how a contract rots.
 - **FR-5.7** `POST /api/applications` (candidate feature) is amended to write the `APPLIED` entry
@@ -398,7 +398,7 @@ The obligations this backend places on the Next.js client. The rest of the front
   `candidateCount` is `0`. A client that formats `null` as `0 days` is stating something false.
 - **XFE-8** `GET /api/pipeline` is unpaginated and returns no candidate names — only counts and
   ageing (FR-7.9). **The board is not a candidate list.** Names come from `GET /api/candidates`,
-  which is the candidates feature and is paginated.
+  which is the candidate-access feature and is paginated.
 - **XFE-9** `GET /api/pipeline/summary` has **no interview count** in this version (D-12, FR-8.4).
   The client must not render a tile for a field the API does not send; the interviews feature adds
   it.
@@ -899,7 +899,7 @@ The shipped envelope, unchanged: `{ code, message, details? }`.
   constrained to the enum. This is the only raw SQL in the codebase; the rule is absolute and
   `$queryRawUnsafe` is not used anywhere (BE-4).
 - **SEC-4** No endpoint in this feature returns a candidate's name, email or phone (contract
-  invariant 1–3). The board is counts; the people behind them are the candidates feature, where the
+  invariant 1–3). The board is counts; the people behind them are the candidate-access feature, where the
   role-aware selects live.
 - **SEC-5** The override `reason` is recruiter free text. It is stored, returned to recruiters, and
   recorded in audit metadata — and it is in the pino `redact` list (audit FR-8.3), so it never
@@ -1130,7 +1130,7 @@ application id at `APPLIED`.
 | Un-rejecting or reopening a terminal application | Terminal is terminal (D-11). A reversal path needs its own audit semantics and a decision nobody has made |
 | Configurable per-role stage graphs | The brief asks for *"a defined, finite set"* and says the exact list can be configured "according to the POC requirements". One graph, in code, is that configuration |
 | Bulk stage moves | A batch endpoint multiplies the concurrency surface (FR-6) for a convenience nobody asked for |
-| A history-reading endpoint | History is read on the recruiter candidate detail, owned by the candidates feature (FR-5.6). A second endpoint returning the same rows in a new envelope is how a contract rots |
+| A history-reading endpoint | History is read on the recruiter candidate detail, owned by the candidate-access feature (FR-5.6). A second endpoint returning the same rows in a new envelope is how a contract rots |
 | Widening `GET /api/applications` to recruiters | A recruiter's view of applications is `GET /api/candidates`, scoped for the purpose (D-13) |
 | Interview counts on the dashboard | The table does not exist yet; the interviews feature adds it as a Revision (D-12, FR-8.4) |
 | "Stuck beyond N days" alert view | Brief §8 optional work. The aggregate returns `maxDaysInStage`, which is the input such a view would need |
@@ -1150,7 +1150,7 @@ its transaction, so the writer and table must exist first.
 
 **Blocks:** [../interviews/spec.md](../interviews/spec.md) — `Interview.stage` is a `PipelineStage`
 and rounds are created against `ACTIVE` applications.
-[../candidates/spec.md](../candidates/spec.md) — the recruiter candidate detail renders the
+[../candidate-access/spec.md](../candidate-access/spec.md) — the recruiter candidate detail renders the
 `StageHistory` timeline this feature writes.
 
 **New npm packages:** **none.** `$queryRaw` is Prisma 7 core.

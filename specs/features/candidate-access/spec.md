@@ -1,9 +1,9 @@
-# Candidates — Role-Aware Candidate Access (Backend)
+# Candidate Access — Recruiter & Interviewer Views of a Candidate (Backend)
 
 > **Status:** Draft — awaiting approval. `plan.md` is a later artifact and does not exist yet.
-> **Feature slug:** `candidates`
+> **Feature slug:** `candidate-access`
 > **Scope:** `backend/` — Express 5 + Prisma 7 + PostgreSQL
-> **Counterpart:** [../../../../frontend/specs/features/candidates/spec.md](../../../../frontend/specs/features/candidates/spec.md)
+> **Counterpart:** [../../../../frontend/specs/features/candidate-access/spec.md](../../../../frontend/specs/features/candidate-access/spec.md)
 > **Depends on:** [../audit/spec.md](../audit/spec.md) · [../pipeline/spec.md](../pipeline/spec.md) · [../interviews/spec.md](../interviews/spec.md) · [../feedback/spec.md](../feedback/spec.md) — all must ship first
 > **Parent brief:** [../../../../recruitment-pipeline.md](../../../../recruitment-pipeline.md) §3.2, §3.6, §4, §6, §7.3
 
@@ -333,7 +333,7 @@ schema and correcting it later — which is exactly how a leak ships.
 ## Frontend Requirements
 
 The obligations this backend places on the Next.js client. The rest of the frontend design lives in
-[../../../../frontend/specs/features/candidates/spec.md](../../../../frontend/specs/features/candidates/spec.md).
+[../../../../frontend/specs/features/candidate-access/spec.md](../../../../frontend/specs/features/candidate-access/spec.md).
 
 - **XFE-1** `GET /api/candidates` and `GET /api/candidates/:id` return **two different shapes**,
   chosen by the caller's role. The client needs **two TypeScript types**, not one with optional
@@ -1031,7 +1031,7 @@ there and written here, closing the last of the nine action values (audit MIG-3,
 [../candidate/spec.md](../candidate/spec.md) (implemented) — candidates and their applications
 exist there.
 
-**Blocks:** nothing. This is the last feature in the sequence; see [../README.md](../README.md).
+**Blocks:** nothing. This is the last feature in the sequence; see [../README.md](../../README.md).
 
 **New npm packages:** **none.**
 
@@ -1061,5 +1061,5 @@ exist there.
 
 **Cross-repo:** a change to the three endpoints, the two projections, the `?q=` role restriction, or
 the `PATCH` field list must be made in
-[../../../../frontend/specs/features/candidates/spec.md](../../../../frontend/specs/features/candidates/spec.md)
+[../../../../frontend/specs/features/candidate-access/spec.md](../../../../frontend/specs/features/candidate-access/spec.md)
 in the same pass.
