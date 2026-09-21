@@ -66,7 +66,7 @@ export async function createApplication(
 
       const now = new Date();
 
-      return tx.application.create({
+      const created = await tx.application.create({
         data: {
           candidateUserId,
           roleId: role.id,
@@ -76,6 +76,37 @@ export async function createApplication(
         },
         select: APPLICATION_SELECT,
       });
+
+      // The ENTRY row of the stage timeline (pipeline FR-9.1, FR-5.3) — the one
+      // statement this feature gains from the pipeline feature, and the only
+      // amendment pipeline makes to shipped code.
+      //
+      // `fromStage`/`fromStatus` are null here and ONLY here: this row records
+      // an application coming into existence at APPLIED, so there is no
+      // "before" to name. Every later row has both ends.
+      //
+      // `changedByUserId` is the candidate, not a recruiter. Entry into APPLIED
+      // is the act of applying, and it is the one transition in the timeline
+      // this API does not attribute to a recruiter.
+      //
+      // Inside the EXISTING transaction, so an application can never exist with
+      // no history — the same rule every pipeline write follows. No response
+      // shape changes and no status code changes: the candidate feature's
+      // acceptance criteria are untouched (FR-9.2, AC-B48).
+      await tx.stageHistory.create({
+        data: {
+          applicationId: created.id,
+          fromStage: null,
+          toStage: PipelineStage.APPLIED,
+          fromStatus: null,
+          toStatus: ApplicationStatus.ACTIVE,
+          changedByUserId: candidateUserId,
+          overrideId: null,
+        },
+        select: { id: true },
+      });
+
+      return created;
     });
   } catch (error) {
     // The duplicate is caught OUTSIDE the transaction, not inside it: a unique

@@ -96,6 +96,15 @@ model User {
   /// `Restrict` on the far side means a user who has performed any audited
   /// action can no longer be deleted — see `AuditLog.actor` (MIG-4).
   auditLogs AuditLog[]
+
+  /// NEW (pipeline MIG-1). Back-relations only; no column is added here.
+  /// Both are named relations because `User` is reachable from `StageHistory`
+  /// and `StageOverride` by exactly one path each and Prisma needs the name to
+  /// tell the two apart. `Restrict` on the far side, for the same reason as
+  /// `auditLogs`: a recruiter who moved someone is part of that record
+  /// (MIG-4).
+  stageChanges StageHistory[]  @relation("StageHistoryActor")
+  overrides    StageOverride[] @relation("StageOverrideActor")
 }
 
 model RefreshToken {
@@ -132,12 +141,12 @@ model Role {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  applications Application[]
+
   // Both added now, not after a slow query is observed — the brief expects the
   // query plan to be defensible at 200 roles (MIG-5, PERF-1).
   @@index([status, createdAt]) // GET /api/roles?status=OPEN — filter and sort in one index
   @@index([createdAt]) // GET /api/roles — the unfiltered listing's ORDER BY
-
-  applications Application[]
 }
 
 /// A candidate's application to one requisition (FR-5, MIG-3).
@@ -183,15 +192,24 @@ model Application {
   /// delete; the service maps `P2003` to `409 ROLE_HAS_APPLICATIONS`.
   role Role @relation(fields: [roleId], references: [id], onDelete: Restrict)
 
+  /// NEW (pipeline FR-5). Back-relations only; no column is added here.
+  stageHistory StageHistory[]
+  overrides    StageOverride[]
+
   /// One application per candidate per requisition. Repeat applies are rejected
   /// by Postgres, so the rule holds under concurrency and for any writer —
   /// including a future admin path or a seed script — not just this service.
   @@unique([candidateUserId, roleId])
-
   // Kept alongside the unique index above, which cannot serve this ORDER BY:
   // its second column is `roleId`, not `createdAt`.
   @@index([candidateUserId, createdAt]) // GET /api/applications — filter and sort in one index
-  @@index([roleId, currentStage]) // the pipeline aggregate, and the FK check behind Restrict
+  @@index([roleId, currentStage]) // the FK check behind Restrict, and role-scoped stage reads
+  /// NEW (pipeline MIG-6). The ageing aggregate's WHERE + GROUP BY in one
+  /// index. The line above cannot serve it: `status = 'ACTIVE'` is the
+  /// aggregate's most selective predicate and must lead, and that index does
+  /// not carry `status` at all. Added now rather than after a slow query is
+  /// observed — the plan is checked at 200 roles / 20,000 candidates (PERF-1).
+  @@index([status, roleId, currentStage])
 }
 
 /// NEW (audit FR-1). Append-only: one row per state-changing action performed
@@ -233,4 +251,71 @@ model AuditLog {
   @@index([actorUserId, createdAt]) // "everything this recruiter did"
   @@index([action, createdAt]) // "every override this month" — US-04
   @@index([createdAt]) // the unfiltered feed's ORDER BY
+}
+
+/// NEW (pipeline FR-5). Every change to an Application's stage or status, as a
+/// row.
+///
+/// This is the audit of HOW a stage was entered. `Application.stageEnteredAt`
+/// is the denormalised WHEN, kept because the ageing aggregate must not join
+/// this table 20,000 times (D-8, PERF-1).
+///
+/// Distinct from `AuditLog`, which records every action this API performs
+/// across four entity types. This one is a typed, queryable timeline of one
+/// column's history, and the candidate-access feature renders it directly.
+model StageHistory {
+  id            Int @id @default(autoincrement())
+  applicationId Int
+
+  /// Null ONLY on the row representing entry into APPLIED — the application's
+  /// creation (FR-5.3). Every later row has both ends.
+  fromStage  PipelineStage?
+  toStage    PipelineStage
+  fromStatus ApplicationStatus?
+  toStatus   ApplicationStatus
+
+  changedByUserId Int
+
+  /// Non-null IFF this transition used the override path (FR-5.4). `@unique`,
+  /// so one override has at most one history row and the two cannot fan out.
+  /// Postgres permits many NULLs in a unique index, so this constrains only the
+  /// override-linked rows — exactly the intent (MIG-8).
+  ///
+  /// `reason` is deliberately NOT duplicated here (D-7) — it lives on
+  /// `StageOverride`, NOT NULL, one join away. A duplicated column is a column
+  /// that can disagree with itself.
+  overrideId Int? @unique
+
+  createdAt DateTime @default(now())
+
+  application Application    @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  changedBy   User           @relation("StageHistoryActor", fields: [changedByUserId], references: [id], onDelete: Restrict)
+  override    StageOverride? @relation(fields: [overrideId], references: [id], onDelete: Cascade)
+
+  @@index([applicationId, createdAt]) // the candidate-detail timeline read (PERF-8)
+}
+
+/// NEW (pipeline FR-4, brief §3.3). A stage skip, and the reason for it.
+///
+/// `reason` is NOT NULL. The brief requires an override be "genuinely recorded,
+/// not inferred", and a nullable column would make "recorded" a matter of code
+/// discipline rather than of schema. This is the row a reviewer asks to see.
+model StageOverride {
+  id            Int @id @default(autoincrement())
+  applicationId Int
+
+  fromStage PipelineStage
+  toStage   PipelineStage
+
+  /// 10–1000 characters, enforced at the boundary by zod and here by NOT NULL.
+  reason String
+
+  performedByUserId Int
+  createdAt         DateTime @default(now())
+
+  application Application   @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  performedBy User          @relation("StageOverrideActor", fields: [performedByUserId], references: [id], onDelete: Restrict)
+  history     StageHistory?
+
+  @@index([applicationId, createdAt])
 }

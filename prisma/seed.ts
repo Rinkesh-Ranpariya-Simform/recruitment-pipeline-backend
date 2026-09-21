@@ -12,7 +12,7 @@ import { hashPassword } from '../src/lib/password.js';
 import { disconnect, prisma } from '../src/lib/prisma.js';
 import { APPLICATION_SELECT } from '../src/modules/applications/application.select.js';
 import { recordAudit } from '../src/modules/audit/audit.service.js';
-import type { AuditEntry } from '../src/modules/audit/audit.service.js';
+import { stagesSkipped } from '../src/modules/pipeline/pipeline.rules.js';
 import { ROLE_SELECT } from '../src/modules/roles/role.select.js';
 import { SAFE_USER_SELECT } from '../src/modules/users/user.select.js';
 
@@ -87,85 +87,98 @@ const SEED_APPLICATIONS = [
 ] as const;
 
 /**
- * The audit trace for each seeded application (audit spec FR-7.1).
+ * The timeline behind each seeded application (audit FR-7.1, pipeline FR-10.3).
  *
- * These are the rows that EXPLAIN the seeded state rather than inventing a
- * separate history: `SEED_APPLICATIONS` already places one application at
- * `INTERVIEW` and one at `REJECTED`/`SCREEN`, which no API path can produce
- * yet, and a trace that does not account for how they got there is worse than
- * no trace. This is not a backfill of real history - there is none (MIG-7) -
- * it is the demo state described in the demo table.
+ * These are the steps that EXPLAIN the seeded state rather than inventing a
+ * separate history: `SEED_APPLICATIONS` places one application at `INTERVIEW`
+ * and one at `REJECTED`/`SCREEN`, and a database that shows those states with
+ * no account of how they were reached is worse than one with no trace at all.
+ *
+ * **One declaration drives three tables.** Each step below produces its
+ * `StageHistory` row, its `StageOverride` row where there is one, and its
+ * `AuditLog` row — from the same literal, in the same transaction, through the
+ * same `recordAudit` a request path uses. Declaring the history and the audit
+ * trace separately would let a reseed produce two accounts of one application
+ * that disagree, which is precisely the state these tables exist to rule out.
+ *
+ * It also closes the placeholder the audit feature shipped with: the seeded
+ * override's `overrideId` was a hard-coded `1` naming a row in a table that did
+ * not exist yet. It is now the real row's id, read back from the insert.
  *
  * Keyed by role title, matching `SEED_APPLICATIONS`, because `Role.id` and
  * `Application.id` are not stable across a reseed.
  *
- * Listed in CHRONOLOGICAL order and inserted in that order. Every seeded row
- * shares roughly one `createdAt` - `recordAudit` takes no timestamp, because
- * the column is the database's `now()` and never a caller's (FR-1.6) - so the
- * feed's `id desc` tiebreak is what actually orders them (FR-5.1). Inserting
- * oldest-first is therefore what makes the newest-first feed read correctly.
+ * Listed in CHRONOLOGICAL order and applied in that order. Every seeded row
+ * shares roughly one `createdAt` — neither `recordAudit` nor these inserts take
+ * a timestamp, because the column is the database's `now()` and never a
+ * caller's (audit FR-1.6) — so the feed's `id desc` tiebreak is what actually
+ * orders them (FR-5.1). Applying oldest-first is what makes the newest-first
+ * feed read correctly.
  *
- * "Product Designer" appears here with NO entries, deliberately: it is the
- * application that proves an entity with no trace answers `200 { entries: [] }`
- * rather than a 404 (AC-B06).
+ * "Product Designer" appears here with NO steps, deliberately: it is the
+ * application that proves an entity with no audit trace answers
+ * `200 { entries: [] }` rather than a 404 (AC-B06). It still gets the entry
+ * `StageHistory` row every application gets — a blank timeline and a blank
+ * audit feed are different facts (pipeline AC-B49).
  */
-type SeedAuditEntry<Entry = Extract<AuditEntry, { entityType: 'APPLICATION' }>> =
-  // DISTRIBUTIVE on purpose. A bare `Omit<Union, K>` collapses the union into
-  // one object whose `action` is every literal at once, which then matches no
-  // member of `AuditEntry` - the discriminated union's whole guarantee (FR-3.3)
-  // is lost exactly where the seed most needs it. The naked type parameter is
-  // what keeps each variant separate through the omission.
-  Entry extends unknown ? Omit<Entry, 'actorUserId' | 'entityId' | 'entityType'> : never;
+interface SeedStageStep {
+  kind: 'stage';
+  fromStage: PipelineStage;
+  toStage: PipelineStage;
+}
 
-const SEED_AUDIT: ReadonlyArray<{
+/** A skip, with the reason that makes it accountable (brief §3.3). */
+interface SeedOverrideStep {
+  kind: 'override';
+  fromStage: PipelineStage;
+  toStage: PipelineStage;
+  reason: string;
+}
+
+/** A terminal outcome. It does NOT move the stage (pipeline FR-3.5). */
+interface SeedOutcomeStep {
+  kind: 'outcome';
+  atStage: PipelineStage;
+  toStatus: typeof ApplicationStatus.HIRED | typeof ApplicationStatus.REJECTED;
+}
+
+type SeedTimelineStep = SeedStageStep | SeedOverrideStep | SeedOutcomeStep;
+
+const SEED_TIMELINES: ReadonlyArray<{
   roleTitle: string;
-  entries: ReadonlyArray<SeedAuditEntry>;
+  steps: ReadonlyArray<SeedTimelineStep>;
 }> = [
   {
     roleTitle: 'Senior Backend Engineer',
-    entries: [
-      {
-        action: AuditAction.CANDIDATE_STAGE_CHANGED,
-        metadata: { fromStage: PipelineStage.APPLIED, toStage: PipelineStage.SCREEN },
-      },
-      {
-        action: AuditAction.CANDIDATE_STAGE_CHANGED,
-        metadata: { fromStage: PipelineStage.SCREEN, toStage: PipelineStage.INTERVIEW },
-      },
+    steps: [
+      { kind: 'stage', fromStage: PipelineStage.APPLIED, toStage: PipelineStage.SCREEN },
+      { kind: 'stage', fromStage: PipelineStage.SCREEN, toStage: PipelineStage.INTERVIEW },
     ],
   },
   {
     roleTitle: 'Engineering Manager',
-    entries: [
+    steps: [
       /**
        * The one seeded override, and the only free text anywhere in the seeded
-       * trace (FR-4.5, AC-B25). Without it there is no `reason` in the database
-       * to check that claim against, and the recruiter feed has nothing to show
-       * for the brief's section 3.3 requirement.
+       * data (audit FR-4.5, AC-B25). Without it there is no `reason` in the
+       * database to check that claim against, and the recruiter feed has
+       * nothing to show for the brief's §3.3 requirement.
        *
-       * KNOWN PLACEHOLDER: `overrideId` names a `StageOverride` row that does
-       * not exist yet - that table arrives with the pipeline feature, which
-       * owns this action (FR-4.1). `entityId` on the row itself is a real
-       * application. When pipeline ships, this entry must be rewritten to
-       * create the real override row and use its id.
+       * `skipped` works out to 0: `APPLIED → SCREEN` is a move the graph would
+       * have allowed anyway, which the override path permits and records as
+       * such (pipeline FR-4.5). That is the more interesting demo row of the
+       * two — it shows the distinction is captured rather than assumed.
        */
       {
-        action: AuditAction.STAGE_OVERRIDE_CREATED,
-        metadata: {
-          fromStage: PipelineStage.APPLIED,
-          toStage: PipelineStage.SCREEN,
-          reason: 'Candidate completed an equivalent external screening; skipping ours.',
-          overrideId: 1,
-          skipped: 0,
-        },
+        kind: 'override',
+        fromStage: PipelineStage.APPLIED,
+        toStage: PipelineStage.SCREEN,
+        reason: 'Candidate completed an equivalent external screening; skipping ours.',
       },
       {
-        action: AuditAction.APPLICATION_OUTCOME_SET,
-        metadata: {
-          fromStatus: ApplicationStatus.ACTIVE,
-          toStatus: ApplicationStatus.REJECTED,
-          atStage: PipelineStage.SCREEN,
-        },
+        kind: 'outcome',
+        atStage: PipelineStage.SCREEN,
+        toStatus: ApplicationStatus.REJECTED,
       },
     ],
   },
@@ -369,19 +382,146 @@ async function main(): Promise<void> {
         select: APPLICATION_SELECT,
       });
 
-      const trace = SEED_AUDIT.find((entry) => entry.roleTitle === seed.roleTitle);
+      // The ENTRY row, for EVERY seeded application including the one with no
+      // timeline (pipeline FR-5.3, AC-B49). `fromStage`/`fromStatus` are null
+      // here and only here, and the actor is the candidate: entry into APPLIED
+      // is the act of applying. Mirrors what `POST /api/applications` now writes
+      // inside its own transaction (pipeline FR-9.1).
+      await tx.stageHistory.create({
+        data: {
+          applicationId: created.id,
+          fromStage: null,
+          toStage: PipelineStage.APPLIED,
+          fromStatus: null,
+          toStatus: ApplicationStatus.ACTIVE,
+          changedByUserId: candidate.id,
+          overrideId: null,
+          createdAt: at,
+        },
+        select: { id: true },
+      });
 
-      for (const entry of trace?.entries ?? []) {
-        // `recordAudit`, not a direct `tx.auditLog.create` - the seed is the one
-        // writer outside a request, but it is still not allowed its own second
-        // way of creating a row (FR-3.1, FR-7.3).
+      const timeline = SEED_TIMELINES.find((entry) => entry.roleTitle === seed.roleTitle);
+
+      for (const step of timeline?.steps ?? []) {
+        // Each step writes its history row and its audit row together, exactly
+        // as the request path does. `recordAudit` is called rather than a direct
+        // `tx.auditLog.create` - the seed is the one writer outside a request,
+        // but it is still not allowed a second way of creating a row (audit
+        // FR-3.1, FR-7.3).
+        if (step.kind === 'override') {
+          // The override row FIRST, then the history row that points at it -
+          // the same order the service uses, so the seeded rows are
+          // indistinguishable in shape from ones a recruiter produced
+          // (pipeline FR-4.7).
+          const override = await tx.stageOverride.create({
+            data: {
+              applicationId: created.id,
+              fromStage: step.fromStage,
+              toStage: step.toStage,
+              reason: step.reason,
+              performedByUserId: auditActor.id,
+              createdAt: at,
+            },
+            select: { id: true },
+          });
+
+          await tx.stageHistory.create({
+            data: {
+              applicationId: created.id,
+              fromStage: step.fromStage,
+              toStage: step.toStage,
+              fromStatus: ApplicationStatus.ACTIVE,
+              toStatus: ApplicationStatus.ACTIVE,
+              changedByUserId: auditActor.id,
+              overrideId: override.id,
+              createdAt: at,
+            },
+            select: { id: true },
+          });
+
+          await recordAudit(
+            tx,
+            {
+              action: AuditAction.STAGE_OVERRIDE_CREATED,
+              entityType: AuditEntityType.APPLICATION,
+              entityId: created.id,
+              actorUserId: auditActor.id,
+              metadata: {
+                fromStage: step.fromStage,
+                toStage: step.toStage,
+                reason: step.reason,
+                // The REAL row's id, replacing the hard-coded `1` the audit
+                // feature had to ship before this table existed.
+                overrideId: override.id,
+                // Computed from the canonical order rather than written down,
+                // so the seeded row cannot claim a skip count the stages
+                // contradict (pipeline FR-4.8).
+                skipped: stagesSkipped(step.fromStage, step.toStage),
+              },
+            },
+            logger,
+          );
+          continue;
+        }
+
+        if (step.kind === 'outcome') {
+          // `fromStage === toStage`: an outcome moves the status, not the stage
+          // (pipeline FR-3.5, FR-3.7).
+          await tx.stageHistory.create({
+            data: {
+              applicationId: created.id,
+              fromStage: step.atStage,
+              toStage: step.atStage,
+              fromStatus: ApplicationStatus.ACTIVE,
+              toStatus: step.toStatus,
+              changedByUserId: auditActor.id,
+              overrideId: null,
+              createdAt: at,
+            },
+            select: { id: true },
+          });
+
+          await recordAudit(
+            tx,
+            {
+              action: AuditAction.APPLICATION_OUTCOME_SET,
+              entityType: AuditEntityType.APPLICATION,
+              entityId: created.id,
+              actorUserId: auditActor.id,
+              metadata: {
+                fromStatus: ApplicationStatus.ACTIVE,
+                toStatus: step.toStatus,
+                atStage: step.atStage,
+              },
+            },
+            logger,
+          );
+          continue;
+        }
+
+        await tx.stageHistory.create({
+          data: {
+            applicationId: created.id,
+            fromStage: step.fromStage,
+            toStage: step.toStage,
+            fromStatus: ApplicationStatus.ACTIVE,
+            toStatus: ApplicationStatus.ACTIVE,
+            changedByUserId: auditActor.id,
+            overrideId: null,
+            createdAt: at,
+          },
+          select: { id: true },
+        });
+
         await recordAudit(
           tx,
           {
-            ...entry,
+            action: AuditAction.CANDIDATE_STAGE_CHANGED,
             entityType: AuditEntityType.APPLICATION,
             entityId: created.id,
             actorUserId: auditActor.id,
+            metadata: { fromStage: step.fromStage, toStage: step.toStage },
           },
           logger,
         );
@@ -414,7 +554,7 @@ try {
       accounts: SEED_ACCOUNTS.length,
       roles: SEED_ROLES.length,
       applications: SEED_APPLICATIONS.length,
-      auditEntries: SEED_AUDIT.reduce((count, trace) => count + trace.entries.length, 0),
+      timelineSteps: SEED_TIMELINES.reduce((count, trace) => count + trace.steps.length, 0),
     },
     'seed complete',
   );

@@ -3,6 +3,7 @@ import { UserRole } from '../../generated/prisma/enums.js';
 import { requireAuth } from '../../middleware/requireAuth.js';
 import { requireRole } from '../../middleware/requireRole.js';
 import { validate } from '../../middleware/validate.js';
+import { pipelineApplicationRoutes } from '../pipeline/pipeline.routes.js';
 import * as applicationsController from './applications.controller.js';
 import { createApplicationSchema } from './applications.schema.js';
 
@@ -24,6 +25,14 @@ export const applicationsRouter = Router();
  * 405 — it falls through to `notFound` like any path that does not exist
  * (FR-6.8, EC-09, AC-B44). **The absence is the guarantee**: with no by-id
  * surface, there is no scoping rule on it to forget. Do not add one.
+ *
+ * The three RECRUITER-only writes under `/:applicationId` — stage, override and
+ * outcome — are mounted at the bottom of this file from
+ * `pipeline.routes.ts` (pipeline BE-5). They live in that module rather than
+ * here so the module owning the stage rules also owns every route that applies
+ * them; the resource is an application, which is why they hang off this path.
+ * **Neither of the two routes above is widened by them** (pipeline FR-9.2,
+ * D-13): `GET /api/applications` stays candidate-scoped and unpaged.
  */
 applicationsRouter.post(
   '/',
@@ -39,3 +48,14 @@ applicationsRouter.get(
   requireRole(UserRole.CANDIDATE),
   applicationsController.list,
 );
+
+/**
+ * The pipeline feature's three writes, on `/:applicationId/…` (pipeline BE-5).
+ *
+ * Mounted LAST, and that is safe rather than merely conventional: both routes
+ * above match the exact path `/`, so nothing below them can shadow either.
+ * Every route inside carries its own `requireAuth` + `requireRole(RECRUITER)`
+ * stack — none of this module's `CANDIDATE` guards apply to them, and none of
+ * their `RECRUITER` guards leak back onto the two routes above.
+ */
+applicationsRouter.use(pipelineApplicationRoutes);

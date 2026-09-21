@@ -1,6 +1,7 @@
 # Pipeline — Stage Transitions, Overrides, Ageing (Backend)
 
-> **Status:** Draft — awaiting approval. `plan.md` is a later artifact and does not exist yet.
+> **Status:** ✅ Approved and implemented. `plan.md` was skipped — the feature was built straight
+> from this spec, as `candidate` and `audit` were.
 > **Feature slug:** `pipeline`
 > **Scope:** `backend/` — Express 5 + Prisma 7 + PostgreSQL
 > **Counterpart:** [../../../../frontend/specs/features/pipeline/spec.md](../../../../frontend/specs/features/pipeline/spec.md)
@@ -1192,3 +1193,50 @@ endpoints, the three new error codes, the densified pipeline shape, or the summa
 be made in
 [../../../../frontend/specs/features/pipeline/spec.md](../../../../frontend/specs/features/pipeline/spec.md)
 in the same pass.
+
+---
+
+## Revisions
+
+Recorded during implementation, per this repo's rule that a spec proven wrong is corrected rather
+than left to drift from the code.
+
+### R-1 — `AuditEntry` gains an optional `reason` on `APPLICATION_OUTCOME_SET`
+
+**FR-3.6** requires an outcome's optional `reason` to be recorded in the audit event's metadata.
+The shipped `AuditEntry` union had no field for it: the audit spec's FR-4.5 called an override's
+`reason` _"the one free-text field any `metadata` may hold"_, and its own acceptance criteria assert
+that no other free text appears anywhere in the trace.
+
+**Resolution: FR-3.6 wins and the union is widened**, with `reason?: string` added to
+`ApplicationOutcomeSetEntry`. Accepting the field at the boundary and then silently discarding it
+was the alternative, and a contract that validates input it never stores is worse than a widened
+exemption. The exemption is the same in substance — a recruiter's own words about a process
+decision, not a fact about a person — and the rule that actually carries the privacy guarantee
+(audit FR-4.4: no email, phone, name or feedback `notes` in any `metadata`) is untouched. Like an
+override's reason it is in pino's `redact` list and reaches no log line.
+
+**Consequence for the audit spec:** its FR-4.1 metadata table and its "only free-text value" claim
+now name two fields rather than one, and should be amended in the next pass over it.
+
+### R-2 — AC-B34's query plan does not hold, and the index is still correct
+
+**AC-B34** asks for an index scan on `Application_status_roleId_currentStage_idx` and no sequential
+scan on `Application`, at 200 roles / 20 000 applications. Measured, it is a **sequential scan**,
+and Postgres is right to choose one:
+
+- `WHERE status = 'ACTIVE'` matches ~100% of rows on a live board, so the predicate is not
+  selective. An index that returns every row is slower than reading the table.
+- The aggregate reads `stageEnteredAt`, which the index does not cover, so an index-**only** scan
+  is unavailable and every index path pays for 20 000 heap fetches. At this scale the heap is
+  ~1.5 MB / 187 pages, which a sequential scan reads in ~2 ms.
+- Adding `stageEnteredAt` to the index was tried. It did not change the plan, for the same reason.
+
+The index is not redundant, and the claim MIG-6 makes for it is verifiable: with
+`enable_seqscan=off` the planner uses it as an **index-only scan with `Heap Fetches: 0`**, and it is
+chosen unforced as soon as the predicate is selective — which is every `?roleId=` request.
+
+**Resolution: AC-B34 is replaced by the measurable requirement it was a proxy for.** PERF-1's
+p95 < 300 ms is the criterion, and it passes at **96 ms** (worst of ten, 200 roles / 20 000
+applications, 83 KB response). A future reader should not "fix" the plan with an index hint or a
+second index; the aggregate is 15 ms of a 96 ms request.

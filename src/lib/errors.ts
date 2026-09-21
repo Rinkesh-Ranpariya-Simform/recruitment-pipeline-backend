@@ -18,6 +18,9 @@ export type ErrorCode =
   | 'ROLE_NOT_CLOSED'
   | 'ROLE_HAS_APPLICATIONS'
   | 'ALREADY_APPLIED'
+  | 'INVALID_STAGE_TRANSITION'
+  | 'APPLICATION_NOT_ACTIVE'
+  | 'STAGE_CONFLICT'
   | 'INTERNAL_ERROR';
 
 /** Field-keyed validation messages, keyed by request-body field name (VAL-5). */
@@ -145,5 +148,76 @@ export class RoleHasApplicationsError extends AppError {
   constructor() {
     super(409, 'ROLE_HAS_APPLICATIONS', 'This role has applications and cannot be deleted');
     this.name = 'RoleHasApplicationsError';
+  }
+}
+
+/**
+ * 409 — a well-formed stage or outcome the rules refuse (pipeline FR-2.4,
+ * FR-2.5, FR-3.3).
+ *
+ * The request is valid: `toStage` is a real `PipelineStage`, the application
+ * exists and is live. What is refused is the MOVE — `APPLIED → OFFER`, a
+ * reversal, a no-op onto the current stage, or `HIRED` from anywhere but
+ * `OFFER`.
+ *
+ * It carries `details.allowed`: the stages (or statuses) actually reachable
+ * from where the application sits. The client renders the legal moves from that
+ * array rather than owning a second copy of the stage graph — two copies
+ * disagree the first time the graph changes (ERR-1, XFE-2).
+ *
+ * The only error besides `ValidationError` that carries `details`, and the only
+ * one whose `message` names the states involved: "not allowed" on its own tells
+ * a recruiter nothing about what is.
+ */
+export class InvalidStageTransitionError extends AppError {
+  constructor(message: string, details: ErrorDetails) {
+    super(409, 'INVALID_STAGE_TRANSITION', message, details);
+    this.name = 'InvalidStageTransitionError';
+  }
+}
+
+/**
+ * 409 — a write against an application that is `HIRED` or `REJECTED`
+ * (pipeline D-11, FR-2.6, FR-4.6, ERR-3).
+ *
+ * Terminal is terminal: there is no un-rejecting and no reopening in this POC,
+ * so every one of the three writes refuses. It is a 409 and not a 400 because
+ * the request is well-formed — it is the resource that is in a state which
+ * refuses it, which is the definition of a conflict.
+ *
+ * Distinct from `InvalidStageTransitionError` on purpose: that one means "not
+ * from here", this one means "not any more", and a client that cannot tell them
+ * apart cannot decide whether to hide its move controls.
+ */
+export class ApplicationNotActiveError extends AppError {
+  constructor() {
+    super(409, 'APPLICATION_NOT_ACTIVE', 'This application is closed and cannot be changed');
+    this.name = 'ApplicationNotActiveError';
+  }
+}
+
+/**
+ * 409 — another request moved this application first (pipeline FR-6.2, D-10).
+ *
+ * Derived from a guarded `updateMany` matching **zero** rows — the stage the
+ * caller observed is part of the `where`, so a row someone else moved in the
+ * meantime no longer matches. Never from a read-then-compare, which loses to
+ * the second request exactly as it would here.
+ *
+ * A SEPARATE code from `INVALID_STAGE_TRANSITION` (FR-6.4, ERR-2). The remedies
+ * differ — refetch and decide again, versus "this move is not allowed" — and
+ * collapsing them makes the client's message wrong half the time.
+ *
+ * It names no actor (SEC-6). "Someone else moved this" is all the loser is
+ * told; who is working on which candidate is an access decision nobody made.
+ */
+export class StageConflictError extends AppError {
+  constructor() {
+    super(
+      409,
+      'STAGE_CONFLICT',
+      'Someone else changed this application first — refresh and try again',
+    );
+    this.name = 'StageConflictError';
   }
 }

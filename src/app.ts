@@ -13,6 +13,7 @@ import { requestId } from './middleware/requestId.js';
 import { applicationsRouter } from './modules/applications/applications.routes.js';
 import { auditRouter } from './modules/audit/audit.routes.js';
 import { authRouter } from './modules/auth/auth.routes.js';
+import { pipelineRouter } from './modules/pipeline/pipeline.routes.js';
 import { rolesRouter } from './modules/roles/roles.routes.js';
 import { usersRouter } from './modules/users/users.routes.js';
 
@@ -55,9 +56,17 @@ app.use('/api/users', usersRouter);
 // Reads are open to any authenticated user; writes are recruiter-only
 // (candidate spec FR-4.1, FR-4.2).
 app.use('/api/roles', rolesRouter);
-// Two routes, both CANDIDATE-only. `GET /api/applications/:id` is deliberately
-// not among them and therefore falls through to `notFound` (FR-6.8, EC-09).
+// Two CANDIDATE-only routes, plus the pipeline feature's three RECRUITER-only
+// writes on `/:applicationId` — stage, override and outcome (pipeline BE-5).
+// `GET /api/applications/:id` is deliberately not among them and therefore
+// falls through to `notFound` (FR-6.8, EC-09).
 app.use('/api/applications', applicationsRouter);
+// Two RECRUITER-only GETs: the board and the dashboard headline. The feature's
+// WRITES are not here — they mount on `/api/applications` above, because the
+// resource being changed is an application (pipeline BE-5). There is no history
+// endpoint on this router and none is planned: that read belongs to the
+// candidate-access feature (pipeline FR-5.6).
+app.use('/api/pipeline', pipelineRouter);
 // One RECRUITER-only GET. There is no PATCH, DELETE or `/:id` on this router:
 // an audit row is never updated or deleted, so those paths fall through to
 // `notFound` and answer 404 (audit spec FR-6.1, AZ-4).

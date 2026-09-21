@@ -18,13 +18,13 @@ proves the spec wrong, the spec is corrected and re-approved — code and spec d
 | 1   | [authentication](features/authentication/spec.md)     | ✅ approved | [✅ approved](features/authentication/plan.md) | ✅ implemented |
 | 2   | [roles](features/roles/spec.md)                       | ✅ approved | [✅ drafted](features/roles/plan.md)           | ✅ implemented |
 | 3   | [candidate](features/candidate/spec.md)               | ✅ approved | ⬜ skipped                                     | ✅ implemented |
-| 4   | [audit](features/audit/spec.md)                       | 🟡 draft    | ⬜ not started                                 | ⬜ not started |
-| 5   | [pipeline](features/pipeline/spec.md)                 | 🟡 draft    | ⬜ not started                                 | ⬜ not started |
+| 4   | [audit](features/audit/spec.md)                       | ✅ approved | ⬜ skipped                                     | ✅ implemented |
+| 5   | [pipeline](features/pipeline/spec.md)                 | ✅ approved | ⬜ skipped                                     | ✅ implemented |
 | 6   | [interviews](features/interviews/spec.md)             | 🟡 draft    | ⬜ not started                                 | ⬜ not started |
 | 7   | [feedback](features/feedback/spec.md)                 | 🟡 draft    | ⬜ not started                                 | ⬜ not started |
 | 8   | [candidate-access](features/candidate-access/spec.md) | 🟡 draft    | ⬜ not started                                 | ⬜ not started |
 
-Features 1–3 shipped. Features 4–8 are this pass: they are the half of the brief that carries its
+Features 1–5 shipped. Features 6–8 are what remains: they are the half of the brief that carries its
 stated centre of gravity — _restricted data excluded at the query, not filtered after the fact_.
 
 ---

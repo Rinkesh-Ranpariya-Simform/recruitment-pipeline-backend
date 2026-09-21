@@ -84,9 +84,15 @@ them; a shape that redacts them after fetching is one missed call site away from
 
 ## Business rules to enforce server-side
 
-- **Stage transitions**: validate against the defined stage graph before touching the DB; skip
-  a stage only via an explicit override row (actor + reason required — reject an override
-  without both).
+- **Stage transitions**: **shipped by the [pipeline feature](specs/features/pipeline/spec.md).**
+  The graph is `ALLOWED_STAGE_TRANSITIONS` in `src/modules/pipeline/pipeline.rules.ts` — a pure
+  file that imports the Prisma enums and nothing else, so it is the one place to read to answer
+  "where is the progression rule enforced?". It is consulted **before** the transaction opens, so
+  an illegal move costs one read and no write. A skip goes through
+  `POST /api/applications/:id/stage-override` only, which writes a `StageOverride` row whose
+  `reason` is `NOT NULL` and whose `performedByUserId` is `req.user.id` — both required, neither
+  inferrable. Overrides and stage moves are **recruiter-only**; there is no per-row scoping behind
+  that guard.
 - **Bad input**: a feedback submission against a nonexistent round, or a transition naming an
   undefined stage, must be rejected by input validation before it reaches business logic (zod
   or equivalent at the route boundary, matching the frontend's validation approach).
@@ -95,9 +101,13 @@ them; a shape that redacts them after fetching is one missed call site away from
   the DB layer (e.g. a unique constraint + explicit conflict handling, or a transaction), not a
   check-then-write race in application code. It must hold under two requests that actually
   overlap, not just two sequential ones.
-- **Pipeline/ageing queries**: counts per stage per role, and ageing at current stage, must be
-  computed as indexed SQL aggregates — never by loading every candidate into memory. Expect this
-  to be verified against simulated scale (200 roles / 20,000 candidates).
+- **Pipeline/ageing queries**: **shipped** as `GET /api/pipeline`. One `$queryRaw` `GROUP BY`
+  over `Application` plus one indexed `Role` read — two queries regardless of scale, and nothing
+  is counted or aged in Node. The raw SQL is confined to
+  `src/modules/pipeline/pipeline.repository.ts`, is tagged-template interpolated, and
+  `$queryRawUnsafe` appears nowhere in `src/`. Verified at 200 roles / 20,000 applications:
+  p95 96 ms against a 300 ms budget. See the note under the feature table on what the query plan
+  actually does at that scale.
 
 ## Audit trail (read before adding any state-changing endpoint)
 
@@ -154,12 +164,34 @@ Feature specs live in `specs/features/<feature>/`, each holding `spec.md` (what 
 `plan.md` (how). Phases run in that order and each is approved before the next begins; if implementation reveals
 the spec is wrong, update the spec and get it re-approved rather than letting code and spec drift.
 
-| Feature                                                 | spec        | plan                                                 | code                                                                                                        |
-| ------------------------------------------------------- | ----------- | ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| [authentication](specs/features/authentication/spec.md) | ✅ approved | [✅ approved](specs/features/authentication/plan.md) | ✅ implemented                                                                                              |
-| [roles](specs/features/roles/spec.md)                   | ✅ approved | [✅ drafted](specs/features/roles/plan.md)           | ⬜ not started                                                                                              |
-| [candidate](specs/features/candidate/spec.md)           | ✅ approved | ⬜ skipped (implemented straight from the spec)      | ✅ implemented — all 55 acceptance criteria verified by hand against the running API                        |
-| [audit](specs/features/audit/spec.md)                   | ✅ approved | ⬜ skipped (implemented straight from the spec)      | ✅ implemented — 27 acceptance criteria verified by hand (`curl` + `psql` + `EXPLAIN ANALYZE` at 120k rows) |
+| Feature                                                 | spec        | plan                                                 | code                                                                                                         |
+| ------------------------------------------------------- | ----------- | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| [authentication](specs/features/authentication/spec.md) | ✅ approved | [✅ approved](specs/features/authentication/plan.md) | ✅ implemented                                                                                               |
+| [roles](specs/features/roles/spec.md)                   | ✅ approved | [✅ drafted](specs/features/roles/plan.md)           | ⬜ not started                                                                                               |
+| [candidate](specs/features/candidate/spec.md)           | ✅ approved | ⬜ skipped (implemented straight from the spec)      | ✅ implemented — all 55 acceptance criteria verified by hand against the running API                         |
+| [audit](specs/features/audit/spec.md)                   | ✅ approved | ⬜ skipped (implemented straight from the spec)      | ✅ implemented — 27 acceptance criteria verified by hand (`curl` + `psql` + `EXPLAIN ANALYZE` at 120k rows)  |
+| [pipeline](specs/features/pipeline/spec.md)             | ✅ approved | ⬜ skipped (implemented straight from the spec)      | ✅ implemented — 50 acceptance criteria verified by hand (`curl` + `psql` + concurrent requests at 20k rows) |
+
+**Pipeline**, the feature the brief's §3.1/§3.3/§3.5 are about. Five endpoints, two new tables
+(`StageHistory`, `StageOverride`), and three new `ErrorCode` values —
+`INVALID_STAGE_TRANSITION`, `APPLICATION_NOT_ACTIVE`, `STAGE_CONFLICT`. Two things about it are
+worth knowing before touching anything nearby:
+
+- **Concurrency is a guarded `updateMany`, not a lock and not a read-then-compare.** The stage the
+  caller observed is part of the `where`; a `count` of 0 means someone moved first and becomes
+  `409 STAGE_CONFLICT`. Verified under genuinely concurrent `curl`s: exactly one winner, exactly
+  one `StageHistory` row, and **no orphan `StageOverride`** for the request that lost.
+- **AC-B34 does not hold as written, and the index is still right.** The spec asks for an index
+  scan and no sequential scan on the unfiltered aggregate. At 200 roles / 20,000 applications
+  Postgres picks a **sequential scan**, correctly: `status = 'ACTIVE'` matches ~100% of rows and
+  the table is ~1.5 MB, so a seq scan is cheaper than any index path — and the aggregate reads
+  `stageEnteredAt`, which the index does not cover, so an index-only scan is unavailable. Forcing
+  `enable_seqscan=off` shows the planner does use
+  `Application_status_roleId_currentStage_idx` as an index-only scan with `Heap Fetches: 0`, and
+  it is chosen unforced once the predicate is selective (`?roleId=`). Adding `stageEnteredAt` to
+  the index was tried and did not change the unfiltered plan. **The measurable requirement —
+  PERF-1's p95 under 300 ms — passes at 96 ms.** Don't "fix" this by adding an index hint or a
+  redundant index.
 
 The **candidate** feature added a third `UserRole`, made signup candidate-only, and introduced
 `Application`. It **deliberately reversed two rules that used to be stated below**; both paragraphs are now

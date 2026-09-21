@@ -81,7 +81,27 @@ interface StageOverrideCreatedEntry extends AuditEntryBase {
   };
 }
 
-/** pipeline - an application reaching a terminal outcome. */
+/**
+ * pipeline - an application reaching a terminal outcome.
+ *
+ * `atStage` is where it stopped, and it matters: the outcome does not move
+ * `currentStage` (pipeline FR-3.5), so "rejected at Screen" and "rejected at
+ * Offer" stay distinguishable in the trace.
+ *
+ * `reason` is OPTIONAL and is the second free-text value this union permits,
+ * added by pipeline FR-3.6 - which requires an outcome's reason to be recorded
+ * in metadata when the recruiter supplied one. FR-4.5 of this feature's own
+ * spec called an override's reason the only one, written before the pipeline
+ * spec settled; the exemption is the same in substance, so it is widened here
+ * rather than worked around. It is a recruiter's own words about a process
+ * decision, NOT a fact about a person - the rule that actually matters (FR-4.4)
+ * is that no email, phone, name or feedback `notes` ever appears in a metadata
+ * object, and this does not touch it. Like an override's reason it is in pino's
+ * `redact` list and reaches no log line.
+ *
+ * Unlike an override's, it is optional: rejecting at the defined terminal of a
+ * stage is not an exception to the process, whereas skipping one is.
+ */
 interface ApplicationOutcomeSetEntry extends AuditEntryBase {
   action: typeof AuditAction.APPLICATION_OUTCOME_SET;
   entityType: typeof AuditEntityType.APPLICATION;
@@ -89,6 +109,7 @@ interface ApplicationOutcomeSetEntry extends AuditEntryBase {
     fromStatus: ApplicationStatus;
     toStatus: ApplicationStatus;
     atStage: PipelineStage;
+    reason?: string;
   };
 }
 
