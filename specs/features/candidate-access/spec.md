@@ -22,7 +22,7 @@
 4. Give recruiters somewhere to **record a candidate's phone and location**, since `User` carries
    only a name and an email today.
 5. Answer the brief's §7.3 walkthrough question with a file a reviewer can read in one sitting:
-   *are contact details excluded at the query or filtered after fetching?*
+   _are contact details excluded at the query or filtered after fetching?_
 
 Success means: a recruiter opens John Smith and sees his phone, his applications and every rating
 he received; an interviewer assigned to his technical round opens the same id and sees `John Smith`
@@ -62,47 +62,47 @@ schema and correcting it later — which is exactly how a leak ships.
 
 ### Current state of `backend/`
 
-|                | Today, assuming the four preceding features have shipped |
-| -------------- | ------ |
-| A candidate | A `User` with `role: CANDIDATE`, created only by `POST /api/auth/signup` |
-| Contact data | `User.email` only. **There is no `phone` column anywhere in the schema** |
-| `SAFE_USER_SELECT` | `{ id, name, email, role, createdAt }` — serves `/api/auth/me`, signup, login, seed |
-| `GET /api/users` | Recruiter-gated, returns **interviewers only**. The interviews feature gave it its first frontend caller |
-| Applications | `Application` per (candidate, role), unique, with `currentStage`, `status`, `stageEnteredAt` |
-| History | `StageHistory` + `StageOverride`, written by pipeline |
-| Rounds | `Interview` + `InterviewAssignment`, with `@@index([interviewerId, createdAt])` |
-| Feedback | `Feedback`, `@@unique([interviewId, interviewerId])` |
-| Scoping precedents | `buildRoleWhere` (roles), `buildInterviewWhere` (interviews), the feedback insert's scoped `findFirst` |
-| Candidate endpoints | **none.** No `/api/candidates` route exists |
+|                     | Today, assuming the four preceding features have shipped                                                 |
+| ------------------- | -------------------------------------------------------------------------------------------------------- |
+| A candidate         | A `User` with `role: CANDIDATE`, created only by `POST /api/auth/signup`                                 |
+| Contact data        | `User.email` only. **There is no `phone` column anywhere in the schema**                                 |
+| `SAFE_USER_SELECT`  | `{ id, name, email, role, createdAt }` — serves `/api/auth/me`, signup, login, seed                      |
+| `GET /api/users`    | Recruiter-gated, returns **interviewers only**. The interviews feature gave it its first frontend caller |
+| Applications        | `Application` per (candidate, role), unique, with `currentStage`, `status`, `stageEnteredAt`             |
+| History             | `StageHistory` + `StageOverride`, written by pipeline                                                    |
+| Rounds              | `Interview` + `InterviewAssignment`, with `@@index([interviewerId, createdAt])`                          |
+| Feedback            | `Feedback`, `@@unique([interviewId, interviewerId])`                                                     |
+| Scoping precedents  | `buildRoleWhere` (roles), `buildInterviewWhere` (interviews), the feedback insert's scoped `findFirst`   |
+| Candidate endpoints | **none.** No `/api/candidates` route exists                                                              |
 
 ### Decisions settled during the interview
 
-| # | Question | Decision | Recorded in |
-|---|---|---|---|
-| D-1 | Is there a `POST /api/candidates`? | **No.** Candidates exist only via `POST /api/auth/signup` + `POST /api/applications`. The endpoint list in the request included one; it is dropped, because a recruiter-created candidate is an account with no password and an invite flow nobody asked for | FR-1.4, Out of Scope |
-| D-2 | Where do contact details live? | **A new `CandidateProfile` table**, 1:1 with `User` (D-2 is the whole security design — see MIG-2) | FR-2, MIG-2 |
-| D-3 | Why not `phone` on `User`? | Because `User` serves recruiters and interviewers too, and every select in every module would need auditing forever. **A separate table makes "the interviewer's query cannot reach it" a structural fact rather than a review discipline** | MIG-2, SEC-1 |
-| D-4 | How is the profile created? | **Lazily, by `PATCH`**, as an upsert. There is no create endpoint and no row until a recruiter records something | FR-4.3 |
-| D-5 | Who may edit a candidate? | **Recruiters only**, and only profile fields. `name`, `email` and `role` are not editable through this surface | FR-4.2, AZ-4 |
-| D-6 | Can a candidate edit their own profile? | **No.** `403`. Self-service profile editing is a candidate-feature surface nobody has specified | AZ-5 |
-| D-7 | Two functions or one with a branch? | **Two explicitly scoped repository functions**, `getRecruiterCandidate` and `getInterviewerCandidate`, with two separate select constants. A single function with a role branch is one edit away from the wrong branch | FR-5, BE-2 |
-| D-8 | What does an interviewer see? | **`{ id, name }` and the rounds they are assigned to.** No email, no phone, no other applications, no stage history, no other interviewers' feedback | FR-6 |
-| D-9 | Unassigned interviewer, by id? | **`404`**, from the query itself. Not `403` | FR-6.5, ERR-1 |
-| D-10 | Does `GET /api/candidates` paginate? | **Yes**, on the shipped envelope. It is the only endpoint in this system whose result set scales with people | FR-3.5, PERF-3 |
-| D-11 | Can a recruiter search candidates? | **Yes**, `?q=` over name **and email**. It is a recruiter-only endpoint and email is the field recruiters actually search by | FR-3.4, SEC-6 |
-| D-12 | Does the recruiter detail include feedback notes? | **Yes.** A recruiter may read feedback on any round (feedback AZ-3); denying it here would be an inconsistency, not a protection | FR-5.4 |
-| D-13 | Is deleting a candidate in scope? | **No.** No endpoint, and `AuditLog.actor`/`Feedback.interviewer` are `Restrict` anyway | Out of Scope |
+| #    | Question                                          | Decision                                                                                                                                                                                                                                                     | Recorded in          |
+| ---- | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------- |
+| D-1  | Is there a `POST /api/candidates`?                | **No.** Candidates exist only via `POST /api/auth/signup` + `POST /api/applications`. The endpoint list in the request included one; it is dropped, because a recruiter-created candidate is an account with no password and an invite flow nobody asked for | FR-1.4, Out of Scope |
+| D-2  | Where do contact details live?                    | **A new `CandidateProfile` table**, 1:1 with `User` (D-2 is the whole security design — see MIG-2)                                                                                                                                                           | FR-2, MIG-2          |
+| D-3  | Why not `phone` on `User`?                        | Because `User` serves recruiters and interviewers too, and every select in every module would need auditing forever. **A separate table makes "the interviewer's query cannot reach it" a structural fact rather than a review discipline**                  | MIG-2, SEC-1         |
+| D-4  | How is the profile created?                       | **Lazily, by `PATCH`**, as an upsert. There is no create endpoint and no row until a recruiter records something                                                                                                                                             | FR-4.3               |
+| D-5  | Who may edit a candidate?                         | **Recruiters only**, and only profile fields. `name`, `email` and `role` are not editable through this surface                                                                                                                                               | FR-4.2, AZ-4         |
+| D-6  | Can a candidate edit their own profile?           | **No.** `403`. Self-service profile editing is a candidate-feature surface nobody has specified                                                                                                                                                              | AZ-5                 |
+| D-7  | Two functions or one with a branch?               | **Two explicitly scoped repository functions**, `getRecruiterCandidate` and `getInterviewerCandidate`, with two separate select constants. A single function with a role branch is one edit away from the wrong branch                                       | FR-5, BE-2           |
+| D-8  | What does an interviewer see?                     | **`{ id, name }` and the rounds they are assigned to.** No email, no phone, no other applications, no stage history, no other interviewers' feedback                                                                                                         | FR-6                 |
+| D-9  | Unassigned interviewer, by id?                    | **`404`**, from the query itself. Not `403`                                                                                                                                                                                                                  | FR-6.5, ERR-1        |
+| D-10 | Does `GET /api/candidates` paginate?              | **Yes**, on the shipped envelope. It is the only endpoint in this system whose result set scales with people                                                                                                                                                 | FR-3.5, PERF-3       |
+| D-11 | Can a recruiter search candidates?                | **Yes**, `?q=` over name **and email**. It is a recruiter-only endpoint and email is the field recruiters actually search by                                                                                                                                 | FR-3.4, SEC-6        |
+| D-12 | Does the recruiter detail include feedback notes? | **Yes.** A recruiter may read feedback on any round (feedback AZ-3); denying it here would be an inconsistency, not a protection                                                                                                                             | FR-5.4               |
+| D-13 | Is deleting a candidate in scope?                 | **No.** No endpoint, and `AuditLog.actor`/`Feedback.interviewer` are `Restrict` anyway                                                                                                                                                                       | Out of Scope         |
 
 ---
 
 ## Users / Actors
 
-| Actor | May do, after this feature |
-|---|---|
-| Anonymous | Nothing. `401` |
-| Candidate | Nothing. `403` — including on their own record |
+| Actor       | May do, after this feature                                                                                   |
+| ----------- | ------------------------------------------------------------------------------------------------------------ |
+| Anonymous   | Nothing. `401`                                                                                               |
+| Candidate   | Nothing. `403` — including on their own record                                                               |
 | Interviewer | List candidates **they are assigned to**; read one **assigned** candidate — name only, plus their own rounds |
-| Recruiter | List and search all candidates; read any candidate in full; record a candidate's contact profile |
+| Recruiter   | List and search all candidates; read any candidate in full; record a candidate's contact profile             |
 
 **Deliberate POC trade-offs, so they are not read as oversights:**
 
@@ -111,7 +111,7 @@ schema and correcting it later — which is exactly how a leak ships.
   nobody has specified, and adding one here would mean deciding what a candidate may see of a
   recruiter's notes.
 - **An interviewer learns a candidate's name.** That is itself personal data. The brief restricts
-  *contact details* specifically (§3.6), and an interview cannot happen without a name.
+  _contact details_ specifically (§3.6), and an interview cannot happen without a name.
 - **An interviewer sees only the rounds they are on**, not the candidate's other applications,
   stage history, or rounds with other panels. Their scope is the assignment, not the person.
 - **There is no `POST`** (D-1). Recruiters cannot create candidates; only signup can.
@@ -122,16 +122,16 @@ schema and correcting it later — which is exactly how a leak ships.
 
 ## User Stories
 
-| ID | Story |
-|---|---|
+| ID        | Story                                                                                                                                                                         |
+| --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **US-01** | As a recruiter, I want a candidate's full record on one screen — contact, applications, stages, rounds, feedback — so that I can make a decision without opening five things. |
-| **US-02** | As a recruiter, I want to record a candidate's phone number, so that "call them" does not require finding the original email. |
-| **US-03** | As a recruiter, I want to search candidates by name or email, so that finding one is a keystroke rather than paging. |
-| **US-04** | As a recruiter, I want to see the applicants for one role, so that the job → applicants step is one filtered call. |
-| **US-05** | As an interviewer, I want to see who I am interviewing, so that I can prepare. |
-| **US-06** | As an interviewer, I want no way at all to reach a candidate I am not assigned to, including by typing their id. |
-| **US-07** | As a security reviewer, I want to open one file and confirm the interviewer's query never names a contact column, rather than trusting that a mapping step removes it. |
-| **US-08** | As a hiring manager, I want a candidate's stage history and every rating visible together, so that "how was this person assessed" has one answer. |
+| **US-02** | As a recruiter, I want to record a candidate's phone number, so that "call them" does not require finding the original email.                                                 |
+| **US-03** | As a recruiter, I want to search candidates by name or email, so that finding one is a keystroke rather than paging.                                                          |
+| **US-04** | As a recruiter, I want to see the applicants for one role, so that the job → applicants step is one filtered call.                                                            |
+| **US-05** | As an interviewer, I want to see who I am interviewing, so that I can prepare.                                                                                                |
+| **US-06** | As an interviewer, I want no way at all to reach a candidate I am not assigned to, including by typing their id.                                                              |
+| **US-07** | As a security reviewer, I want to open one file and confirm the interviewer's query never names a contact column, rather than trusting that a mapping step removes it.        |
+| **US-08** | As a hiring manager, I want a candidate's stage history and every rating visible together, so that "how was this person assessed" has one answer.                             |
 
 ---
 
@@ -186,6 +186,7 @@ schema and correcting it later — which is exactly how a leak ships.
   It always ANDs `{ role: UserRole.CANDIDATE }`. For an **interviewer** it additionally ANDs the
   assignment chain (FR-6.2). Predicates are **ANDed, never overwritten**, so a filter narrows and
   can never widen.
+
 - **FR-3.3** The same `where` serves the page, the pager's `count` **and** the single read (FR-5.2,
   FR-6.3). One decision, three call sites. **If a third candidates read is ever added, it routes
   through `buildCandidateWhere`** — a second copy of this decision is how the rule rots.
@@ -197,7 +198,7 @@ schema and correcting it later — which is exactly how a leak ships.
   a `400`, never a clamp. **This is the only endpoint in the system whose result set scales with the
   number of people**, which is why it is the only one that must paginate (PERF-3).
 - **FR-3.6** The **recruiter** list row carries `{ id, name, email, createdAt, phone,
-  applicationCount, applications: [{ id, currentStage, status, stageEnteredAt, role: { id, title } }] }`.
+applicationCount, applications: [{ id, currentStage, status, stageEnteredAt, role: { id, title } }] }`.
   Enough for the applicants table in the walkthrough without a second call.
 - **FR-3.7** The **interviewer** list row carries `{ id, name }` and nothing else (FR-6.4). No
   contact fields, no application list, no counts.
@@ -220,7 +221,7 @@ schema and correcting it later — which is exactly how a leak ships.
   the transaction — **the role requirement is in the `where`** (FR-1.2). A recruiter's or
   interviewer's id answers `404`, and their user row is never loaded.
 - **FR-4.5** Writes `recordAudit(tx, { action: 'CANDIDATE_CONTACT_UPDATED', entityType: 'CANDIDATE',
-  entityId: candidateId, metadata: { fields: ['phone', 'location'] } })` — **the names of the
+entityId: candidateId, metadata: { fields: ['phone', 'location'] } })` — **the names of the
   changed fields, never their values** (audit FR-4.1, FR-4.4). The audit feed records that a phone
   number was recorded; it does not record the phone number.
 - **FR-4.6** An explicit `null` clears a field; an omitted key leaves it unchanged. The two are
@@ -235,9 +236,9 @@ schema and correcting it later — which is exactly how a leak ships.
   `id`, `name`, `email`, `createdAt`;
   `candidateProfile: { phone, location, headline, updatedAt }`;
   `applications: { id, status, currentStage, stageEnteredAt, createdAt, role: { id, title, status },
-  stageHistory: { …, override: { reason, createdAt, performedBy: { id, name } } },
-  interviews: { …, assignments: { interviewer: { id, name } },
-  feedback: { rating, notes, createdAt, interviewer: { id, name } } } }`.
+stageHistory: { …, override: { reason, createdAt, performedBy: { id, name } } },
+interviews: { …, assignments: { interviewer: { id, name } },
+feedback: { rating, notes, createdAt, interviewer: { id, name } } } }`.
 - **FR-5.3** Applications are ordered `createdAt desc`; stage history `createdAt asc` (a timeline
   reads forwards); rounds `scheduledAt desc`; feedback `createdAt desc`.
 - **FR-5.4** Feedback **notes** are included (D-12). A recruiter may read feedback on any round
@@ -280,6 +281,7 @@ schema and correcting it later — which is exactly how a leak ships.
   **If no authorized row exists, Postgres returns nothing.** The restricted data is never retrieved
   into application memory, so there is no moment at which the service holds a row it had no right
   to. This is the design §4 asks to be picked, and this is the file to show.
+
 - **FR-6.3** The identical predicate is used by the list (FR-3.2) and by the single read. **There is
   no code path in this module of the form `fetch candidate; if (!assigned) throw`** — and a reviewer
   can confirm it by grep (AC-B31).
@@ -294,6 +296,7 @@ schema and correcting it later — which is exactly how a leak ships.
 
   **It names no `email`. It joins no `candidateProfile`. It reaches no `applications`.** There is
   nothing in this shape to strip, because nothing restricted was ever selected (D-8, SEC-1).
+
 - **FR-6.5** A candidate the interviewer is not assigned to answers **`404 NOT_FOUND`**, byte-
   identical to a candidate that does not exist (D-9). **Not `403`** — a `403` confirms the candidate
   exists, which is the enumeration oracle this whole design closes.
@@ -311,8 +314,8 @@ schema and correcting it later — which is exactly how a leak ships.
   `buildCandidateWhere`, `listCandidates`, `getRecruiterCandidate`, `getInterviewerCandidate` — and
   the two select constants. **There is no fifth, generic `getCandidate`.**
 - **FR-7.2** The controller passes `req.user.role` and `req.user.id` to the service; the service
-  dispatches to one of the two functions **before** any query runs. The role decides *which query
-  is issued*, never *which fields are removed from a result* (BE-2).
+  dispatches to one of the two functions **before** any query runs. The role decides _which query
+  is issued_, never _which fields are removed from a result_ (BE-2).
 - **FR-7.3** There is no function named `sanitise`, `strip`, `redact`, `filterCandidate` or
   `toPublicCandidate` in this module. **Their absence is the design**, and it is checkable by grep
   (AC-B32).
@@ -362,7 +365,7 @@ The obligations this backend places on the Next.js client. The rest of the front
   write it straight into its detail query cache without a refetch — matching the `useWriteSuccess`
   pattern already used by roles.
 - **XFE-11** A recruiter detail may carry feedback `notes` (FR-5.4). This is the one surface where
-  an interviewer's written assessment reaches a recruiter's screen through *this* feature; the
+  an interviewer's written assessment reaches a recruiter's screen through _this_ feature; the
   feedback feature's own endpoints are the other.
 
 ---
@@ -420,12 +423,12 @@ Query: `q` (recruiter only) · `roleId` · `stage` · `status` · `page` · `pag
           "status": "ACTIVE",
           "currentStage": "INTERVIEW",
           "stageEnteredAt": "2026-09-16T11:02:40.117Z",
-          "role": { "id": 3, "title": "Senior Backend Engineer" }
-        }
-      ]
-    }
+          "role": { "id": 3, "title": "Senior Backend Engineer" },
+        },
+      ],
+    },
   ],
-  "pagination": { "page": 1, "pageSize": 20, "total": 1, "totalPages": 1 }
+  "pagination": { "page": 1, "pageSize": 20, "total": 1, "totalPages": 1 },
 }
 ```
 
@@ -433,7 +436,7 @@ Query: `q` (recruiter only) · `roleId` · `stage` · `status` · `page` · `pag
 // 200 — INTERVIEWER. Assigned candidates only. Two keys per row, and that is all.
 {
   "candidates": [{ "id": 21, "name": "John Smith" }],
-  "pagination": { "page": 1, "pageSize": 20, "total": 1, "totalPages": 1 }
+  "pagination": { "page": 1, "pageSize": 20, "total": 1, "totalPages": 1 },
 }
 ```
 
@@ -450,7 +453,12 @@ Errors: `400 VALIDATION_ERROR` (including `?q=` from an interviewer) · `401` ·
     "name": "John Smith",
     "email": "john@email.test",
     "createdAt": "2026-09-02T08:11:00.000Z",
-    "profile": { "phone": "+91 98765 43210", "location": "Ahmedabad", "headline": "Backend engineer, 6y", "updatedAt": "2026-09-18T07:00:00.000Z" },
+    "profile": {
+      "phone": "+91 98765 43210",
+      "location": "Ahmedabad",
+      "headline": "Backend engineer, 6y",
+      "updatedAt": "2026-09-18T07:00:00.000Z",
+    },
     "applications": [
       {
         "id": 12,
@@ -460,27 +468,64 @@ Errors: `400 VALIDATION_ERROR` (including `?q=` from an interviewer) · `401` ·
         "createdAt": "2026-09-02T08:12:00.000Z",
         "role": { "id": 3, "title": "Senior Backend Engineer", "status": "OPEN" },
         "stageHistory": [
-          { "id": 40, "fromStage": null, "toStage": "APPLIED", "toStatus": "ACTIVE", "createdAt": "2026-09-02T08:12:00.000Z", "changedBy": { "id": 21, "name": "John Smith" }, "override": null },
-          { "id": 41, "fromStage": "APPLIED", "toStage": "SCREEN", "toStatus": "ACTIVE", "createdAt": "2026-09-14T09:00:00.000Z", "changedBy": { "id": 1, "name": "Rhea Recruiter" }, "override": null },
-          { "id": 42, "fromStage": "SCREEN", "toStage": "INTERVIEW", "toStatus": "ACTIVE", "createdAt": "2026-09-16T11:02:40.117Z", "changedBy": { "id": 1, "name": "Rhea Recruiter" },
-            "override": { "id": 4, "reason": "Completed equivalent external screening.", "createdAt": "2026-09-16T11:02:40.117Z", "performedBy": { "id": 1, "name": "Rhea Recruiter" } } }
+          {
+            "id": 40,
+            "fromStage": null,
+            "toStage": "APPLIED",
+            "toStatus": "ACTIVE",
+            "createdAt": "2026-09-02T08:12:00.000Z",
+            "changedBy": { "id": 21, "name": "John Smith" },
+            "override": null,
+          },
+          {
+            "id": 41,
+            "fromStage": "APPLIED",
+            "toStage": "SCREEN",
+            "toStatus": "ACTIVE",
+            "createdAt": "2026-09-14T09:00:00.000Z",
+            "changedBy": { "id": 1, "name": "Rhea Recruiter" },
+            "override": null,
+          },
+          {
+            "id": 42,
+            "fromStage": "SCREEN",
+            "toStage": "INTERVIEW",
+            "toStatus": "ACTIVE",
+            "createdAt": "2026-09-16T11:02:40.117Z",
+            "changedBy": { "id": 1, "name": "Rhea Recruiter" },
+            "override": {
+              "id": 4,
+              "reason": "Completed equivalent external screening.",
+              "createdAt": "2026-09-16T11:02:40.117Z",
+              "performedBy": { "id": 1, "name": "Rhea Recruiter" },
+            },
+          },
         ],
         "interviews": [
           {
-            "id": 7, "type": "TECHNICAL", "stage": "INTERVIEW",
-            "scheduledAt": "2026-09-24T09:30:00.000Z", "status": "SCHEDULED",
+            "id": 7,
+            "type": "TECHNICAL",
+            "stage": "INTERVIEW",
+            "scheduledAt": "2026-09-24T09:30:00.000Z",
+            "status": "SCHEDULED",
             "assignments": [
               { "id": 14, "interviewer": { "id": 4, "name": "Ivan Interviewer" } },
-              { "id": 15, "interviewer": { "id": 5, "name": "Ingrid Interviewer" } }
+              { "id": 15, "interviewer": { "id": 5, "name": "Ingrid Interviewer" } },
             ],
             "feedback": [
-              { "id": 31, "rating": 4, "notes": "Strong backend fundamentals…", "createdAt": "2026-09-24T11:02:14.331Z", "interviewer": { "id": 4, "name": "Ivan Interviewer" } }
-            ]
-          }
-        ]
-      }
-    ]
-  }
+              {
+                "id": 31,
+                "rating": 4,
+                "notes": "Strong backend fundamentals…",
+                "createdAt": "2026-09-24T11:02:14.331Z",
+                "interviewer": { "id": 4, "name": "Ivan Interviewer" },
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  },
 }
 ```
 
@@ -495,9 +540,9 @@ Errors: `400 VALIDATION_ERROR` (including `?q=` from an interviewer) · `401` ·
       "stage": "INTERVIEW",
       "scheduledAt": "2026-09-24T09:30:00.000Z",
       "status": "SCHEDULED",
-      "role": { "id": 3, "title": "Senior Backend Engineer" }
-    }
-  ]
+      "role": { "id": 3, "title": "Senior Backend Engineer" },
+    },
+  ],
 }
 ```
 
@@ -507,13 +552,13 @@ Errors: `400 VALIDATION_ERROR` (including `?q=` from an interviewer) · `401` ·
 { "code": "NOT_FOUND", "message": "Resource not found" }
 ```
 
-| Status | `code` | When |
-|---|---|---|
-| `200` | — | Found, and the caller is permitted |
-| `400` | `VALIDATION_ERROR` | `candidateId` not a positive integer |
-| `401` | `UNAUTHENTICATED` | No token |
-| `403` | `FORBIDDEN` | Candidate |
-| `404` | `NOT_FOUND` | No such candidate, the id is not a candidate, **or** the interviewer is not assigned — all indistinguishable |
+| Status | `code`             | When                                                                                                         |
+| ------ | ------------------ | ------------------------------------------------------------------------------------------------------------ |
+| `200`  | —                  | Found, and the caller is permitted                                                                           |
+| `400`  | `VALIDATION_ERROR` | `candidateId` not a positive integer                                                                         |
+| `401`  | `UNAUTHENTICATED`  | No token                                                                                                     |
+| `403`  | `FORBIDDEN`        | Candidate                                                                                                    |
+| `404`  | `NOT_FOUND`        | No such candidate, the id is not a candidate, **or** the interviewer is not assigned — all indistinguishable |
 
 ### `PATCH /api/candidates/:candidateId` — Bearer · `RECRUITER`
 
@@ -524,12 +569,12 @@ Errors: `400 VALIDATION_ERROR` (including `?q=` from an interviewer) · `401` ·
 
 `200` with the full recruiter detail (FR-4.7).
 
-| Status | `code` | When |
-|---|---|---|
-| `200` | — | Updated |
-| `400` | `VALIDATION_ERROR` | No editable field present (`details._`), or a field over its length |
-| `401` / `403` | | Anonymous / not a recruiter |
-| `404` | `NOT_FOUND` | No such candidate, or the id is not a `CANDIDATE` |
+| Status        | `code`             | When                                                                |
+| ------------- | ------------------ | ------------------------------------------------------------------- |
+| `200`         | —                  | Updated                                                             |
+| `400`         | `VALIDATION_ERROR` | No editable field present (`details._`), or a field over its length |
+| `401` / `403` |                    | Anonymous / not a recruiter                                         |
+| `404`         | `NOT_FOUND`        | No such candidate, or the id is not a `CANDIDATE`                   |
 
 ### Contract invariants — what must appear in **zero** responses
 
@@ -632,12 +677,12 @@ model User {
 
 ### Endpoint × role matrix
 
-| Endpoint | Anonymous | Candidate | Interviewer | Recruiter |
-|---|---|---|---|---|
-| `GET /api/candidates` | `401` | **`403`** | ✅ **assigned only, 2 fields** | ✅ all, full rows |
-| `GET /api/candidates/:id` | `401` | **`403`** | ✅ **assigned only → else `404`** | ✅ all |
-| `PATCH /api/candidates/:id` | `401` | **`403`** | **`403`** | ✅ |
-| `POST /api/candidates` | `404` | `404` | `404` | `404` — **does not exist** (FR-1.4) |
+| Endpoint                    | Anonymous | Candidate | Interviewer                       | Recruiter                           |
+| --------------------------- | --------- | --------- | --------------------------------- | ----------------------------------- |
+| `GET /api/candidates`       | `401`     | **`403`** | ✅ **assigned only, 2 fields**    | ✅ all, full rows                   |
+| `GET /api/candidates/:id`   | `401`     | **`403`** | ✅ **assigned only → else `404`** | ✅ all                              |
+| `PATCH /api/candidates/:id` | `401`     | **`403`** | **`403`**                         | ✅                                  |
+| `POST /api/candidates`      | `404`     | `404`     | `404`                             | `404` — **does not exist** (FR-1.4) |
 
 ### Non-negotiable rules
 
@@ -671,18 +716,18 @@ model User {
 
 ## Validation
 
-| Endpoint | Field | Rule | Failure |
-|---|---|---|---|
-| reads, `PATCH` | `candidateId` (param) | `z.coerce.number().int().positive()` | `400` `details.candidateId` |
-| `GET` list | `q` | `z.string().trim().max(120)`, `''` → `undefined`, optional | `400` `details.q` |
-| `GET` list | `roleId` | `z.coerce.number().int().positive()`, optional | `400` `details.roleId` |
-| `GET` list | `stage` | `z.enum(PipelineStage)`, optional | `400` `details.stage` |
-| `GET` list | `status` | `z.enum(ApplicationStatus)`, optional | `400` `details.status` |
-| `GET` list | `page` / `pageSize` | `min(1).default(1)` / `min(1).max(100).default(20)` | `400` |
-| `PATCH` | `phone` | `z.string().trim().max(40).nullable()`, optional | `400` `details.phone` |
-| `PATCH` | `location` | `z.string().trim().max(120).nullable()`, optional | `400` `details.location` |
-| `PATCH` | `headline` | `z.string().trim().max(200).nullable()`, optional | `400` `details.headline` |
-| `PATCH` | — | `.refine(keys.length > 0, 'Provide at least one of phone, location, headline')` | `400` `details._` |
+| Endpoint       | Field                 | Rule                                                                            | Failure                     |
+| -------------- | --------------------- | ------------------------------------------------------------------------------- | --------------------------- |
+| reads, `PATCH` | `candidateId` (param) | `z.coerce.number().int().positive()`                                            | `400` `details.candidateId` |
+| `GET` list     | `q`                   | `z.string().trim().max(120)`, `''` → `undefined`, optional                      | `400` `details.q`           |
+| `GET` list     | `roleId`              | `z.coerce.number().int().positive()`, optional                                  | `400` `details.roleId`      |
+| `GET` list     | `stage`               | `z.enum(PipelineStage)`, optional                                               | `400` `details.stage`       |
+| `GET` list     | `status`              | `z.enum(ApplicationStatus)`, optional                                           | `400` `details.status`      |
+| `GET` list     | `page` / `pageSize`   | `min(1).default(1)` / `min(1).max(100).default(20)`                             | `400`                       |
+| `PATCH`        | `phone`               | `z.string().trim().max(40).nullable()`, optional                                | `400` `details.phone`       |
+| `PATCH`        | `location`            | `z.string().trim().max(120).nullable()`, optional                               | `400` `details.location`    |
+| `PATCH`        | `headline`            | `z.string().trim().max(200).nullable()`, optional                               | `400` `details.headline`    |
+| `PATCH`        | —                     | `.refine(keys.length > 0, 'Provide at least one of phone, location, headline')` | `400` `details._`           |
 
 - **VAL-1** `q` follows the shipped `listRolesQuerySchema` convention exactly: trimmed, max 120,
   empty string becomes `undefined` so `?q=` renders an unfiltered list rather than searching for
@@ -709,13 +754,13 @@ model User {
 
 ## Error Handling
 
-| `code` | Status | Raised when | New? |
-|---|---|---|---|
-| `VALIDATION_ERROR` | `400` | Any Validation-table rule fails, including an interviewer's `?q=` | no |
-| `UNAUTHENTICATED` | `401` | No/invalid/expired token | no |
-| `FORBIDDEN` | `403` | Candidate anywhere; interviewer on `PATCH` | no |
-| `NOT_FOUND` | `404` | No such candidate, the id is not a candidate, or the interviewer is not assigned | no |
-| `INTERNAL_ERROR` | `500` | Anything unhandled | no |
+| `code`             | Status | Raised when                                                                      | New? |
+| ------------------ | ------ | -------------------------------------------------------------------------------- | ---- |
+| `VALIDATION_ERROR` | `400`  | Any Validation-table rule fails, including an interviewer's `?q=`                | no   |
+| `UNAUTHENTICATED`  | `401`  | No/invalid/expired token                                                         | no   |
+| `FORBIDDEN`        | `403`  | Candidate anywhere; interviewer on `PATCH`                                       | no   |
+| `NOT_FOUND`        | `404`  | No such candidate, the id is not a candidate, or the interviewer is not assigned | no   |
+| `INTERNAL_ERROR`   | `500`  | Anything unhandled                                                               | no   |
 
 **This feature adds no new error code.** Worth stating: the sharpest authorization boundary in the
 system is expressed entirely in existing codes, because the correct answer to "you may not see this"
@@ -724,7 +769,7 @@ is the same as the answer to "this is not here".
 - **ERR-1** An unassigned interviewer's by-id read is `404 NOT_FOUND`, **byte-identical** to
   `GET /api/candidates/999999` and to a request for a recruiter's user id (FR-1.2, FR-6.5). No
   header, no message difference, nothing the service does differently.
-- **ERR-2** `403` means *wrong role for this route*. `404` means *right role, wrong row*. The two
+- **ERR-2** `403` means _wrong role for this route_. `404` means _right role, wrong row_. The two
   are never mixed — mixing them turns this endpoint into a directory of everyone in the company.
 - **ERR-3** A `PATCH` against a user who exists but is an interviewer is `404`, not `403` — the same
   answer as a nonexistent id, so this endpoint cannot be used to enumerate roles (AZ-7).
@@ -736,28 +781,28 @@ is the same as the answer to "this is not here".
 
 ## Edge Cases
 
-| ID | Case | Behaviour |
-|---|---|---|
-| **EC-01** | **An interviewer requests a candidate they are not assigned to, by id** | **`404`.** The row is never fetched — the assignment chain is in the `where` (FR-6.2). *This is the brief's §6 sharpest test* |
-| **EC-02** | An interviewer lists candidates | Only candidates they have a round with appear, at any page, under any filter (FR-3.2, contract invariant 1) |
-| **EC-03** | An interviewer passes `?roleId=` for a role they have no round on | `200` with `candidates: []`. Their scope predicate ANDs with the filter; a filter narrows and cannot widen (FR-3.2) |
-| **EC-04** | An interviewer passes `?q=` | `400`, not a silently dropped parameter (VAL-5, FR-3.8) |
-| **EC-05** | An interviewer is unassigned from their only round with a candidate | Their **next** request for that candidate is `404`, without re-authenticating (AZ-8) |
-| **EC-06** | An interviewer is assigned to a round on a `REJECTED` application | The candidate remains visible to them. The assignment is the authorization, and the application's outcome does not revoke it — a panel member may need to look back at who they interviewed |
-| **EC-07** | A candidate is interviewed by two separate panels | Each interviewer's detail shows **only their own rounds** (FR-6.7). Neither learns the other exists through this surface |
-| **EC-08** | `GET /api/candidates/:id` naming a **recruiter's** user id | `404` for everyone, including a recruiter — `role: CANDIDATE` is in the `where` (FR-1.2, AZ-7) |
-| **EC-09** | A candidate with no applications | Listed, and readable by a recruiter with an empty `applications` array. Invisible to every interviewer, because no assignment chain reaches them (FR-1.3) |
-| **EC-10** | A candidate with no `CandidateProfile` row | Recruiter response carries `profile: { phone: null, location: null, headline: null }`, never `profile: null` (FR-2.5) |
-| **EC-11** | First `PATCH` for a candidate | The profile row is created by upsert; no separate create call, and no "profile not found" state (FR-4.3, D-4) |
-| **EC-12** | `PATCH` with `{"phone": null}` | The stored phone is cleared. Distinguished from an omitted key, which leaves it unchanged (FR-4.6, VAL-6) |
-| **EC-13** | `PATCH` carrying `"email"` or `"role"` | `200`, and neither changes. Stripped by zod before any code reads them (VAL-4) |
-| **EC-14** | **Two recruiters `PATCH` the same candidate concurrently** | Both `200`; the later commit wins the column values. An upsert on a primary key cannot produce two rows, and there is no lost-update hazard worth a version column because the fields are independent free text |
-| **EC-15** | A `PATCH` and an audit write where the audit fails | The transaction aborts; the profile is unchanged and the client sees `500` (ERR-5) |
-| **EC-16** | Two candidates share a phone number | Both store it. No unique constraint, deliberately (FR-2.4) |
-| **EC-17** | `?q=` matching an email fragment | Recruiter-only, matches `User.email` case-insensitively (FR-3.4, D-11). The search term is **never logged** (FR-8.2) |
-| **EC-18** | `?page=999` on a small result set | `200`, empty array, accurate pagination — matching the shipped roles behaviour |
-| **EC-19** | `POST /api/candidates` | `404` from the shipped `notFound` handler. The route does not exist (FR-1.4, contract invariant 7) |
-| **EC-20** | A recruiter reads a candidate with 3 applications, 5 rounds and 8 feedback rows | One query with nested selects, bounded by that candidate's own data (FR-5.7, PERF-2) |
+| ID        | Case                                                                            | Behaviour                                                                                                                                                                                                       |
+| --------- | ------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **EC-01** | **An interviewer requests a candidate they are not assigned to, by id**         | **`404`.** The row is never fetched — the assignment chain is in the `where` (FR-6.2). _This is the brief's §6 sharpest test_                                                                                   |
+| **EC-02** | An interviewer lists candidates                                                 | Only candidates they have a round with appear, at any page, under any filter (FR-3.2, contract invariant 1)                                                                                                     |
+| **EC-03** | An interviewer passes `?roleId=` for a role they have no round on               | `200` with `candidates: []`. Their scope predicate ANDs with the filter; a filter narrows and cannot widen (FR-3.2)                                                                                             |
+| **EC-04** | An interviewer passes `?q=`                                                     | `400`, not a silently dropped parameter (VAL-5, FR-3.8)                                                                                                                                                         |
+| **EC-05** | An interviewer is unassigned from their only round with a candidate             | Their **next** request for that candidate is `404`, without re-authenticating (AZ-8)                                                                                                                            |
+| **EC-06** | An interviewer is assigned to a round on a `REJECTED` application               | The candidate remains visible to them. The assignment is the authorization, and the application's outcome does not revoke it — a panel member may need to look back at who they interviewed                     |
+| **EC-07** | A candidate is interviewed by two separate panels                               | Each interviewer's detail shows **only their own rounds** (FR-6.7). Neither learns the other exists through this surface                                                                                        |
+| **EC-08** | `GET /api/candidates/:id` naming a **recruiter's** user id                      | `404` for everyone, including a recruiter — `role: CANDIDATE` is in the `where` (FR-1.2, AZ-7)                                                                                                                  |
+| **EC-09** | A candidate with no applications                                                | Listed, and readable by a recruiter with an empty `applications` array. Invisible to every interviewer, because no assignment chain reaches them (FR-1.3)                                                       |
+| **EC-10** | A candidate with no `CandidateProfile` row                                      | Recruiter response carries `profile: { phone: null, location: null, headline: null }`, never `profile: null` (FR-2.5)                                                                                           |
+| **EC-11** | First `PATCH` for a candidate                                                   | The profile row is created by upsert; no separate create call, and no "profile not found" state (FR-4.3, D-4)                                                                                                   |
+| **EC-12** | `PATCH` with `{"phone": null}`                                                  | The stored phone is cleared. Distinguished from an omitted key, which leaves it unchanged (FR-4.6, VAL-6)                                                                                                       |
+| **EC-13** | `PATCH` carrying `"email"` or `"role"`                                          | `200`, and neither changes. Stripped by zod before any code reads them (VAL-4)                                                                                                                                  |
+| **EC-14** | **Two recruiters `PATCH` the same candidate concurrently**                      | Both `200`; the later commit wins the column values. An upsert on a primary key cannot produce two rows, and there is no lost-update hazard worth a version column because the fields are independent free text |
+| **EC-15** | A `PATCH` and an audit write where the audit fails                              | The transaction aborts; the profile is unchanged and the client sees `500` (ERR-5)                                                                                                                              |
+| **EC-16** | Two candidates share a phone number                                             | Both store it. No unique constraint, deliberately (FR-2.4)                                                                                                                                                      |
+| **EC-17** | `?q=` matching an email fragment                                                | Recruiter-only, matches `User.email` case-insensitively (FR-3.4, D-11). The search term is **never logged** (FR-8.2)                                                                                            |
+| **EC-18** | `?page=999` on a small result set                                               | `200`, empty array, accurate pagination — matching the shipped roles behaviour                                                                                                                                  |
+| **EC-19** | `POST /api/candidates`                                                          | `404` from the shipped `notFound` handler. The route does not exist (FR-1.4, contract invariant 7)                                                                                                              |
+| **EC-20** | A recruiter reads a candidate with 3 applications, 5 rounds and 8 feedback rows | One query with nested selects, bounded by that candidate's own data (FR-5.7, PERF-2)                                                                                                                            |
 
 ---
 
@@ -767,8 +812,8 @@ is the same as the answer to "this is not here".
   `{ id: true, name: true }`. `phone` lives in `CandidateProfile`, a relation it does not join;
   `email` is a column it does not name (FR-6.4, MIG-2). **The row Postgres returns to Node contains
   neither**, so there is no mapping step that could forget to remove them, no serializer that could
-  include them, and no log line that could print them. *This is the answer to brief §7.3, and
-  `candidate.select.ts` is where a reviewer reads it.*
+  include them, and no log line that could print them. _This is the answer to brief §7.3, and
+  `candidate.select.ts` is where a reviewer reads it._
 - **SEC-2** **Authorization is in the `where`, not after the fetch** (AZ-2, FR-6.2). An unassigned
   interviewer's request produces no row. There is no `if (!assigned) throw` in this module, and
   a reviewer can confirm it by grep (AC-B31).
@@ -850,8 +895,8 @@ round; `$CAND_OTHER` is a seeded candidate with applications but **no interviews
 - **AC-B01** — **Given** `$I1` is **not** assigned to any round with `$CAND_OTHER`, **when**
   `GET /api/candidates/$CAND_OTHER` is called with `$I1` — **the candidate's id supplied directly**
   — **then** the response is **`404 NOT_FOUND`** with a body byte-identical to
-  `GET /api/candidates/999999`. *This is the brief's §6 sharpest check: an interviewer requesting a
-  candidate they are not assigned to, directly by ID, refused at the point of the query* (FR-6.2,
+  `GET /api/candidates/999999`. _This is the brief's §6 sharpest check: an interviewer requesting a
+  candidate they are not assigned to, directly by ID, refused at the point of the query_ (FR-6.2,
   EC-01, AZ-2).
 - **AC-B02** — **Given** the same request, **when** the server log is read, **then** a
   `candidate.scoped_read_miss` line is present, the response was **not** `403`, and no candidate
@@ -886,8 +931,8 @@ round; `$CAND_OTHER` is a seeded candidate with applications but **no interviews
   (contract invariants 1–2, PERF-5).
 - **AC-B12** — **Given** `$CAND` has a recorded phone, **when** `$I1` calls **both** candidate
   endpoints **and** `GET /api/interviews/:id` **and** `GET /api/interviews/:id/feedback`, **then**
-  the phone string appears in **none** of the four response bodies. *This is the cross-cutting
-  invariant: the contact detail appears in no response from any endpoint, to any interviewer*
+  the phone string appears in **none** of the four response bodies. _This is the cross-cutting
+  invariant: the contact detail appears in no response from any endpoint, to any interviewer_
   (SEC-1, and interviews/feedback contract invariants).
 - **AC-B13** — **Given** the codebase, **when** `candidate.select.ts` is read, **then**
   `INTERVIEWER_CANDIDATE_SELECT` is exactly `{ id: true, name: true }` — it names no `email`, joins
@@ -903,14 +948,14 @@ round; `$CAND_OTHER` is a seeded candidate with applications but **no interviews
   `interviews`, and each round's `assignments` and `feedback` (FR-5.2).
 - **AC-B16** — **Given** a candidate whose application was overridden, **when** `$R` reads them,
   **then** the relevant `stageHistory` entry carries a non-null `override` with its `reason` and
-  `performedBy.name`. *This is where the brief's §3.3 record is actually read* (FR-5.5).
+  `performedBy.name`. _This is where the brief's §3.3 record is actually read_ (FR-5.5).
 - **AC-B17** — **Given** a round with feedback, **when** `$R` reads the candidate, **then** the
   feedback entries carry `rating`, `notes` and `interviewer.name` (FR-5.4, D-12).
 - **AC-B18** — **Given** `$R`, **when** `GET /api/candidates?q=<an email fragment>` is called,
   **then** matching candidates are returned, and the server log contains **no** occurrence of the
   search term (FR-3.4, SEC-7, EC-17).
 - **AC-B19** — **Given** `$R`, **when** `GET /api/candidates?roleId=<a role id>` is called, **then**
-  only candidates with an application to that role are returned. *This is the job → applicants step*
+  only candidates with an application to that role are returned. _This is the job → applicants step_
   (US-04, FR-3.4).
 - **AC-B20** — **Given** `$R`, **when** `GET /api/candidates?stage=SCREEN&status=ACTIVE` is called,
   **then** filters AND — the result is a subset of each filter applied alone (FR-3.4).
@@ -1003,20 +1048,20 @@ round; `$CAND_OTHER` is a seeded candidate with applications but **no interviews
 
 ## Out of Scope
 
-| Excluded | Why |
-|---|---|
-| **`POST /api/candidates`** | D-1. A recruiter-created candidate is an account with no password and an invite flow nobody asked for. The shipped codebase has exactly one account-creation path and this feature does not add a second |
-| Editing `name`, `email` or `role` | Identity belongs to the account, and this is a recruiter's surface (AZ-4) |
-| Candidate self-service profile editing | D-6. Requires deciding what a candidate may see and change, which no requirement covers |
-| Deleting or anonymising a candidate | D-13. `AuditLog.actor` and `Feedback.interviewer` are `Restrict`, so a delete would fail anyway — and a GDPR-shaped anonymise is a real feature, not a `DELETE` |
-| Résumé or document upload | No storage layer exists in this POC |
-| Candidate notes or tags by recruiters | A separate record with its own authorization question; feedback already covers assessment |
-| Merging duplicate candidates | Requires a merge policy for applications, feedback and audit rows |
-| Phone normalisation or validation | FR-2.3. A POC that rejects a valid international number is worse than one that stores a string |
-| Searching by phone | No requirement asks for it, and `CandidateProfile` is deliberately unindexed (MIG-6) |
-| Full-text or trigram search | PERF-4 names the threshold at which `?q=` must move to `pg_trgm`; below it, an index Postgres would not use is cost without benefit |
-| Interviewer access to a candidate's other rounds or applications | FR-6.7. Their scope is the assignment, not the person |
-| A `hiringManager` actor with per-role candidate visibility | Optional in the brief (§2) and absent from the requirements this pass covers |
+| Excluded                                                         | Why                                                                                                                                                                                                      |
+| ---------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **`POST /api/candidates`**                                       | D-1. A recruiter-created candidate is an account with no password and an invite flow nobody asked for. The shipped codebase has exactly one account-creation path and this feature does not add a second |
+| Editing `name`, `email` or `role`                                | Identity belongs to the account, and this is a recruiter's surface (AZ-4)                                                                                                                                |
+| Candidate self-service profile editing                           | D-6. Requires deciding what a candidate may see and change, which no requirement covers                                                                                                                  |
+| Deleting or anonymising a candidate                              | D-13. `AuditLog.actor` and `Feedback.interviewer` are `Restrict`, so a delete would fail anyway — and a GDPR-shaped anonymise is a real feature, not a `DELETE`                                          |
+| Résumé or document upload                                        | No storage layer exists in this POC                                                                                                                                                                      |
+| Candidate notes or tags by recruiters                            | A separate record with its own authorization question; feedback already covers assessment                                                                                                                |
+| Merging duplicate candidates                                     | Requires a merge policy for applications, feedback and audit rows                                                                                                                                        |
+| Phone normalisation or validation                                | FR-2.3. A POC that rejects a valid international number is worse than one that stores a string                                                                                                           |
+| Searching by phone                                               | No requirement asks for it, and `CandidateProfile` is deliberately unindexed (MIG-6)                                                                                                                     |
+| Full-text or trigram search                                      | PERF-4 names the threshold at which `?q=` must move to `pg_trgm`; below it, an index Postgres would not use is cost without benefit                                                                      |
+| Interviewer access to a candidate's other rounds or applications | FR-6.7. Their scope is the assignment, not the person                                                                                                                                                    |
+| A `hiringManager` actor with per-role candidate visibility       | Optional in the brief (§2) and absent from the requirements this pass covers                                                                                                                             |
 
 ---
 
@@ -1039,23 +1084,23 @@ exist there.
 
 **New files**
 
-| Path | Purpose |
-|---|---|
-| `src/modules/candidates/candidate.repository.ts` | `buildCandidateWhere`, `listCandidates`, `getRecruiterCandidate`, `getInterviewerCandidate` (BE-2, FR-7.1) |
-| `src/modules/candidates/candidate.select.ts` | `RECRUITER_CANDIDATE_SELECT`, `INTERVIEWER_CANDIDATE_SELECT` — **the file a reviewer opens for brief §7.3** |
-| `src/modules/candidates/candidate.service.ts` | Role dispatch + the `PATCH` transaction |
-| `src/modules/candidates/candidate.controller.ts` | HTTP concerns only |
-| `src/modules/candidates/candidate.routes.ts` | Three routes, guarded per BE-4 |
-| `src/modules/candidates/candidate.schema.ts` | Body, param and query schemas |
+| Path                                             | Purpose                                                                                                     |
+| ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------- |
+| `src/modules/candidates/candidate.repository.ts` | `buildCandidateWhere`, `listCandidates`, `getRecruiterCandidate`, `getInterviewerCandidate` (BE-2, FR-7.1)  |
+| `src/modules/candidates/candidate.select.ts`     | `RECRUITER_CANDIDATE_SELECT`, `INTERVIEWER_CANDIDATE_SELECT` — **the file a reviewer opens for brief §7.3** |
+| `src/modules/candidates/candidate.service.ts`    | Role dispatch + the `PATCH` transaction                                                                     |
+| `src/modules/candidates/candidate.controller.ts` | HTTP concerns only                                                                                          |
+| `src/modules/candidates/candidate.routes.ts`     | Three routes, guarded per BE-4                                                                              |
+| `src/modules/candidates/candidate.schema.ts`     | Body, param and query schemas                                                                               |
 
 **Modified existing files**
 
-| Path | Change |
-|---|---|
-| [`prisma/schema.prisma`](../../../prisma/schema.prisma) | `CandidateProfile` + the `User` back-relation |
-| [`src/app.ts`](../../../src/app.ts) | Mount `candidatesRouter` at `/api/candidates` |
-| [`prisma/seed.ts`](../../../prisma/seed.ts) | A profile for the seeded candidate, plus a second candidate with applications and no rounds (FR-8.3) |
-| [`CLAUDE.md`](../../../CLAUDE.md) | Feature table row; the "Authorization & data exposure" section now names `candidate.select.ts` as the file that answers §7.3 |
+| Path                                                    | Change                                                                                                                       |
+| ------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| [`prisma/schema.prisma`](../../../prisma/schema.prisma) | `CandidateProfile` + the `User` back-relation                                                                                |
+| [`src/app.ts`](../../../src/app.ts)                     | Mount `candidatesRouter` at `/api/candidates`                                                                                |
+| [`prisma/seed.ts`](../../../prisma/seed.ts)             | A profile for the seeded candidate, plus a second candidate with applications and no rounds (FR-8.3)                         |
+| [`CLAUDE.md`](../../../CLAUDE.md)                       | Feature table row; the "Authorization & data exposure" section now names `candidate.select.ts` as the file that answers §7.3 |
 
 **External services:** none.
 

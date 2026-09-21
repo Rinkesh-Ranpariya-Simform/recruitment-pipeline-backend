@@ -53,49 +53,49 @@ The brief's §3.1 is two sentences and both are load-bearing:
 
 ### Current state of `backend/`
 
-|                | Today |
-| -------------- | ------ |
-| `Application` | `{ id, candidateUserId, roleId, status, currentStage, stageEnteredAt, createdAt, updatedAt }` |
-| Enums | `PipelineStage { APPLIED SCREEN INTERVIEW OFFER }` and `ApplicationStatus { ACTIVE HIRED REJECTED }` — **deliberately disjoint** so `ACTIVE + REJECTED` is unrepresentable |
-| `stageEnteredAt` | **Already on the table**, written at apply time. The candidate spec added it specifically for this feature: *"the ageing column the pipeline feature computes 'time at current stage' from"* |
-| Indexes | `Application`: `@@unique([candidateUserId, roleId])`, `@@index([candidateUserId, createdAt])`, `@@index([roleId, currentStage])` — the last one annotated *"the pipeline aggregate"* |
-| Write paths | Exactly one: `POST /api/applications`, candidate-only, producing `(ACTIVE, APPLIED)` |
-| Read paths | Exactly one: `GET /api/applications`, candidate-scoped, unpaged. It is **not** widened by this feature |
-| Transitions | **none.** No endpoint changes `currentStage` or `status` |
-| History | **none.** No `StageHistory`, no `StageOverride` |
-| Aggregates | **none.** No `GET /api/pipeline` |
-| Raw SQL | **never used.** Every query today is Prisma's query builder |
+|                  | Today                                                                                                                                                                                        |
+| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Application`    | `{ id, candidateUserId, roleId, status, currentStage, stageEnteredAt, createdAt, updatedAt }`                                                                                                |
+| Enums            | `PipelineStage { APPLIED SCREEN INTERVIEW OFFER }` and `ApplicationStatus { ACTIVE HIRED REJECTED }` — **deliberately disjoint** so `ACTIVE + REJECTED` is unrepresentable                   |
+| `stageEnteredAt` | **Already on the table**, written at apply time. The candidate spec added it specifically for this feature: _"the ageing column the pipeline feature computes 'time at current stage' from"_ |
+| Indexes          | `Application`: `@@unique([candidateUserId, roleId])`, `@@index([candidateUserId, createdAt])`, `@@index([roleId, currentStage])` — the last one annotated _"the pipeline aggregate"_         |
+| Write paths      | Exactly one: `POST /api/applications`, candidate-only, producing `(ACTIVE, APPLIED)`                                                                                                         |
+| Read paths       | Exactly one: `GET /api/applications`, candidate-scoped, unpaged. It is **not** widened by this feature                                                                                       |
+| Transitions      | **none.** No endpoint changes `currentStage` or `status`                                                                                                                                     |
+| History          | **none.** No `StageHistory`, no `StageOverride`                                                                                                                                              |
+| Aggregates       | **none.** No `GET /api/pipeline`                                                                                                                                                             |
+| Raw SQL          | **never used.** Every query today is Prisma's query builder                                                                                                                                  |
 
 The schema was built anticipating this feature; this spec is where that anticipation is spent.
 
 ### Decisions settled during the interview
 
-| # | Question | Decision | Recorded in |
-|---|---|---|---|
-| D-1 | Where do `HIRED`/`REJECTED` live? | **On `ApplicationStatus`, not `PipelineStage`** — as shipped. So the transition rules split into a stage graph and an outcome map, rather than the single map the request sketched | FR-2, FR-3 |
-| D-2 | Who may move a candidate? | **Recruiters only.** Every endpoint in this feature is `requireRole(RECRUITER)` | AZ-2 |
-| D-3 | Who may override? | **Recruiters only**, answering the brief's explicit "be explicit" | AZ-3 |
-| D-4 | Is a reason optional on an override? | **No.** `StageOverride.reason` is `NOT NULL`, min 10 characters after trim. An override without a reason is refused by validation and, if that were bypassed, by Postgres | FR-4.3, VAL-2 |
-| D-5 | May an override move backwards? | **Yes**, to any stage other than the current one. A recruiter who advanced someone by mistake needs a recorded way back, and the reason column is what makes it accountable | FR-4.5 |
-| D-6 | One history table or two? | **Two.** `StageHistory` is every transition; `StageOverride` is the subset that used the override path. Joined by `StageHistory.overrideId` | FR-5, MIG-3 |
-| D-7 | Is `reason` duplicated onto `StageHistory`? | **No.** It lives only on `StageOverride`. A duplicated column is a column that can disagree with itself | MIG-3 |
-| D-8 | Where does ageing come from? | **`Application.stageEnteredAt`**, computed in SQL. `StageHistory` is the audit of *how* a stage was entered; `stageEnteredAt` is the denormalised *when*, kept for the aggregate's sake | FR-7.3, PERF-1 |
-| D-9 | Raw SQL or Prisma `groupBy`? | **Raw SQL via `$queryRaw`.** Prisma's `groupBy` cannot compute `now() - stageEnteredAt` per group, and doing it in Node is what §6 forbids | FR-7.4, BE-4 |
-| D-10 | Two recruiters move the same application at once? | **The first wins; the second gets `409 STAGE_CONFLICT`.** Enforced by a stage-guarded `updateMany` whose `count: 0` means someone else moved first — never a read-then-write | FR-6, EC-01 |
-| D-11 | Can a terminal application be moved? | **No.** `HIRED` and `REJECTED` are terminal. Any transition or override against one is `409 APPLICATION_NOT_ACTIVE` | FR-2.6, FR-4.6 |
-| D-12 | Does the dashboard count interviews? | **Not yet.** The `Interview` table does not exist at this point in the order. The interviews feature adds that tile as a Revision to this spec | FR-8.4 |
-| D-13 | Does this feature touch `GET /api/applications`? | **No.** It stays candidate-scoped and unpaged. A recruiter's view of applications is `GET /api/candidates`, owned by the candidate-access feature | Out of Scope |
+| #    | Question                                          | Decision                                                                                                                                                                                | Recorded in    |
+| ---- | ------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------- |
+| D-1  | Where do `HIRED`/`REJECTED` live?                 | **On `ApplicationStatus`, not `PipelineStage`** — as shipped. So the transition rules split into a stage graph and an outcome map, rather than the single map the request sketched      | FR-2, FR-3     |
+| D-2  | Who may move a candidate?                         | **Recruiters only.** Every endpoint in this feature is `requireRole(RECRUITER)`                                                                                                         | AZ-2           |
+| D-3  | Who may override?                                 | **Recruiters only**, answering the brief's explicit "be explicit"                                                                                                                       | AZ-3           |
+| D-4  | Is a reason optional on an override?              | **No.** `StageOverride.reason` is `NOT NULL`, min 10 characters after trim. An override without a reason is refused by validation and, if that were bypassed, by Postgres               | FR-4.3, VAL-2  |
+| D-5  | May an override move backwards?                   | **Yes**, to any stage other than the current one. A recruiter who advanced someone by mistake needs a recorded way back, and the reason column is what makes it accountable             | FR-4.5         |
+| D-6  | One history table or two?                         | **Two.** `StageHistory` is every transition; `StageOverride` is the subset that used the override path. Joined by `StageHistory.overrideId`                                             | FR-5, MIG-3    |
+| D-7  | Is `reason` duplicated onto `StageHistory`?       | **No.** It lives only on `StageOverride`. A duplicated column is a column that can disagree with itself                                                                                 | MIG-3          |
+| D-8  | Where does ageing come from?                      | **`Application.stageEnteredAt`**, computed in SQL. `StageHistory` is the audit of _how_ a stage was entered; `stageEnteredAt` is the denormalised _when_, kept for the aggregate's sake | FR-7.3, PERF-1 |
+| D-9  | Raw SQL or Prisma `groupBy`?                      | **Raw SQL via `$queryRaw`.** Prisma's `groupBy` cannot compute `now() - stageEnteredAt` per group, and doing it in Node is what §6 forbids                                              | FR-7.4, BE-4   |
+| D-10 | Two recruiters move the same application at once? | **The first wins; the second gets `409 STAGE_CONFLICT`.** Enforced by a stage-guarded `updateMany` whose `count: 0` means someone else moved first — never a read-then-write            | FR-6, EC-01    |
+| D-11 | Can a terminal application be moved?              | **No.** `HIRED` and `REJECTED` are terminal. Any transition or override against one is `409 APPLICATION_NOT_ACTIVE`                                                                     | FR-2.6, FR-4.6 |
+| D-12 | Does the dashboard count interviews?              | **Not yet.** The `Interview` table does not exist at this point in the order. The interviews feature adds that tile as a Revision to this spec                                          | FR-8.4         |
+| D-13 | Does this feature touch `GET /api/applications`?  | **No.** It stays candidate-scoped and unpaged. A recruiter's view of applications is `GET /api/candidates`, owned by the candidate-access feature                                       | Out of Scope   |
 
 ---
 
 ## Users / Actors
 
-| Actor | May do, after this feature |
-|---|---|
-| Anonymous | Nothing. `401` on every endpoint here |
-| Candidate | Nothing. `403` on every endpoint here — including against their own application |
-| Interviewer | Nothing. `403` on every endpoint here |
-| Recruiter | Move a stage, override a stage, set an outcome, read the pipeline aggregate and the dashboard summary |
+| Actor       | May do, after this feature                                                                            |
+| ----------- | ----------------------------------------------------------------------------------------------------- |
+| Anonymous   | Nothing. `401` on every endpoint here                                                                 |
+| Candidate   | Nothing. `403` on every endpoint here — including against their own application                       |
+| Interviewer | Nothing. `403` on every endpoint here                                                                 |
+| Recruiter   | Move a stage, override a stage, set an outcome, read the pipeline aggregate and the dashboard summary |
 
 **Deliberate POC trade-offs, so they are not read as oversights:**
 
@@ -114,16 +114,16 @@ The schema was built anticipating this feature; this spec is where that anticipa
 
 ## User Stories
 
-| ID | Story |
-|---|---|
-| **US-01** | As a recruiter, I want to advance a candidate one stage, so that the board reflects reality without me editing a spreadsheet. |
-| **US-02** | As a recruiter, I want an illegal jump refused, so that the process is enforced by the system rather than by my memory of it. |
+| ID        | Story                                                                                                                                                                   |
+| --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **US-01** | As a recruiter, I want to advance a candidate one stage, so that the board reflects reality without me editing a spreadsheet.                                           |
+| **US-02** | As a recruiter, I want an illegal jump refused, so that the process is enforced by the system rather than by my memory of it.                                           |
 | **US-03** | As a recruiter, I want to skip a stage when a candidate has genuinely already cleared it, by typing a reason, so that an exception is possible without being invisible. |
-| **US-04** | As a hiring manager, I want every skip to name the person who performed it and their reason, so that an exception is accountable. |
-| **US-05** | As a recruiter, I want to mark an application hired or rejected, so that the board shows live candidates only. |
-| **US-06** | As a recruiter, I want counts per stage per role and how long people have been waiting, so that I can see where a role is stuck. |
-| **US-07** | As a recruiter, I want that view to stay fast at 200 roles and 20 000 candidates, so that it is usable rather than a demo. |
-| **US-08** | As a recruiter, I want to be told when a colleague moved the same candidate a moment before me, so that my change does not silently overwrite theirs. |
+| **US-04** | As a hiring manager, I want every skip to name the person who performed it and their reason, so that an exception is accountable.                                       |
+| **US-05** | As a recruiter, I want to mark an application hired or rejected, so that the board shows live candidates only.                                                          |
+| **US-06** | As a recruiter, I want counts per stage per role and how long people have been waiting, so that I can see where a role is stuck.                                        |
+| **US-07** | As a recruiter, I want that view to stay fast at 200 roles and 20 000 candidates, so that it is usable rather than a demo.                                              |
+| **US-08** | As a recruiter, I want to be told when a colleague moved the same candidate a moment before me, so that my change does not silently overwrite theirs.                   |
 
 ---
 
@@ -150,23 +150,24 @@ The schema was built anticipating this feature; this spec is where that anticipa
 
   ```ts
   const ALLOWED_STAGE_TRANSITIONS: Record<PipelineStage, ReadonlyArray<PipelineStage>> = {
-    APPLIED:   ['SCREEN'],
-    SCREEN:    ['INTERVIEW'],
+    APPLIED: ['SCREEN'],
+    SCREEN: ['INTERVIEW'],
     INTERVIEW: ['OFFER'],
-    OFFER:     [],
+    OFFER: [],
   };
   ```
 
   One step forward, no skips, no reversals. Everything else needs an override (FR-4) or is an
   outcome (FR-3).
+
 - **FR-2.2** `PATCH /api/applications/:applicationId/stage` with `{ toStage }` performs a legal
   transition. Recruiter-only.
 - **FR-2.3** `toStage` is validated as a `PipelineStage` **by zod at the route boundary**, before
   any service runs. `{ "toStage": "PROBATION" }` is a `400`, satisfying the brief's requirement that
-  *"a transition naming a stage that isn't defined"* is rejected before business logic (§6).
+  _"a transition naming a stage that isn't defined"_ is rejected before business logic (§6).
 - **FR-2.4** A well-formed but illegal transition — `APPLIED → OFFER`, or `SCREEN → APPLIED` — is
   `409 INVALID_STAGE_TRANSITION`. The error body names both the current stage and the stages that
-  *are* reachable, so a client can render the legal options without hard-coding the graph.
+  _are_ reachable, so a client can render the legal options without hard-coding the graph.
 - **FR-2.5** `toStage === currentStage` is `409 INVALID_STAGE_TRANSITION`, not a no-op `200`. A
   transition to where you already are is a client bug, and answering `200` hides it.
 - **FR-2.6** An application whose `status` is not `ACTIVE` cannot be moved:
@@ -185,16 +186,17 @@ The schema was built anticipating this feature; this spec is where that anticipa
 
   ```ts
   const ALLOWED_OUTCOMES: Record<PipelineStage, ReadonlyArray<ApplicationStatus>> = {
-    APPLIED:   ['REJECTED'],
-    SCREEN:    ['REJECTED'],
+    APPLIED: ['REJECTED'],
+    SCREEN: ['REJECTED'],
     INTERVIEW: ['REJECTED'],
-    OFFER:     ['HIRED', 'REJECTED'],
+    OFFER: ['HIRED', 'REJECTED'],
   };
   ```
 
   Rejection is possible from any live stage. **Hiring is possible only from `OFFER`** — hiring
   someone who was never offered is the stage skip this feature exists to prevent, and it must go
   through an override to `OFFER` first, leaving a reason.
+
 - **FR-3.2** `PATCH /api/applications/:applicationId/outcome` with `{ status, reason? }`.
   Recruiter-only. `status` is `HIRED` or `REJECTED` only — `ACTIVE` is rejected by validation
   (VAL-4): un-rejecting a candidate is not a supported action in this POC.
@@ -222,7 +224,7 @@ The schema was built anticipating this feature; this spec is where that anticipa
 - **FR-4.3** **`reason` is required.** Trimmed, 10–1000 characters. It is enforced in three places,
   deliberately: zod at the boundary (`400`), the `NOT NULL` column (`StageOverride.reason`), and the
   fact that the insert precedes the update in the same transaction. The brief requires the override
-  be *"genuinely recorded, not inferred"*, and a nullable column would make "recorded" a matter of
+  be _"genuinely recorded, not inferred"_, and a nullable column would make "recorded" a matter of
   code discipline rather than schema.
 - **FR-4.4** `toStage === currentStage` is `400` — an override that changes nothing is a client
   bug, and recording it would pollute the very trail the feature exists to keep clean.
@@ -233,12 +235,12 @@ The schema was built anticipating this feature; this spec is where that anticipa
 - **FR-4.6** An application that is not `ACTIVE` cannot be overridden: `409 APPLICATION_NOT_ACTIVE`
   (D-11).
 - **FR-4.7** A successful override, in **one** transaction, in this order:
-  1. insert `StageOverride` — the record of *why*, written **first**, so a failure downstream can
+  1. insert `StageOverride` — the record of _why_, written **first**, so a failure downstream can
      never leave a moved candidate with no explanation;
   2. stage-guarded `updateMany` on `Application` (FR-6.2);
   3. insert `StageHistory` with `overrideId` set to the new override's id;
   4. `recordAudit(tx, { action: 'STAGE_OVERRIDE_CREATED', metadata: { fromStage, toStage, reason,
-     overrideId, skipped } })`.
+overrideId, skipped } })`.
 - **FR-4.8** `skipped` is the count of stages jumped, computed from `STAGE_ORDER` as
   `indexOf(toStage) - indexOf(fromStage) - 1`, floored at 0. It is recorded so that "was a stage
   actually skipped" is answerable at read time without re-deriving the graph.
@@ -283,6 +285,7 @@ The schema was built anticipating this feature; this spec is where that anticipa
   The stage the caller observed is part of the `where`. If another request moved the row between
   the read and the write, `count` is `0` and the transaction aborts — so the second recruiter gets
   `409 STAGE_CONFLICT` rather than overwriting the first.
+
 - **FR-6.3** Outcome writes use the same shape, guarded on `status: ACTIVE`.
 - **FR-6.4** `409 STAGE_CONFLICT` is distinct from `409 INVALID_STAGE_TRANSITION`. They have
   different remedies — refetch and retry versus "this move is not allowed" — and collapsing them
@@ -317,6 +320,7 @@ The schema was built anticipating this feature; this spec is where that anticipa
 
   Prisma's `groupBy` cannot express the interval arithmetic, and doing it in Node is what brief §6
   forbids by name.
+
 - **FR-7.5** Every parameter is passed through Prisma's tagged-template interpolation
   (`$queryRaw` with `${}`), never string concatenation. This is the only raw SQL in the codebase
   and the rule is absolute (SEC-3).
@@ -328,7 +332,7 @@ The schema was built anticipating this feature; this spec is where that anticipa
   differently from the next one.
 - **FR-7.8** Roles are returned in the shipped roles ordering — `createdAt desc`, `id desc`. Stages
   within a role are returned in `STAGE_ORDER`, never alphabetically: `APPLIED, INTERVIEW, OFFER,
-  SCREEN` is a board nobody can read.
+SCREEN` is a board nobody can read.
 - **FR-7.9** `GET /api/pipeline` is **not paginated**. It returns one row per role per stage — at
   the brief's 200 roles that is 800 cells, a bounded payload independent of the 20 000 candidates
   behind it. The bound is the point: the response scales with roles, not with people. If roles ever
@@ -350,7 +354,7 @@ The schema was built anticipating this feature; this spec is where that anticipa
 - **FR-9.1** **`POST /api/applications` gains one statement.** Inside its existing transaction, after
   creating the `Application`, it writes the entry `StageHistory` row
   (`fromStage: null, toStage: APPLIED, fromStatus: null, toStatus: ACTIVE, changedByUserId:
-  <the candidate>`). No response shape changes, no status code changes, and the candidate feature's
+<the candidate>`). No response shape changes, no status code changes, and the candidate feature's
   acceptance criteria are unaffected. This is the only amendment to shipped code in this feature.
 - **FR-9.2** `GET /api/applications` is **unchanged** (D-13). It stays candidate-scoped, unpaged,
   and carries no history, no actor and no reason.
@@ -383,7 +387,7 @@ The obligations this backend places on the Next.js client. The rest of the front
   `details: { toStage: [<message>], allowed: [<stage>, …] }`. **The client renders the legal moves
   from `allowed` and never hard-codes the stage graph.** If the client owns a second copy of the
   graph, the two will disagree the first time the graph changes.
-- **XFE-3** `409 STAGE_CONFLICT` means *someone else moved this candidate*. Its remedy is refetch,
+- **XFE-3** `409 STAGE_CONFLICT` means _someone else moved this candidate_. Its remedy is refetch,
   not retry-as-is. It is a **different code** from `INVALID_STAGE_TRANSITION` precisely so the
   client can say the right thing (FR-6.4).
 - **XFE-4** `409 APPLICATION_NOT_ACTIVE` means the application is `HIRED` or `REJECTED`. Terminal;
@@ -419,8 +423,8 @@ The obligations this backend places on the Next.js client. The rest of the front
   `pipeline.service.ts` (the transactions), `pipeline.controller.ts`, `pipeline.routes.ts`,
   `pipeline.schema.ts`, `pipeline.select.ts`.
 - **BE-2 — `pipeline.rules.ts` is pure.** It imports the Prisma enums and nothing else — no
-  `prisma`, no Express, no logger. It is the file a reviewer reads to answer *"where is the stage
-  progression rule enforced?"* (brief §7.1), so it must be readable without following anything.
+  `prisma`, no Express, no logger. It is the file a reviewer reads to answer _"where is the stage
+  progression rule enforced?"_ (brief §7.1), so it must be readable without following anything.
 - **BE-3 — Rules are consulted before the transaction opens.** The service resolves the application,
   asks `pipeline.rules` whether the move is legal, and only then opens the write transaction. An
   illegal move costs one read and no write.
@@ -463,8 +467,8 @@ field table — is `plan.md § Backend Changes`.** This section states only what
     "status": "ACTIVE",
     "currentStage": "SCREEN",
     "stageEnteredAt": "2026-09-19T10:31:07.412Z",
-    "role": { "id": 3, "title": "Senior Backend Engineer" }
-  }
+    "role": { "id": 3, "title": "Senior Backend Engineer" },
+  },
 }
 ```
 
@@ -473,21 +477,21 @@ field table — is `plan.md § Backend Changes`.** This section states only what
 {
   "code": "INVALID_STAGE_TRANSITION",
   "message": "A candidate at APPLIED cannot move to OFFER without an override",
-  "details": { "toStage": ["Not reachable from APPLIED"], "allowed": ["SCREEN"] }
+  "details": { "toStage": ["Not reachable from APPLIED"], "allowed": ["SCREEN"] },
 }
 ```
 
-| Status | `code` | When |
-|---|---|---|
-| `200` | — | Moved |
-| `400` | `VALIDATION_ERROR` | `toStage` missing or not a `PipelineStage`; `applicationId` not a positive integer |
-| `401` | `UNAUTHENTICATED` | No/invalid token |
-| `403` | `FORBIDDEN` | Not a recruiter |
-| `404` | `NOT_FOUND` | No application with that id |
-| `409` | `INVALID_STAGE_TRANSITION` | Legal stage, illegal move — including `toStage === currentStage` |
-| `409` | `APPLICATION_NOT_ACTIVE` | Application is `HIRED` or `REJECTED` |
-| `409` | `STAGE_CONFLICT` | Another request moved it first |
-| `500` | `INTERNAL_ERROR` | Unhandled |
+| Status | `code`                     | When                                                                               |
+| ------ | -------------------------- | ---------------------------------------------------------------------------------- |
+| `200`  | —                          | Moved                                                                              |
+| `400`  | `VALIDATION_ERROR`         | `toStage` missing or not a `PipelineStage`; `applicationId` not a positive integer |
+| `401`  | `UNAUTHENTICATED`          | No/invalid token                                                                   |
+| `403`  | `FORBIDDEN`                | Not a recruiter                                                                    |
+| `404`  | `NOT_FOUND`                | No application with that id                                                        |
+| `409`  | `INVALID_STAGE_TRANSITION` | Legal stage, illegal move — including `toStage === currentStage`                   |
+| `409`  | `APPLICATION_NOT_ACTIVE`   | Application is `HIRED` or `REJECTED`                                               |
+| `409`  | `STAGE_CONFLICT`           | Another request moved it first                                                     |
+| `500`  | `INTERNAL_ERROR`           | Unhandled                                                                          |
 
 ### `POST /api/applications/:applicationId/stage-override` — Bearer · `RECRUITER`
 
@@ -495,7 +499,7 @@ field table — is `plan.md § Backend Changes`.** This section states only what
 // request
 {
   "toStage": "INTERVIEW",
-  "reason": "Candidate completed equivalent external screening."
+  "reason": "Candidate completed equivalent external screening.",
 }
 ```
 
@@ -507,7 +511,7 @@ field table — is `plan.md § Backend Changes`.** This section states only what
     "status": "ACTIVE",
     "currentStage": "INTERVIEW",
     "stageEnteredAt": "2026-09-19T10:34:55.004Z",
-    "role": { "id": 3, "title": "Senior Backend Engineer" }
+    "role": { "id": 3, "title": "Senior Backend Engineer" },
   },
   "override": {
     "id": 4,
@@ -516,8 +520,8 @@ field table — is `plan.md § Backend Changes`.** This section states only what
     "reason": "Candidate completed equivalent external screening.",
     "skipped": 1,
     "createdAt": "2026-09-19T10:34:55.004Z",
-    "performedBy": { "id": 1, "name": "Rhea Recruiter" }
-  }
+    "performedBy": { "id": 1, "name": "Rhea Recruiter" },
+  },
 }
 ```
 
@@ -526,18 +530,18 @@ field table — is `plan.md § Backend Changes`.** This section states only what
 {
   "code": "VALIDATION_ERROR",
   "message": "Invalid request body",
-  "details": { "reason": ["Give a reason of at least 10 characters"] }
+  "details": { "reason": ["Give a reason of at least 10 characters"] },
 }
 ```
 
-| Status | `code` | When |
-|---|---|---|
-| `201` | — | Overridden |
-| `400` | `VALIDATION_ERROR` | `reason` missing/short/too long; `toStage` invalid or equal to current |
-| `401` / `403` | | Anonymous / not a recruiter |
-| `404` | `NOT_FOUND` | No such application |
-| `409` | `APPLICATION_NOT_ACTIVE` | Terminal application |
-| `409` | `STAGE_CONFLICT` | Another request moved it first |
+| Status        | `code`                   | When                                                                   |
+| ------------- | ------------------------ | ---------------------------------------------------------------------- |
+| `201`         | —                        | Overridden                                                             |
+| `400`         | `VALIDATION_ERROR`       | `reason` missing/short/too long; `toStage` invalid or equal to current |
+| `401` / `403` |                          | Anonymous / not a recruiter                                            |
+| `404`         | `NOT_FOUND`              | No such application                                                    |
+| `409`         | `APPLICATION_NOT_ACTIVE` | Terminal application                                                   |
+| `409`         | `STAGE_CONFLICT`         | Another request moved it first                                         |
 
 ### `PATCH /api/applications/:applicationId/outcome` — Bearer · `RECRUITER`
 
@@ -554,20 +558,20 @@ field table — is `plan.md § Backend Changes`.** This section states only what
     "status": "HIRED",
     "currentStage": "OFFER",
     "stageEnteredAt": "2026-09-19T10:34:55.004Z",
-    "role": { "id": 3, "title": "Senior Backend Engineer" }
-  }
+    "role": { "id": 3, "title": "Senior Backend Engineer" },
+  },
 }
 ```
 
-| Status | `code` | When |
-|---|---|---|
-| `200` | — | Outcome set |
-| `400` | `VALIDATION_ERROR` | `status` absent, or not `HIRED`/`REJECTED`; `reason` over 1000 chars |
-| `401` / `403` | | Anonymous / not a recruiter |
-| `404` | `NOT_FOUND` | No such application |
-| `409` | `INVALID_STAGE_TRANSITION` | `HIRED` from a stage other than `OFFER` |
-| `409` | `APPLICATION_NOT_ACTIVE` | Already terminal |
-| `409` | `STAGE_CONFLICT` | Another request changed it first |
+| Status        | `code`                     | When                                                                 |
+| ------------- | -------------------------- | -------------------------------------------------------------------- |
+| `200`         | —                          | Outcome set                                                          |
+| `400`         | `VALIDATION_ERROR`         | `status` absent, or not `HIRED`/`REJECTED`; `reason` over 1000 chars |
+| `401` / `403` |                            | Anonymous / not a recruiter                                          |
+| `404`         | `NOT_FOUND`                | No such application                                                  |
+| `409`         | `INVALID_STAGE_TRANSITION` | `HIRED` from a stage other than `OFFER`                              |
+| `409`         | `APPLICATION_NOT_ACTIVE`   | Already terminal                                                     |
+| `409`         | `STAGE_CONFLICT`           | Another request changed it first                                     |
 
 ### `GET /api/pipeline` — Bearer · `RECRUITER`
 
@@ -583,13 +587,13 @@ Query: `roleId` (positive int, optional) · `stage` (`PipelineStage`, optional).
       "status": "OPEN",
       "totalActive": 13,
       "stages": [
-        { "stage": "APPLIED",   "candidateCount": 8, "avgDaysInStage": 4.2,  "maxDaysInStage": 11.0 },
-        { "stage": "SCREEN",    "candidateCount": 3, "avgDaysInStage": 9.7,  "maxDaysInStage": 21.4 },
-        { "stage": "INTERVIEW", "candidateCount": 2, "avgDaysInStage": 2.0,  "maxDaysInStage": 3.1 },
-        { "stage": "OFFER",     "candidateCount": 0, "avgDaysInStage": null, "maxDaysInStage": null }
-      ]
-    }
-  ]
+        { "stage": "APPLIED", "candidateCount": 8, "avgDaysInStage": 4.2, "maxDaysInStage": 11.0 },
+        { "stage": "SCREEN", "candidateCount": 3, "avgDaysInStage": 9.7, "maxDaysInStage": 21.4 },
+        { "stage": "INTERVIEW", "candidateCount": 2, "avgDaysInStage": 2.0, "maxDaysInStage": 3.1 },
+        { "stage": "OFFER", "candidateCount": 0, "avgDaysInStage": null, "maxDaysInStage": null },
+      ],
+    },
+  ],
 }
 ```
 
@@ -606,8 +610,8 @@ Errors: `400 VALIDATION_ERROR` · `401 UNAUTHENTICATED` · `403 FORBIDDEN` · `5
     "activeApplicants": 130,
     "offers": 5,
     "hired": 5,
-    "rejected": 7
-  }
+    "rejected": 7,
+  },
 }
 ```
 
@@ -618,7 +622,7 @@ Errors: `401 UNAUTHENTICATED` · `403 FORBIDDEN` · `500 INTERNAL_ERROR`.
 1. No `email`, anywhere, from any of the five endpoints.
 2. No `phone`, anywhere.
 3. No candidate **name** from `GET /api/pipeline` or `/summary` — the board is counts, not people
-   (XFE-8). `override.performedBy.name` is a *recruiter's* name and is the one name any of these
+   (XFE-8). `override.performedBy.name` is a _recruiter's_ name and is the one name any of these
    endpoints returns.
 4. No `candidateUserId` on the returned `application` object — a recruiter navigating to a candidate
    does it through `GET /api/candidates`, which is scoped for the purpose.
@@ -718,8 +722,8 @@ model User {
 - **MIG-2** No existing column is altered. `PipelineStage`, `ApplicationStatus` and
   `Application.stageEnteredAt` all ship today and are used as-is — this feature is the reason
   `stageEnteredAt` was added by the candidate feature, and it is spent here rather than replaced.
-- **MIG-3** Two tables, not one (D-6). `StageHistory` answers *"what happened"* for every
-  transition; `StageOverride` answers *"why"* for the subset that skipped. Folding them together
+- **MIG-3** Two tables, not one (D-6). `StageHistory` answers _"what happened"_ for every
+  transition; `StageOverride` answers _"why"_ for the subset that skipped. Folding them together
   would mean a nullable `reason` on every row, which is precisely the design the brief's
   "genuinely recorded, not inferred" rules out.
 - **MIG-4** Actor foreign keys are `onDelete: Restrict`, matching `AuditLog.actor` and for the same
@@ -730,7 +734,7 @@ model User {
 - **MIG-5** **Backfill, in the same migration.** One `StageHistory` row is inserted per existing
   `Application`:
   `fromStage: NULL, toStage: 'APPLIED', fromStatus: NULL, toStatus: 'ACTIVE',
-  changedByUserId: <the application's candidateUserId>, createdAt: <the application's createdAt>`.
+changedByUserId: <the application's candidateUserId>, createdAt: <the application's createdAt>`.
   Without it, every pre-existing application shows an empty timeline, and a reader cannot tell an
   application with no history from one whose history was never captured. **This backfills
   `StageHistory` only — it does not invent `AuditLog` rows** (audit MIG-7), because history is a
@@ -752,14 +756,14 @@ model User {
 
 ### Endpoint × role matrix
 
-| Endpoint | Anonymous | Candidate | Interviewer | Recruiter |
-|---|---|---|---|---|
-| `PATCH /api/applications/:id/stage` | `401` | **`403`** | **`403`** | ✅ |
-| `POST /api/applications/:id/stage-override` | `401` | **`403`** | **`403`** | ✅ |
-| `PATCH /api/applications/:id/outcome` | `401` | **`403`** | **`403`** | ✅ |
-| `GET /api/pipeline` | `401` | **`403`** | **`403`** | ✅ |
-| `GET /api/pipeline/summary` | `401` | **`403`** | **`403`** | ✅ |
-| `GET /api/applications` *(shipped)* | `401` | ✅ own only | `403` | `403` — unchanged |
+| Endpoint                                    | Anonymous | Candidate   | Interviewer | Recruiter         |
+| ------------------------------------------- | --------- | ----------- | ----------- | ----------------- |
+| `PATCH /api/applications/:id/stage`         | `401`     | **`403`**   | **`403`**   | ✅                |
+| `POST /api/applications/:id/stage-override` | `401`     | **`403`**   | **`403`**   | ✅                |
+| `PATCH /api/applications/:id/outcome`       | `401`     | **`403`**   | **`403`**   | ✅                |
+| `GET /api/pipeline`                         | `401`     | **`403`**   | **`403`**   | ✅                |
+| `GET /api/pipeline/summary`                 | `401`     | **`403`**   | **`403`**   | ✅                |
+| `GET /api/applications` _(shipped)_         | `401`     | ✅ own only | `403`       | `403` — unchanged |
 
 ### Non-negotiable rules
 
@@ -789,19 +793,19 @@ model User {
 
 ## Validation
 
-| Endpoint | Field | Rule | Failure |
-|---|---|---|---|
-| all writes | `applicationId` (param) | `z.coerce.number().int().positive()` | `400` `details.applicationId` |
-| `…/stage` | `toStage` | `z.enum(PipelineStage)`, required | `400` `details.toStage` |
-| `…/stage-override` | `toStage` | `z.enum(PipelineStage)`, required | `400` `details.toStage` |
-| `…/stage-override` | `reason` | `z.string().trim().min(10).max(1000)`, **required** | `400` `details.reason` |
-| `…/outcome` | `status` | `z.enum(['HIRED', 'REJECTED'])`, required | `400` `details.status` |
-| `…/outcome` | `reason` | `z.string().trim().max(1000)`, optional | `400` `details.reason` |
-| `GET /api/pipeline` | `roleId` | `z.coerce.number().int().positive()`, optional | `400` `details.roleId` |
-| `GET /api/pipeline` | `stage` | `z.enum(PipelineStage)`, optional | `400` `details.stage` |
+| Endpoint            | Field                   | Rule                                                | Failure                       |
+| ------------------- | ----------------------- | --------------------------------------------------- | ----------------------------- |
+| all writes          | `applicationId` (param) | `z.coerce.number().int().positive()`                | `400` `details.applicationId` |
+| `…/stage`           | `toStage`               | `z.enum(PipelineStage)`, required                   | `400` `details.toStage`       |
+| `…/stage-override`  | `toStage`               | `z.enum(PipelineStage)`, required                   | `400` `details.toStage`       |
+| `…/stage-override`  | `reason`                | `z.string().trim().min(10).max(1000)`, **required** | `400` `details.reason`        |
+| `…/outcome`         | `status`                | `z.enum(['HIRED', 'REJECTED'])`, required           | `400` `details.status`        |
+| `…/outcome`         | `reason`                | `z.string().trim().max(1000)`, optional             | `400` `details.reason`        |
+| `GET /api/pipeline` | `roleId`                | `z.coerce.number().int().positive()`, optional      | `400` `details.roleId`        |
+| `GET /api/pipeline` | `stage`                 | `z.enum(PipelineStage)`, optional                   | `400` `details.stage`         |
 
 - **VAL-1** **A stage that is not in the enum is rejected before any business logic runs.** This is
-  the brief's §6 check — *"a stage transition naming a stage that isn't defined"* — and a zod enum
+  the brief's §6 check — _"a stage transition naming a stage that isn't defined"_ — and a zod enum
   at the route boundary is where it is satisfied. `{ "toStage": "PROBATION" }` never reaches
   `pipeline.rules`, never reaches Prisma, and produces no log line other than the request's own.
 - **VAL-2** **`reason` on an override is required and is 10 characters minimum after trim** (D-4).
@@ -831,16 +835,16 @@ model User {
 
 The shipped envelope, unchanged: `{ code, message, details? }`.
 
-| `code` | Status | Raised when | New? |
-|---|---|---|---|
-| `VALIDATION_ERROR` | `400` | Any Validation-table rule fails | no |
-| `UNAUTHENTICATED` | `401` | No/invalid/expired token | no |
-| `FORBIDDEN` | `403` | Not a recruiter | no |
-| `NOT_FOUND` | `404` | No application with that id | no |
-| `INVALID_STAGE_TRANSITION` | `409` | Well-formed stage, illegal move (FR-2.4, FR-2.5, FR-3.3) | **yes** |
-| `APPLICATION_NOT_ACTIVE` | `409` | Application is `HIRED` or `REJECTED` (D-11) | **yes** |
-| `STAGE_CONFLICT` | `409` | Another request moved it first (FR-6.2) | **yes** |
-| `INTERNAL_ERROR` | `500` | Anything unhandled | no |
+| `code`                     | Status | Raised when                                              | New?    |
+| -------------------------- | ------ | -------------------------------------------------------- | ------- |
+| `VALIDATION_ERROR`         | `400`  | Any Validation-table rule fails                          | no      |
+| `UNAUTHENTICATED`          | `401`  | No/invalid/expired token                                 | no      |
+| `FORBIDDEN`                | `403`  | Not a recruiter                                          | no      |
+| `NOT_FOUND`                | `404`  | No application with that id                              | no      |
+| `INVALID_STAGE_TRANSITION` | `409`  | Well-formed stage, illegal move (FR-2.4, FR-2.5, FR-3.3) | **yes** |
+| `APPLICATION_NOT_ACTIVE`   | `409`  | Application is `HIRED` or `REJECTED` (D-11)              | **yes** |
+| `STAGE_CONFLICT`           | `409`  | Another request moved it first (FR-6.2)                  | **yes** |
+| `INTERNAL_ERROR`           | `500`  | Anything unhandled                                       | no      |
 
 - **ERR-1** `INVALID_STAGE_TRANSITION` carries `details.allowed` — the array of stages actually
   reachable from the current one. The client renders the legal moves from this rather than owning a
@@ -863,26 +867,26 @@ The shipped envelope, unchanged: `{ code, message, details? }`.
 
 ## Edge Cases
 
-| ID | Case | Behaviour |
-|---|---|---|
-| **EC-01** | Two recruiters `PATCH …/stage` on the same application **concurrently** | Exactly one `200`. The other's guarded `updateMany` matches 0 rows and it gets `409 STAGE_CONFLICT`. `psql` shows exactly **one** new `StageHistory` row (FR-6.2, D-10) |
-| **EC-02** | Two overrides fired **concurrently** on the same application | Exactly one `201`. The loser's `StageOverride` insert is rolled back with its transaction, so **no orphan override row exists** for a move that did not happen (FR-6.5) |
-| **EC-03** | An override and a stage move fired **concurrently** | Exactly one succeeds; the other is `409 STAGE_CONFLICT`. Both guard on `currentStage`, so the order they arrive in does not matter |
-| **EC-04** | An outcome and a stage move fired **concurrently** | Exactly one succeeds. The outcome guards on `status: ACTIVE`, the move guards on both `status` and `currentStage`, so whichever commits second finds its guard unsatisfied |
-| **EC-05** | `toStage` is a stage the enum does not contain | `400` before any service call, any DB read, any rules evaluation (VAL-1, brief §6) |
-| **EC-06** | `applicationId` is `abc` or `-1` | `400` from `validateParams`, before the service (VAL table) |
-| **EC-07** | Override with `reason: "   "` | `400` — trimmed to empty, fails `min(10)` (VAL-2). **No row is written** |
-| **EC-08** | Override where `toStage` is one step forward (a legal move) | `201`, recorded, `skipped: 0` (FR-4.5). Permitted so the client need not re-derive the graph to pick an endpoint |
-| **EC-09** | `PATCH …/outcome` with `HIRED` from `SCREEN` | `409 INVALID_STAGE_TRANSITION` with `details.allowed: ["REJECTED"]`. Hiring requires reaching `OFFER` first, by override if necessary (FR-3.1) |
-| **EC-10** | Any write against a `HIRED` or `REJECTED` application | `409 APPLICATION_NOT_ACTIVE` (D-11). Terminal is terminal |
-| **EC-11** | A role with no applications at all | Appears in `GET /api/pipeline` with four zero-count stages and null ageing (FR-7.7). Absent rows from `GROUP BY` are densified by the service, not by the client |
-| **EC-12** | An application created one second ago | `avgDaysInStage` is `0.0`, not null. Null means *no candidates*, zero means *no time* (XFE-7) |
-| **EC-13** | `?roleId=` names a role that does not exist | `200` with `roles: []`. Not `404` — the filter matched nothing, which is a valid answer to a question about counts |
-| **EC-14** | A `CLOSED` role still has live applications | It appears in the pipeline with its counts (AZ-6). Hiding it is how people get forgotten |
-| **EC-15** | `GET /api/pipeline` at 200 roles × 4 stages | 800 cells, one SQL statement, one response. Bounded by roles, not by candidates (FR-7.9, PERF-5) |
-| **EC-16** | `recordAudit` throws inside a transition | The transaction aborts: no stage change, no history row, no override row, `500` to the client (ERR-6) |
-| **EC-17** | A pre-existing application from before this migration | Has exactly one backfilled `StageHistory` row for its entry into `APPLIED` (MIG-5), so its timeline is not blank |
-| **EC-18** | Two concurrent requests both read `currentStage: APPLIED`, one moves to `SCREEN`, the other overrides to `OFFER` | The second's guard `{ currentStage: 'APPLIED' }` matches 0 rows → `409 STAGE_CONFLICT`. **No lost update, and no override row left behind** |
+| ID        | Case                                                                                                             | Behaviour                                                                                                                                                                  |
+| --------- | ---------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **EC-01** | Two recruiters `PATCH …/stage` on the same application **concurrently**                                          | Exactly one `200`. The other's guarded `updateMany` matches 0 rows and it gets `409 STAGE_CONFLICT`. `psql` shows exactly **one** new `StageHistory` row (FR-6.2, D-10)    |
+| **EC-02** | Two overrides fired **concurrently** on the same application                                                     | Exactly one `201`. The loser's `StageOverride` insert is rolled back with its transaction, so **no orphan override row exists** for a move that did not happen (FR-6.5)    |
+| **EC-03** | An override and a stage move fired **concurrently**                                                              | Exactly one succeeds; the other is `409 STAGE_CONFLICT`. Both guard on `currentStage`, so the order they arrive in does not matter                                         |
+| **EC-04** | An outcome and a stage move fired **concurrently**                                                               | Exactly one succeeds. The outcome guards on `status: ACTIVE`, the move guards on both `status` and `currentStage`, so whichever commits second finds its guard unsatisfied |
+| **EC-05** | `toStage` is a stage the enum does not contain                                                                   | `400` before any service call, any DB read, any rules evaluation (VAL-1, brief §6)                                                                                         |
+| **EC-06** | `applicationId` is `abc` or `-1`                                                                                 | `400` from `validateParams`, before the service (VAL table)                                                                                                                |
+| **EC-07** | Override with `reason: "   "`                                                                                    | `400` — trimmed to empty, fails `min(10)` (VAL-2). **No row is written**                                                                                                   |
+| **EC-08** | Override where `toStage` is one step forward (a legal move)                                                      | `201`, recorded, `skipped: 0` (FR-4.5). Permitted so the client need not re-derive the graph to pick an endpoint                                                           |
+| **EC-09** | `PATCH …/outcome` with `HIRED` from `SCREEN`                                                                     | `409 INVALID_STAGE_TRANSITION` with `details.allowed: ["REJECTED"]`. Hiring requires reaching `OFFER` first, by override if necessary (FR-3.1)                             |
+| **EC-10** | Any write against a `HIRED` or `REJECTED` application                                                            | `409 APPLICATION_NOT_ACTIVE` (D-11). Terminal is terminal                                                                                                                  |
+| **EC-11** | A role with no applications at all                                                                               | Appears in `GET /api/pipeline` with four zero-count stages and null ageing (FR-7.7). Absent rows from `GROUP BY` are densified by the service, not by the client           |
+| **EC-12** | An application created one second ago                                                                            | `avgDaysInStage` is `0.0`, not null. Null means _no candidates_, zero means _no time_ (XFE-7)                                                                              |
+| **EC-13** | `?roleId=` names a role that does not exist                                                                      | `200` with `roles: []`. Not `404` — the filter matched nothing, which is a valid answer to a question about counts                                                         |
+| **EC-14** | A `CLOSED` role still has live applications                                                                      | It appears in the pipeline with its counts (AZ-6). Hiding it is how people get forgotten                                                                                   |
+| **EC-15** | `GET /api/pipeline` at 200 roles × 4 stages                                                                      | 800 cells, one SQL statement, one response. Bounded by roles, not by candidates (FR-7.9, PERF-5)                                                                           |
+| **EC-16** | `recordAudit` throws inside a transition                                                                         | The transaction aborts: no stage change, no history row, no override row, `500` to the client (ERR-6)                                                                      |
+| **EC-17** | A pre-existing application from before this migration                                                            | Has exactly one backfilled `StageHistory` row for its entry into `APPLIED` (MIG-5), so its timeline is not blank                                                           |
+| **EC-18** | Two concurrent requests both read `currentStage: APPLIED`, one moves to `SCREEN`, the other overrides to `OFFER` | The second's guard `{ currentStage: 'APPLIED' }` matches 0 rows → `409 STAGE_CONFLICT`. **No lost update, and no override row left behind**                                |
 
 ---
 
@@ -908,7 +912,7 @@ The shipped envelope, unchanged: `{ code, message, details? }`.
   other actor, which would tell a recruiter who is working on what without an access decision
   having been made.
 - **SEC-7** No stage change is possible without an authenticated recruiter, satisfying the brief's
-  §6 requirement that *"every action is tied to a real, authenticated user"*. There is no seed path,
+  §6 requirement that _"every action is tied to a real, authenticated user"_. There is no seed path,
   admin path, or unguarded route that moves a candidate.
 - **SEC-8** **Known accepted gaps.** (a) A recruiter can override any application on any role —
   there is no per-role ownership model, because there is no hiring-manager actor in this POC, so a
@@ -998,8 +1002,8 @@ application id at `APPLIED`.
   row's `overrideId` equals that override's id (FR-5.4).
 - **AC-B12** — **Given** `$APP`, **when** an override is sent with **no `reason` key at all**,
   **then** the response is `400 VALIDATION_ERROR` with `details.reason`, and `psql` shows **no** new
-  `StageOverride` row and an unchanged `currentStage`. *This is the brief's §6 check that an
-  override without a recorded reason is rejected* (VAL-2, EC-07).
+  `StageOverride` row and an unchanged `currentStage`. _This is the brief's §6 check that an
+  override without a recorded reason is rejected_ (VAL-2, EC-07).
 - **AC-B13** — **Given** `$APP`, **when** an override is sent with `{"reason":"   ","toStage":"OFFER"}`,
   **then** the response is `400` — a whitespace reason is not a reason (VAL-2).
 - **AC-B14** — **Given** `$APP`, **when** an override is sent with `{"reason":"short","toStage":"OFFER"}`,
@@ -1124,19 +1128,19 @@ application id at `APPLIED`.
 
 ## Out of Scope
 
-| Excluded | Why |
-|---|---|
-| Candidate self-withdrawal | `ApplicationStatus` has no `WITHDRAWN` value; the candidate spec removed it because no code path writes it, and none does here either |
-| Un-rejecting or reopening a terminal application | Terminal is terminal (D-11). A reversal path needs its own audit semantics and a decision nobody has made |
-| Configurable per-role stage graphs | The brief asks for *"a defined, finite set"* and says the exact list can be configured "according to the POC requirements". One graph, in code, is that configuration |
-| Bulk stage moves | A batch endpoint multiplies the concurrency surface (FR-6) for a convenience nobody asked for |
-| A history-reading endpoint | History is read on the recruiter candidate detail, owned by the candidate-access feature (FR-5.6). A second endpoint returning the same rows in a new envelope is how a contract rots |
-| Widening `GET /api/applications` to recruiters | A recruiter's view of applications is `GET /api/candidates`, scoped for the purpose (D-13) |
-| Interview counts on the dashboard | The table does not exist yet; the interviews feature adds it as a Revision (D-12, FR-8.4) |
-| "Stuck beyond N days" alert view | Brief §8 optional work. The aggregate returns `maxDaysInStage`, which is the input such a view would need |
-| Caching the aggregate | Accepted as a gap (SEC-8d) rather than half-built; a cache needs an invalidation story that five write paths would all have to honour |
-| Per-role recruiter ownership | There is no hiring-manager actor in this POC, so recruiter authority is global (SEC-8a) |
-| Time-in-each-past-stage analytics | `StageHistory` records enough to compute it later; no endpoint exposes it, because nothing in the requirements asks for it |
+| Excluded                                         | Why                                                                                                                                                                                   |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Candidate self-withdrawal                        | `ApplicationStatus` has no `WITHDRAWN` value; the candidate spec removed it because no code path writes it, and none does here either                                                 |
+| Un-rejecting or reopening a terminal application | Terminal is terminal (D-11). A reversal path needs its own audit semantics and a decision nobody has made                                                                             |
+| Configurable per-role stage graphs               | The brief asks for _"a defined, finite set"_ and says the exact list can be configured "according to the POC requirements". One graph, in code, is that configuration                 |
+| Bulk stage moves                                 | A batch endpoint multiplies the concurrency surface (FR-6) for a convenience nobody asked for                                                                                         |
+| A history-reading endpoint                       | History is read on the recruiter candidate detail, owned by the candidate-access feature (FR-5.6). A second endpoint returning the same rows in a new envelope is how a contract rots |
+| Widening `GET /api/applications` to recruiters   | A recruiter's view of applications is `GET /api/candidates`, scoped for the purpose (D-13)                                                                                            |
+| Interview counts on the dashboard                | The table does not exist yet; the interviews feature adds it as a Revision (D-12, FR-8.4)                                                                                             |
+| "Stuck beyond N days" alert view                 | Brief §8 optional work. The aggregate returns `maxDaysInStage`, which is the input such a view would need                                                                             |
+| Caching the aggregate                            | Accepted as a gap (SEC-8d) rather than half-built; a cache needs an invalidation story that five write paths would all have to honour                                                 |
+| Per-role recruiter ownership                     | There is no hiring-manager actor in this POC, so recruiter authority is global (SEC-8a)                                                                                               |
+| Time-in-each-past-stage analytics                | `StageHistory` records enough to compute it later; no endpoint exposes it, because nothing in the requirements asks for it                                                            |
 
 ---
 
@@ -1159,27 +1163,27 @@ and rounds are created against `ACTIVE` applications.
 
 **New files**
 
-| Path | Purpose |
-|---|---|
-| `src/modules/pipeline/pipeline.rules.ts` | `STAGE_ORDER`, both maps, pure predicates (BE-2) |
-| `src/modules/pipeline/pipeline.repository.ts` | The raw SQL aggregate and the guarded updates (BE-4) |
-| `src/modules/pipeline/pipeline.service.ts` | The four write transactions and the two reads |
-| `src/modules/pipeline/pipeline.controller.ts` | HTTP concerns only |
-| `src/modules/pipeline/pipeline.routes.ts` | Two exported routers (BE-5) |
-| `src/modules/pipeline/pipeline.schema.ts` | Body, param and query schemas |
-| `src/modules/pipeline/pipeline.select.ts` | `PIPELINE_APPLICATION_SELECT`, `STAGE_OVERRIDE_SELECT` |
+| Path                                          | Purpose                                                |
+| --------------------------------------------- | ------------------------------------------------------ |
+| `src/modules/pipeline/pipeline.rules.ts`      | `STAGE_ORDER`, both maps, pure predicates (BE-2)       |
+| `src/modules/pipeline/pipeline.repository.ts` | The raw SQL aggregate and the guarded updates (BE-4)   |
+| `src/modules/pipeline/pipeline.service.ts`    | The four write transactions and the two reads          |
+| `src/modules/pipeline/pipeline.controller.ts` | HTTP concerns only                                     |
+| `src/modules/pipeline/pipeline.routes.ts`     | Two exported routers (BE-5)                            |
+| `src/modules/pipeline/pipeline.schema.ts`     | Body, param and query schemas                          |
+| `src/modules/pipeline/pipeline.select.ts`     | `PIPELINE_APPLICATION_SELECT`, `STAGE_OVERRIDE_SELECT` |
 
 **Modified existing files**
 
-| Path | Change |
-|---|---|
-| [`prisma/schema.prisma`](../../../prisma/schema.prisma) | `StageHistory`, `StageOverride`, one new `Application` index, four back-relations |
-| [`src/lib/errors.ts`](../../../src/lib/errors.ts) | Three new `ErrorCode` values + their `AppError` subclasses (FR-9.3) |
-| [`src/app.ts`](../../../src/app.ts) | Mount `pipelineRouter` at `/api/pipeline` |
-| [`src/modules/applications/applications.routes.ts`](../../../src/modules/applications/applications.routes.ts) | Mount the three write routes (BE-5) |
-| [`src/modules/applications/applications.service.ts`](../../../src/modules/applications/applications.service.ts) | Write the entry `StageHistory` row inside the existing transaction (FR-9.1) |
-| [`prisma/seed.ts`](../../../prisma/seed.ts) | History, one override, matching audit rows (FR-10.3) |
-| [`CLAUDE.md`](../../../CLAUDE.md) | Feature table row; the stage-transition and pipeline-query bullets now point here |
+| Path                                                                                                            | Change                                                                            |
+| --------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| [`prisma/schema.prisma`](../../../prisma/schema.prisma)                                                         | `StageHistory`, `StageOverride`, one new `Application` index, four back-relations |
+| [`src/lib/errors.ts`](../../../src/lib/errors.ts)                                                               | Three new `ErrorCode` values + their `AppError` subclasses (FR-9.3)               |
+| [`src/app.ts`](../../../src/app.ts)                                                                             | Mount `pipelineRouter` at `/api/pipeline`                                         |
+| [`src/modules/applications/applications.routes.ts`](../../../src/modules/applications/applications.routes.ts)   | Mount the three write routes (BE-5)                                               |
+| [`src/modules/applications/applications.service.ts`](../../../src/modules/applications/applications.service.ts) | Write the entry `StageHistory` row inside the existing transaction (FR-9.1)       |
+| [`prisma/seed.ts`](../../../prisma/seed.ts)                                                                     | History, one override, matching audit rows (FR-10.3)                              |
+| [`CLAUDE.md`](../../../CLAUDE.md)                                                                               | Feature table row; the stage-transition and pipeline-query bullets now point here |
 
 **External services:** none.
 

@@ -41,14 +41,14 @@ absent from the JSON the controller wrote.
 ## Background / Context
 
 The brief's §2 actor table lists three roles, and **candidate is not one of them**. There, a candidate is a
-*record* a recruiter manages:
+_record_ a recruiter manages:
 
 > Candidates are tracked against open roles through a defined, finite set of pipeline stages.
 
-This feature makes the candidate a *user*. That is a deliberate **extension beyond the brief**, requested
+This feature makes the candidate a _user_. That is a deliberate **extension beyond the brief**, requested
 directly, and it is recorded here so a reviewer reads it as a decision rather than a misreading of §2. It
 changes none of the brief's requirements: §3.2 (interviewer scoping), §3.3 (overrides) and §3.6 (contact
-details) are untouched, and the new actor is strictly *less* privileged than either existing one.
+details) are untouched, and the new actor is strictly _less_ privileged than either existing one.
 
 It also closes something the brief's §6 already objected to. The authentication spec shipped
 [`auth.routes.ts`](../../../src/modules/auth/auth.routes.ts) carrying its own indictment:
@@ -61,8 +61,8 @@ role-accepting.
 
 ### Current state of `backend/`
 
-|                | Today                                                                                                                                              |
-| -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+|                | Today                                                                                                                                               |
+| -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Stack          | Express 5.2, TypeScript ESM, Prisma 7.10, PostgreSQL, `tsx` for dev, `zod` 4.6                                                                      |
 | Structure      | `config/`, `lib/`, `middleware/`, `modules/<feature>/{routes,controller,service,schema,*.select}.ts`                                                |
 | Schema         | [`prisma/schema.prisma`](../../../prisma/schema.prisma) — `UserRole` enum (`INTERVIEWER`/`RECRUITER`), `RoleStatus`, `User`, `RefreshToken`, `Role` |
@@ -77,21 +77,21 @@ role-accepting.
 
 ### Decisions settled during the interview
 
-| #    | Question                                | Decision                                                                                       | Recorded in                |
-| ---- | --------------------------------------- | ---------------------------------------------------------------------------------------------- | -------------------------- |
-| D-1  | How to split this work                  | **One feature, `candidate`**, specced separately in each repo                                  | this document              |
-| D-2  | How a candidate is modelled             | `UserRole` gains `CANDIDATE`; **no** `CandidateProfile` table                                  | FR-1, MIG-1                |
-| D-3  | Signup contract                         | **`role` removed from the body entirely**; the service hard-codes `CANDIDATE`                  | FR-2, SEC-1                |
-| D-4  | Domain depth                            | Introduce `Application` + `PipelineStage` + `ApplicationStatus` now                            | FR-5, MIG-3                |
-| D-5  | `DELETE /api/roles/:roleId` vs applications | **`onDelete: Restrict`** → `409 ROLE_HAS_APPLICATIONS`                                     | FR-8, MIG-7                |
-| D-6  | Duplicate applications                  | **Unlimited** — no unique constraint on `(candidateUserId, roleId)`                            | FR-5.6, EC-06, SEC-11      |
-| D-7  | Stage vs status                         | **Two columns** — `status` (`ACTIVE`/`HIRED`/`REJECTED`), `currentStage` (`APPLIED`→`OFFER`)   | FR-5.4, MIG-4              |
-| D-8  | Withdrawal                              | **Not in the enum.** `WITHDRAWN` is not a value and no endpoint writes one                     | Out of Scope               |
-| D-9  | Job browsing endpoint                   | **Reuse `/api/roles`.** Reads open to any authenticated user; writes stay `RECRUITER`-only     | FR-4, AZ-3, Revision below |
-| D-10 | Closed requisitions                     | A non-recruiter's query **forces `status: OPEN`** — a `CLOSED` role is a `404`, not a filtered row | FR-4.4, AZ-4           |
-| D-11 | Search                                  | **Title only**, case-insensitive `contains`, no description search                             | FR-4.6, PERF-4             |
-| D-12 | Profile                                 | **No new endpoint and no new table.** `GET /api/auth/me` serves the profile view for every role | FR-7                      |
-| D-13 | Application payload                     | **Flat row** — role title, applied date, status, stage. No history, no ageing number            | FR-6.3                     |
+| #    | Question                                    | Decision                                                                                           | Recorded in                |
+| ---- | ------------------------------------------- | -------------------------------------------------------------------------------------------------- | -------------------------- |
+| D-1  | How to split this work                      | **One feature, `candidate`**, specced separately in each repo                                      | this document              |
+| D-2  | How a candidate is modelled                 | `UserRole` gains `CANDIDATE`; **no** `CandidateProfile` table                                      | FR-1, MIG-1                |
+| D-3  | Signup contract                             | **`role` removed from the body entirely**; the service hard-codes `CANDIDATE`                      | FR-2, SEC-1                |
+| D-4  | Domain depth                                | Introduce `Application` + `PipelineStage` + `ApplicationStatus` now                                | FR-5, MIG-3                |
+| D-5  | `DELETE /api/roles/:roleId` vs applications | **`onDelete: Restrict`** → `409 ROLE_HAS_APPLICATIONS`                                             | FR-8, MIG-7                |
+| D-6  | Duplicate applications                      | **Unlimited** — no unique constraint on `(candidateUserId, roleId)`                                | FR-5.6, EC-06, SEC-11      |
+| D-7  | Stage vs status                             | **Two columns** — `status` (`ACTIVE`/`HIRED`/`REJECTED`), `currentStage` (`APPLIED`→`OFFER`)       | FR-5.4, MIG-4              |
+| D-8  | Withdrawal                                  | **Not in the enum.** `WITHDRAWN` is not a value and no endpoint writes one                         | Out of Scope               |
+| D-9  | Job browsing endpoint                       | **Reuse `/api/roles`.** Reads open to any authenticated user; writes stay `RECRUITER`-only         | FR-4, AZ-3, Revision below |
+| D-10 | Closed requisitions                         | A non-recruiter's query **forces `status: OPEN`** — a `CLOSED` role is a `404`, not a filtered row | FR-4.4, AZ-4               |
+| D-11 | Search                                      | **Title only**, case-insensitive `contains`, no description search                                 | FR-4.6, PERF-4             |
+| D-12 | Profile                                     | **No new endpoint and no new table.** `GET /api/auth/me` serves the profile view for every role    | FR-7                       |
+| D-13 | Application payload                         | **Flat row** — role title, applied date, status, stage. No history, no ageing number               | FR-6.3                     |
 
 ### One deviation from the interview wording, stated openly
 
@@ -108,8 +108,8 @@ forced `status: OPEN` predicate (D-10), not from the column list.
 **What changes:** `GET /api/roles` and `GET /api/roles/:roleId` drop `requireRole(UserRole.RECRUITER)`. All
 three user roles may call them. `POST`, `PATCH` and `DELETE` are unchanged and stay `RECRUITER`-only.
 
-**What this reverses:** the roles spec's *"Revision — reads became recruiter-only"*, and with it the line in
-[../../../CLAUDE.md](../../../CLAUDE.md): *"Do not reintroduce a broad roles read to satisfy a narrow need."*
+**What this reverses:** the roles spec's _"Revision — reads became recruiter-only"_, and with it the line in
+[../../../CLAUDE.md](../../../CLAUDE.md): _"Do not reintroduce a broad roles read to satisfy a narrow need."_
 That rule was written against exactly this move and is being overridden deliberately, not overlooked.
 
 **Why it is being overridden:** a candidate's need here is not narrow. Browsing open requisitions **is** the
@@ -119,11 +119,11 @@ behind a second name.
 **What makes it safe anyway:** the widening is of the **route guard**, not of the **query**. A non-recruiter's
 `where` clause is built with `status: OPEN` forced in (FR-4.4) and their `select` is `PUBLIC_ROLE_SELECT`
 (FR-4.5). A `CLOSED` requisition is not fetched, ranked, counted in the pager, or returned — it is a `404`. So
-the property the original revision protected — *the whole hiring picture is a recruiter's surface* — still
+the property the original revision protected — _the whole hiring picture is a recruiter's surface_ — still
 holds, enforced one layer deeper than before.
 
 **What it costs, named plainly:** an interviewer regains a read they were deliberately denied, and the roles
-spec's promise that *"the rounds feature must carry the role title on its own assignment-scoped response"* is
+spec's promise that _"the rounds feature must carry the role title on its own assignment-scoped response"_ is
 no longer forced by the API. The rounds feature **should still do it** — an assignment-scoped title is one
 query instead of two — but it is now a convention rather than a constraint. This is the cost of D-9, and it is
 accepted.
@@ -136,12 +136,12 @@ other.
 
 ## Users / Actors
 
-| Actor                   | May do, after this feature                                                                                                                                       |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Anonymous**           | `POST /api/auth/signup` — creates a `CANDIDATE` and **nothing else**. `login`, `refresh`, `logout` as before                                                      |
-| **Candidate** *(new)*   | Read `OPEN` requisitions only · apply to one · list **their own** applications · read their own `/api/auth/me`                                                     |
-| **Interviewer**         | Everything they could before, **plus** reading `OPEN` requisitions (Revision above). No application access                                                        |
-| **Recruiter**           | Everything they could before, unchanged: all requisitions in both statuses, all five roles endpoints. **No application endpoints yet** — that is a later feature |
+| Actor                 | May do, after this feature                                                                                                                                       |
+| --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Anonymous**         | `POST /api/auth/signup` — creates a `CANDIDATE` and **nothing else**. `login`, `refresh`, `logout` as before                                                     |
+| **Candidate** _(new)_ | Read `OPEN` requisitions only · apply to one · list **their own** applications · read their own `/api/auth/me`                                                   |
+| **Interviewer**       | Everything they could before, **plus** reading `OPEN` requisitions (Revision above). No application access                                                       |
+| **Recruiter**         | Everything they could before, unchanged: all requisitions in both statuses, all five roles endpoints. **No application endpoints yet** — that is a later feature |
 
 **Deliberate POC trade-offs, so they are not read as oversights:**
 
@@ -159,17 +159,17 @@ other.
 ## User Stories
 
 | ID        | Story                                                                                                                                     |
-| --------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| **US-01** | As a visitor, I want to create my own account from the app, so that I can apply without a recruiter provisioning me.                       |
-| **US-02** | As an operator, I want signup to be *incapable* of creating a recruiter, so that a public endpoint cannot hand out privilege.              |
-| **US-03** | As a candidate, I want to see the list of open positions, so that I know what I can apply to.                                              |
-| **US-04** | As a candidate, I want to search that list by title, so that I can find a specific role without paging.                                    |
-| **US-05** | As a candidate, I want to open a position and read its full description, so that I can decide before applying.                             |
-| **US-06** | As a candidate, I want to apply with one action, so that applying does not require filling in a profile first.                             |
-| **US-07** | As a candidate, I want a list of everything I applied to, with the date and where I have got to, so that I am not left guessing.           |
-| **US-08** | As a candidate, I want to be certain I cannot see interviewer feedback or recruiter notes, so that the status I am shown is all there is.  |
-| **US-09** | As any user, I want a profile view showing who I am signed in as, so that the account I am acting under is never ambiguous.                |
-| **US-10** | As a recruiter, I want deleting a requisition to be refused once someone has applied, so I cannot erase an application by tidying a list.  |
+| --------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| **US-01** | As a visitor, I want to create my own account from the app, so that I can apply without a recruiter provisioning me.                      |
+| **US-02** | As an operator, I want signup to be _incapable_ of creating a recruiter, so that a public endpoint cannot hand out privilege.             |
+| **US-03** | As a candidate, I want to see the list of open positions, so that I know what I can apply to.                                             |
+| **US-04** | As a candidate, I want to search that list by title, so that I can find a specific role without paging.                                   |
+| **US-05** | As a candidate, I want to open a position and read its full description, so that I can decide before applying.                            |
+| **US-06** | As a candidate, I want to apply with one action, so that applying does not require filling in a profile first.                            |
+| **US-07** | As a candidate, I want a list of everything I applied to, with the date and where I have got to, so that I am not left guessing.          |
+| **US-08** | As a candidate, I want to be certain I cannot see interviewer feedback or recruiter notes, so that the status I am shown is all there is. |
+| **US-09** | As any user, I want a profile view showing who I am signed in as, so that the account I am acting under is never ambiguous.               |
+| **US-10** | As a recruiter, I want deleting a requisition to be refused once someone has applied, so I cannot erase an application by tidying a list. |
 
 ---
 
@@ -185,12 +185,12 @@ other.
   in [`auth.service.ts`](../../../src/modules/auth/auth.service.ts) branches on the new value.
 - **FR-1.4** The access token's `role` claim carries `CANDIDATE`, so `requireRole` gates on it with **no
   change to the middleware**.
-- **FR-1.4a** *(added during implementation — this spec was wrong.)* FR-1.4 was true of `requireRole` and
+- **FR-1.4a** _(added during implementation — this spec was wrong.)_ FR-1.4 was true of `requireRole` and
   false of the layer beneath it. [`lib/tokens.ts`](../../../src/lib/tokens.ts)'s `verifyAccessToken` validated
   the claim against **two hard-coded literals** — `role !== INTERVIEWER && role !== RECRUITER` — so every
   candidate token was rejected as malformed and answered `401` before `requireRole` ever ran. The fix does not
   add a third literal: `isUserRole` now tests membership of the `UserRole` enum, so a role added to the schema
-  needs no edit here. This is a shape check, not an authorization one — deciding what a role may *do* remains
+  needs no edit here. This is a shape check, not an authorization one — deciding what a role may _do_ remains
   `requireRole`'s job, on a route.
 - **FR-1.5** `SAFE_USER_SELECT` is unchanged, and `GET /api/auth/me` returns a candidate in the same shape as
   every other user.
@@ -219,7 +219,7 @@ other.
 - **FR-3.2** `npm run db:seed` becomes the only provisioning path for those two roles. The existing
   [`prisma/seed.ts`](../../../prisma/seed.ts) already upserts them and needs no change to keep doing so.
 - **FR-3.3** No operator-secret route, no `POST /api/users`, no admin module is added. The authentication
-  spec's contract invariant 5 — *no authenticated user can create another user* — is not merely preserved but
+  spec's contract invariant 5 — _no authenticated user can create another user_ — is not merely preserved but
   strengthened: now no **anonymous** caller can create a privileged one either.
 - **FR-3.4** This is a **breaking change** to a shipped contract. Any script or Postman collection that
   provisions a recruiter over HTTP stops working and must move to the seed (R-2).
@@ -276,7 +276,7 @@ other.
 - **FR-6.2** The scoping is `where: { candidateUserId: req.user.id }` **inside the Prisma query**. No query
   fetches a wider set and narrows it in application code — the brief's §3.2 discipline applied to the new
   actor.
-- **FR-6.3** Each row carries exactly: application `id`, `createdAt` (the *Applied* date), `status`,
+- **FR-6.3** Each row carries exactly: application `id`, `createdAt` (the _Applied_ date), `status`,
   `currentStage`, and the nested role's `id` and `title` (D-13).
 - **FR-6.4** `APPLICATION_SELECT` is a single exported constant listing those columns, used by **both**
   endpoints in the module so the two shapes cannot drift — the same construction as `SAFE_USER_SELECT` and
@@ -305,7 +305,7 @@ other.
 - **FR-8.1** `Application.roleId` takes `onDelete: Restrict` (D-5). This is the decision roles spec FR-6.10
   required of the first model to reference `Role`.
 - **FR-8.2** `DELETE /api/roles/:roleId` on a `CLOSED` role with **one or more** applications answers
-  `409 ROLE_HAS_APPLICATIONS`, message *"This role has applications and cannot be deleted"*.
+  `409 ROLE_HAS_APPLICATIONS`, message _"This role has applications and cannot be deleted"_.
 - **FR-8.3** The `CLOSED` check (roles FR-6.6, `409 ROLE_NOT_CLOSED`) runs **first**. An `OPEN` role with
   applications reports `ROLE_NOT_CLOSED`, because closing it is the first of the two steps either way.
 - **FR-8.4** The refusal is derived from the database — the `P2003` foreign-key violation raised by the
@@ -320,7 +320,7 @@ other.
 - **FR-9.3** The `user.created` line is unchanged in shape.
 - **FR-9.4** No log line in this feature contains a name, an email, a password, or a requisition description.
 - **FR-9.5** These are `pino` lines carrying the per-request `requestId`, as everywhere else. **No audit table
-  is introduced** — that belongs to the feature that first needs to *read* the trail.
+  is introduced** — that belongs to the feature that first needs to _read_ the trail.
 
 ### FR-10 — Seed data
 
@@ -341,7 +341,7 @@ The obligations this backend places on the Next.js client. The rest of the front
 [../../../../frontend/specs/features/candidate/spec.md](../../../../frontend/specs/features/candidate/spec.md).
 
 - **XFE-1** Transport is unchanged: `Authorization: Bearer <accessToken>` on every call, `credentials:
-  'include'` so the `Path=/api/auth` refresh cookie is sent. `apiFetch` needs no modification.
+'include'` so the `Path=/api/auth` refresh cookie is sent. `apiFetch` needs no modification.
 - **XFE-2** CORS is unchanged — `origin: env.FRONTEND_ORIGIN`, `credentials: true`. Signup is same-origin-policy
   identical to login; no preflight change.
 - **XFE-3** The client **must remove `role` from its signup request body.** Sending it is harmless (FR-2.3)
@@ -402,7 +402,15 @@ Anonymous. Creates a `CANDIDATE`.
 
 ```jsonc
 // 201
-{ "user": { "id": 7, "name": "Cara Candidate", "email": "cara@example.com", "role": "CANDIDATE", "createdAt": "2026-09-16T10:00:00.000Z" } }
+{
+  "user": {
+    "id": 7,
+    "name": "Cara Candidate",
+    "email": "cara@example.com",
+    "role": "CANDIDATE",
+    "createdAt": "2026-09-16T10:00:00.000Z",
+  },
+}
 ```
 
 | Status | `code`             | When                                             |
@@ -420,8 +428,16 @@ Anonymous. Creates a `CANDIDATE`.
 ```jsonc
 // 200 — candidate or interviewer (PUBLIC_ROLE_SELECT, OPEN only)
 {
-  "roles": [{ "id": 1, "title": "Senior Backend Engineer", "description": "…", "status": "OPEN", "createdAt": "2026-09-14T…" }],
-  "pagination": { "page": 1, "pageSize": 20, "total": 2, "totalPages": 1 }
+  "roles": [
+    {
+      "id": 1,
+      "title": "Senior Backend Engineer",
+      "description": "…",
+      "status": "OPEN",
+      "createdAt": "2026-09-14T…",
+    },
+  ],
+  "pagination": { "page": 1, "pageSize": 20, "total": 2, "totalPages": 1 },
 }
 ```
 
@@ -436,19 +452,19 @@ A recruiter's response is unchanged and additionally carries `updatedAt` on each
 
 `requireAuth` only. `200 { role }`.
 
-| Status | `code`             | When                                                                       |
-| ------ | ------------------ | -------------------------------------------------------------------------- |
-| `400`  | `VALIDATION_ERROR` | `:roleId` is not a positive integer                                        |
-| `401`  | `UNAUTHENTICATED`  | no or invalid access token                                                 |
-| `404`  | `NOT_FOUND`        | no such role — **or**, for a non-recruiter, the role is `CLOSED` (FR-4.8)  |
+| Status | `code`             | When                                                                      |
+| ------ | ------------------ | ------------------------------------------------------------------------- |
+| `400`  | `VALIDATION_ERROR` | `:roleId` is not a positive integer                                       |
+| `401`  | `UNAUTHENTICATED`  | no or invalid access token                                                |
+| `404`  | `NOT_FOUND`        | no such role — **or**, for a non-recruiter, the role is `CLOSED` (FR-4.8) |
 
 ### `DELETE /api/roles/:roleId` — **MODIFIED**
 
 Unchanged except for one new failure.
 
-| Status | `code`                  | When                                             |
-| ------ | ----------------------- | ------------------------------------------------ |
-| `409`  | `ROLE_NOT_CLOSED`       | the role is still `OPEN` — checked first (FR-8.3) |
+| Status | `code`                  | When                                                 |
+| ------ | ----------------------- | ---------------------------------------------------- |
+| `409`  | `ROLE_NOT_CLOSED`       | the role is still `OPEN` — checked first (FR-8.3)    |
 | `409`  | `ROLE_HAS_APPLICATIONS` | **new** — closed, but one or more applications exist |
 
 ### `POST /api/applications` — **NEW**
@@ -468,17 +484,17 @@ Unchanged except for one new failure.
     "status": "ACTIVE",
     "currentStage": "APPLIED",
     "createdAt": "2026-09-16T10:04:00.000Z",
-    "role": { "id": 1, "title": "Senior Backend Engineer" }
-  }
+    "role": { "id": 1, "title": "Senior Backend Engineer" },
+  },
 }
 ```
 
-| Status | `code`             | When                                                          |
-| ------ | ------------------ | ------------------------------------------------------------- |
-| `400`  | `VALIDATION_ERROR` | `roleId` missing or not a positive integer                    |
-| `401`  | `UNAUTHENTICATED`  | no or invalid access token                                    |
-| `403`  | `FORBIDDEN`        | caller is an interviewer or recruiter                         |
-| `404`  | `NOT_FOUND`        | no such role, **or** the role is not `OPEN` (FR-5.5)          |
+| Status | `code`             | When                                                 |
+| ------ | ------------------ | ---------------------------------------------------- |
+| `400`  | `VALIDATION_ERROR` | `roleId` missing or not a positive integer           |
+| `401`  | `UNAUTHENTICATED`  | no or invalid access token                           |
+| `403`  | `FORBIDDEN`        | caller is an interviewer or recruiter                |
+| `404`  | `NOT_FOUND`        | no such role, **or** the role is not `OPEN` (FR-5.5) |
 
 ### `GET /api/applications` — **NEW**
 
@@ -486,7 +502,17 @@ Unchanged except for one new failure.
 
 ```jsonc
 // 200
-{ "applications": [ { "id": 12, "status": "ACTIVE", "currentStage": "INTERVIEW", "createdAt": "2026-09-15T…", "role": { "id": 1, "title": "Senior Backend Engineer" } } ] }
+{
+  "applications": [
+    {
+      "id": 12,
+      "status": "ACTIVE",
+      "currentStage": "INTERVIEW",
+      "createdAt": "2026-09-15T…",
+      "role": { "id": 1, "title": "Senior Backend Engineer" },
+    },
+  ],
+}
 ```
 
 | Status | `code`            | When                                  |
@@ -597,7 +623,7 @@ model Application {
 - **MIG-4** Two enums rather than one (D-7). `PipelineStage` deliberately excludes `HIRED`/`REJECTED` so the
   contradictory state the two-column design risks — `status: ACTIVE` with `currentStage: REJECTED` — is **not
   representable**. No `CHECK` constraint is needed because the value sets do not overlap.
-- **MIG-5** The remaining invariant *is* write-side and cannot be a constraint: once `status` is `HIRED` or
+- **MIG-5** The remaining invariant _is_ write-side and cannot be a constraint: once `status` is `HIRED` or
   `REJECTED`, `currentStage` and `stageEnteredAt` must not change, and `status` must not return to `ACTIVE`.
   **This feature writes only `(ACTIVE, APPLIED)`, so nothing here can violate it.** The feature that first
   writes a transition owns enforcing it, and must say so in its own spec.
@@ -620,21 +646,21 @@ model Application {
 
 ### Endpoint × role matrix
 
-| Endpoint                     | Anonymous | Candidate                | Interviewer              | Recruiter       |
-| ---------------------------- | --------- | ------------------------ | ------------------------ | --------------- |
-| `POST /api/auth/signup`      | ✅ 201     | ✅ 201                    | ✅ 201                    | ✅ 201           |
-| `POST /api/auth/login`       | ✅         | ✅                        | ✅                        | ✅               |
-| `POST /api/auth/refresh`     | cookie    | cookie                   | cookie                   | cookie          |
-| `POST /api/auth/logout`      | ✅ 204     | ✅ 204                    | ✅ 204                    | ✅ 204           |
-| `GET /api/auth/me`           | 401       | ✅                        | ✅                        | ✅               |
-| `GET /api/users`             | 401       | **403**                  | 403                      | ✅               |
-| `GET /api/roles`             | 401       | ✅ **OPEN only**          | ✅ **OPEN only**          | ✅ all           |
-| `GET /api/roles/:roleId`     | 401       | ✅ **OPEN only, else 404** | ✅ **OPEN only, else 404** | ✅ any          |
-| `POST /api/roles`            | 401       | 403                      | 403                      | ✅               |
-| `PATCH /api/roles/:roleId`   | 401       | 403                      | 403                      | ✅               |
-| `DELETE /api/roles/:roleId`  | 401       | 403                      | 403                      | ✅               |
-| `POST /api/applications`     | 401       | ✅                        | **403**                  | **403**         |
-| `GET /api/applications`      | 401       | ✅                        | **403**                  | **403**         |
+| Endpoint                    | Anonymous | Candidate                  | Interviewer                | Recruiter |
+| --------------------------- | --------- | -------------------------- | -------------------------- | --------- |
+| `POST /api/auth/signup`     | ✅ 201    | ✅ 201                     | ✅ 201                     | ✅ 201    |
+| `POST /api/auth/login`      | ✅        | ✅                         | ✅                         | ✅        |
+| `POST /api/auth/refresh`    | cookie    | cookie                     | cookie                     | cookie    |
+| `POST /api/auth/logout`     | ✅ 204    | ✅ 204                     | ✅ 204                     | ✅ 204    |
+| `GET /api/auth/me`          | 401       | ✅                         | ✅                         | ✅        |
+| `GET /api/users`            | 401       | **403**                    | 403                        | ✅        |
+| `GET /api/roles`            | 401       | ✅ **OPEN only**           | ✅ **OPEN only**           | ✅ all    |
+| `GET /api/roles/:roleId`    | 401       | ✅ **OPEN only, else 404** | ✅ **OPEN only, else 404** | ✅ any    |
+| `POST /api/roles`           | 401       | 403                        | 403                        | ✅        |
+| `PATCH /api/roles/:roleId`  | 401       | 403                        | 403                        | ✅        |
+| `DELETE /api/roles/:roleId` | 401       | 403                        | 403                        | ✅        |
+| `POST /api/applications`    | 401       | ✅                         | **403**                    | **403**   |
+| `GET /api/applications`     | 401       | ✅                         | **403**                    | **403**   |
 
 ### Non-negotiable rules
 
@@ -660,17 +686,17 @@ model Application {
 
 ## Validation
 
-| Endpoint                 | Field         | Rule                                                              | Failure            |
-| ------------------------ | ------------- | ----------------------------------------------------------------- | ------------------ |
-| `POST /api/auth/signup`  | `name`        | string, trimmed, 1–100 chars                                      | `400`, `details.name`     |
-| `POST /api/auth/signup`  | `email`       | string, trimmed, lowercased, valid email, ≤254 chars              | `400`, `details.email`    |
-| `POST /api/auth/signup`  | `password`    | string, ≥8 chars, ≤72 **bytes**                                   | `400`, `details.password` |
-| `POST /api/auth/signup`  | `role`        | **not in the schema** — stripped silently                         | none               |
-| `GET /api/roles`         | `q`           | optional string, trimmed, ≤120 chars; empty after trim → ignored  | `400`, `details.q`        |
-| `GET /api/roles`         | `status`      | optional `OPEN`/`CLOSED` (unchanged)                              | `400`              |
-| `GET /api/roles`         | `page`        | optional int ≥1, default 1 (unchanged)                            | `400`              |
-| `GET /api/roles`         | `pageSize`    | optional int 1–100, default 20 (unchanged)                        | `400`              |
-| `POST /api/applications` | `roleId`      | required, coerced int, positive                                   | `400`, `details.roleId`   |
+| Endpoint                 | Field      | Rule                                                             | Failure                   |
+| ------------------------ | ---------- | ---------------------------------------------------------------- | ------------------------- |
+| `POST /api/auth/signup`  | `name`     | string, trimmed, 1–100 chars                                     | `400`, `details.name`     |
+| `POST /api/auth/signup`  | `email`    | string, trimmed, lowercased, valid email, ≤254 chars             | `400`, `details.email`    |
+| `POST /api/auth/signup`  | `password` | string, ≥8 chars, ≤72 **bytes**                                  | `400`, `details.password` |
+| `POST /api/auth/signup`  | `role`     | **not in the schema** — stripped silently                        | none                      |
+| `GET /api/roles`         | `q`        | optional string, trimmed, ≤120 chars; empty after trim → ignored | `400`, `details.q`        |
+| `GET /api/roles`         | `status`   | optional `OPEN`/`CLOSED` (unchanged)                             | `400`                     |
+| `GET /api/roles`         | `page`     | optional int ≥1, default 1 (unchanged)                           | `400`                     |
+| `GET /api/roles`         | `pageSize` | optional int 1–100, default 20 (unchanged)                       | `400`                     |
+| `POST /api/applications` | `roleId`   | required, coerced int, positive                                  | `400`, `details.roleId`   |
 
 - **VAL-1** Every schema strips unknown keys (zod object default), so no unexpected field reaches a Prisma
   `data` object. This is what makes FR-2.3 true without a rejection rule.
@@ -701,17 +727,17 @@ Response shape, unchanged:
 
 `details` appears on `VALIDATION_ERROR` and nowhere else.
 
-| `code`                  | Status | Raised when                                                           | New? |
-| ----------------------- | ------ | ---------------------------------------------------------------------- | ---- |
-| `VALIDATION_ERROR`      | 400    | any zod failure (body, params, query)                                  | no   |
-| `INVALID_CREDENTIALS`   | 401    | login failure                                                          | no   |
-| `UNAUTHENTICATED`       | 401    | missing/invalid/expired access token, or an invalid refresh token      | no   |
-| `FORBIDDEN`             | 403    | wrong `UserRole` for the route                                         | no   |
-| `NOT_FOUND`             | 404    | unknown route; unknown role; **a non-`OPEN` role read or applied to by a non-recruiter** | no   |
-| `EMAIL_TAKEN`           | 409    | signup email collides (`P2002`)                                        | no   |
-| `ROLE_NOT_CLOSED`       | 409    | delete attempted on an `OPEN` role                                     | no   |
-| `ROLE_HAS_APPLICATIONS` | 409    | delete attempted on a `CLOSED` role with applications (`P2003`)        | **yes** |
-| `INTERNAL_ERROR`        | 500    | anything unexpected                                                    | no   |
+| `code`                  | Status | Raised when                                                                              | New?    |
+| ----------------------- | ------ | ---------------------------------------------------------------------------------------- | ------- |
+| `VALIDATION_ERROR`      | 400    | any zod failure (body, params, query)                                                    | no      |
+| `INVALID_CREDENTIALS`   | 401    | login failure                                                                            | no      |
+| `UNAUTHENTICATED`       | 401    | missing/invalid/expired access token, or an invalid refresh token                        | no      |
+| `FORBIDDEN`             | 403    | wrong `UserRole` for the route                                                           | no      |
+| `NOT_FOUND`             | 404    | unknown route; unknown role; **a non-`OPEN` role read or applied to by a non-recruiter** | no      |
+| `EMAIL_TAKEN`           | 409    | signup email collides (`P2002`)                                                          | no      |
+| `ROLE_NOT_CLOSED`       | 409    | delete attempted on an `OPEN` role                                                       | no      |
+| `ROLE_HAS_APPLICATIONS` | 409    | delete attempted on a `CLOSED` role with applications (`P2003`)                          | **yes** |
+| `INTERNAL_ERROR`        | 500    | anything unexpected                                                                      | no      |
 
 - **ERR-1** `code` is the stable machine contract; `message` is user-safe copy the client may render verbatim
   and may change without being a breaking change.
@@ -724,32 +750,32 @@ Response shape, unchanged:
 - **ERR-5** `404` from an unregistered route (`GET /api/applications/1`) is indistinguishable from `404` for a
   missing resource. The client cannot probe for unimplemented endpoints.
 - **ERR-6** `409 ROLE_NOT_CLOSED` is checked before `409 ROLE_HAS_APPLICATIONS` (FR-8.3), so a recruiter is
-  always told the *first* thing they need to do.
-- **ERR-7** No error message names another user, an email, or a count of applications. *"This role has
-  applications"* does not say how many or whose.
+  always told the _first_ thing they need to do.
+- **ERR-7** No error message names another user, an email, or a count of applications. _"This role has
+  applications"_ does not say how many or whose.
 
 ---
 
 ## Edge Cases
 
-| ID        | Case                                                                                  | Behaviour                                                                                                                                                         |
-| --------- | ------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **EC-01** | Signup body includes `"role": "RECRUITER"`                                            | `201`, account created as `CANDIDATE`. The key is stripped by zod before the service sees it (FR-2.3)                                                              |
-| **EC-02** | Two signups with the same email, fired concurrently                                   | One `201`, one `409 EMAIL_TAKEN`. Decided by the unique index, not a read-then-write. Exactly one row exists                                                       |
-| **EC-03** | An existing `INTERVIEWER` or `RECRUITER` logs in after this ships                      | Unchanged. The migration is additive; no existing row's `role` is touched                                                                                         |
-| **EC-04** | Candidate requests `GET /api/roles?status=CLOSED`                                     | `200` with an **empty page**. The forced `OPEN` predicate wins; this is not an error, and not a `403` (FR-4.7)                                                     |
-| **EC-05** | Candidate requests `GET /api/roles/:id` for a role that exists but is `CLOSED`         | `404 NOT_FOUND`, identical to a role that never existed (FR-4.8)                                                                                                  |
-| **EC-06** | Same candidate applies to the same role twice, fired concurrently                     | **Both succeed.** Two rows, two `201`s, two distinct ids. This is D-6's documented outcome, not a race that slipped through — there is no constraint to violate    |
-| **EC-07** | Candidate applies while a recruiter deletes the same `CLOSED` role, concurrently      | Postgres serialises them. Either the delete commits and the apply's `404` follows from the role being gone, or the apply commits and the delete gets `409`. **Never both**, because the FK is enforced by the database, not by a `count()` |
-| **EC-08** | Candidate applies while a recruiter **closes** the same role, concurrently             | The apply may succeed against a role that is `CLOSED` a moment later. **Accepted.** The row is valid, the FK holds, and the candidate applied while it was genuinely open. Preventing it would need row locking on `Role` for every apply, which is not worth it at this scale |
-| **EC-09** | `GET /api/applications/1`                                                             | `404 NOT_FOUND` from `notFound` — the route is not registered and never will be (FR-6.8)                                                                          |
-| **EC-10** | `POST /api/applications` with `{ "roleId": 1, "candidateUserId": 99 }`                 | `201`, application belongs to the **caller**. The extra key is stripped; there is no field to impersonate with (AZ-5)                                              |
-| **EC-11** | A candidate's token is presented after their `User` row is deleted                    | `401` from the existing `/api/auth/me` guard. Their applications are already gone via `onDelete: Cascade` (MIG-6)                                                  |
-| **EC-12** | Candidate lists applications whose role was later closed                              | The row still appears with its title. `APPLICATION_SELECT`'s nested role select has **no `status` filter** — a candidate's own history is not hidden from them     |
-| **EC-13** | `?q=` (empty after trim)                                                              | Treated as absent. Same response as no `q` at all (VAL-3)                                                                                                         |
-| **EC-14** | `?q=' OR 1=1 --`                                                                      | Passed to Prisma as a parameterised `contains` value. Matches nothing. No raw SQL is constructed anywhere in this feature                                          |
-| **EC-15** | Recruiter calls `GET /api/applications`                                               | `403 FORBIDDEN`, not an empty list. A silent empty response would read as "no applications exist" (AZ-7)                                                           |
-| **EC-16** | The seed is run twice                                                                 | Four users, three roles, and the **same** application count. Applications for the seeded candidate are cleared and recreated (FR-10.4)                             |
+| ID        | Case                                                                             | Behaviour                                                                                                                                                                                                                                                                      |
+| --------- | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **EC-01** | Signup body includes `"role": "RECRUITER"`                                       | `201`, account created as `CANDIDATE`. The key is stripped by zod before the service sees it (FR-2.3)                                                                                                                                                                          |
+| **EC-02** | Two signups with the same email, fired concurrently                              | One `201`, one `409 EMAIL_TAKEN`. Decided by the unique index, not a read-then-write. Exactly one row exists                                                                                                                                                                   |
+| **EC-03** | An existing `INTERVIEWER` or `RECRUITER` logs in after this ships                | Unchanged. The migration is additive; no existing row's `role` is touched                                                                                                                                                                                                      |
+| **EC-04** | Candidate requests `GET /api/roles?status=CLOSED`                                | `200` with an **empty page**. The forced `OPEN` predicate wins; this is not an error, and not a `403` (FR-4.7)                                                                                                                                                                 |
+| **EC-05** | Candidate requests `GET /api/roles/:id` for a role that exists but is `CLOSED`   | `404 NOT_FOUND`, identical to a role that never existed (FR-4.8)                                                                                                                                                                                                               |
+| **EC-06** | Same candidate applies to the same role twice, fired concurrently                | **Both succeed.** Two rows, two `201`s, two distinct ids. This is D-6's documented outcome, not a race that slipped through — there is no constraint to violate                                                                                                                |
+| **EC-07** | Candidate applies while a recruiter deletes the same `CLOSED` role, concurrently | Postgres serialises them. Either the delete commits and the apply's `404` follows from the role being gone, or the apply commits and the delete gets `409`. **Never both**, because the FK is enforced by the database, not by a `count()`                                     |
+| **EC-08** | Candidate applies while a recruiter **closes** the same role, concurrently       | The apply may succeed against a role that is `CLOSED` a moment later. **Accepted.** The row is valid, the FK holds, and the candidate applied while it was genuinely open. Preventing it would need row locking on `Role` for every apply, which is not worth it at this scale |
+| **EC-09** | `GET /api/applications/1`                                                        | `404 NOT_FOUND` from `notFound` — the route is not registered and never will be (FR-6.8)                                                                                                                                                                                       |
+| **EC-10** | `POST /api/applications` with `{ "roleId": 1, "candidateUserId": 99 }`           | `201`, application belongs to the **caller**. The extra key is stripped; there is no field to impersonate with (AZ-5)                                                                                                                                                          |
+| **EC-11** | A candidate's token is presented after their `User` row is deleted               | `401` from the existing `/api/auth/me` guard. Their applications are already gone via `onDelete: Cascade` (MIG-6)                                                                                                                                                              |
+| **EC-12** | Candidate lists applications whose role was later closed                         | The row still appears with its title. `APPLICATION_SELECT`'s nested role select has **no `status` filter** — a candidate's own history is not hidden from them                                                                                                                 |
+| **EC-13** | `?q=` (empty after trim)                                                         | Treated as absent. Same response as no `q` at all (VAL-3)                                                                                                                                                                                                                      |
+| **EC-14** | `?q=' OR 1=1 --`                                                                 | Passed to Prisma as a parameterised `contains` value. Matches nothing. No raw SQL is constructed anywhere in this feature                                                                                                                                                      |
+| **EC-15** | Recruiter calls `GET /api/applications`                                          | `403 FORBIDDEN`, not an empty list. A silent empty response would read as "no applications exist" (AZ-7)                                                                                                                                                                       |
+| **EC-16** | The seed is run twice                                                            | Four users, three roles, and the **same** application count. Applications for the seeded candidate are cleared and recreated (FR-10.4)                                                                                                                                         |
 
 ---
 
@@ -834,7 +860,7 @@ suite. `$C`, `$I`, `$R` below are access tokens for a candidate, an interviewer 
 - **AC-B03** — **Given** a signup body with **no** `role` key, **when** it is sent, **then** the response is
   `201` — proving `role` is not a required field.
 - **AC-B04** — **Given** a signup body containing `"role":"RECRUITER"`, **when** it is sent, **then** the
-  response is `201` and the created user's `role` is `CANDIDATE`. *(The escalation path is closed — SEC-1.)*
+  response is `201` and the created user's `role` is `CANDIDATE`. _(The escalation path is closed — SEC-1.)_
 - **AC-B05** — **Given** the same, **when** `psql` runs
   `SELECT count(*) FROM "User" WHERE role='RECRUITER' AND email='…'`, **then** the count is `0`.
 - **AC-B06** — **Given** an existing candidate, **when** signup repeats that email, **then** the response is
@@ -846,7 +872,7 @@ suite. `$C`, `$I`, `$R` below are access tokens for a candidate, an interviewer 
 - **AC-B09** — **Given** a candidate account, **when** `POST /api/auth/login` is sent its credentials, **then**
   `200` with an `accessToken`, a `Set-Cookie` refresh cookie, and `user.role` of `CANDIDATE`.
 - **AC-B10** — **Given** `$C`, **when** `GET /api/auth/me` is called, **then** `200` with
-  `{id, name, email, role: "CANDIDATE", createdAt}` and no other key. *(Serves the Profile view — FR-7.)*
+  `{id, name, email, role: "CANDIDATE", createdAt}` and no other key. _(Serves the Profile view — FR-7.)_
 - **AC-B11** — **Given** `$C`, **when** `GET /api/users` is called, **then** `403 FORBIDDEN`.
 - **AC-B12** — **Given** `$R`, **when** `GET /api/users` is called, **then** `200` and **no** returned user has
   `role: "CANDIDATE"`.
@@ -859,17 +885,17 @@ suite. `$C`, `$I`, `$R` below are access tokens for a candidate, an interviewer 
 - **AC-B15** — **Given** the same call, **when** the response is inspected, **then** **no** row contains an
   `updatedAt` key (FR-4.5).
 - **AC-B16** — **Given** `$R`, **when** `GET /api/roles` is called, **then** `200`, `roles` has length `3`,
-  one row has `"status":"CLOSED"`, and every row contains `updatedAt`. *(Recruiter behaviour unchanged.)*
+  one row has `"status":"CLOSED"`, and every row contains `updatedAt`. _(Recruiter behaviour unchanged.)_
 - **AC-B17** — **Given** `$C`, **when** `GET /api/roles?status=CLOSED` is called, **then** `200` with
   `roles: []` and `pagination.total: 0` — not `403`, not an error (EC-04).
 - **AC-B18** — **Given** `$C` and the `CLOSED` seeded role's id, **when** `GET /api/roles/:id` is called,
   **then** `404 NOT_FOUND`.
 - **AC-B19** — **Given** `$C`, **when** `GET /api/roles/999999` is called, **then** `404 NOT_FOUND` with a body
-  **byte-identical** to AC-B18's. *(No enumeration oracle — SEC-4.)*
+  **byte-identical** to AC-B18's. _(No enumeration oracle — SEC-4.)_
 - **AC-B20** — **Given** `$R` and the `CLOSED` role's id, **when** `GET /api/roles/:id` is called, **then**
   `200` with that role.
 - **AC-B21** — **Given** `$I`, **when** `GET /api/roles` is called, **then** `200` with the `OPEN` roles only —
-  no longer `403`. *(The Revision, verified.)*
+  no longer `403`. _(The Revision, verified.)_
 - **AC-B22** — **Given** `$C`, **when** `GET /api/roles?q=backend` is called, **then** `200` and every returned
   title contains "backend" case-insensitively.
 - **AC-B23** — **Given** `$C`, **when** `GET /api/roles?q=BACKEND` is called, **then** the result is identical
@@ -879,7 +905,7 @@ suite. `$C`, `$I`, `$R` below are access tokens for a candidate, an interviewer 
 - **AC-B25** — **Given** `$C`, **when** `GET /api/roles?q=` + a 121-character string is called, **then**
   `400 VALIDATION_ERROR` with `details.q`.
 - **AC-B26** — **Given** `$C` and a term matching only the `CLOSED` role's title, **when**
-  `GET /api/roles?q=<term>` is called, **then** `200` with `roles: []`. *(Search cannot widen the row set.)*
+  `GET /api/roles?q=<term>` is called, **then** `200` with `roles: []`. _(Search cannot widen the row set.)_
 - **AC-B27** — **Given** `$C`, **when** `POST /api/roles` is called, **then** `403 FORBIDDEN`. Likewise
   `PATCH` and `DELETE`.
 
@@ -906,7 +932,7 @@ suite. `$C`, `$I`, `$R` below are access tokens for a candidate, an interviewer 
   `$R`.
 - **AC-B36** — **Given** no token, **when** `POST /api/applications` is called, **then** `401`, never `403`.
 - **AC-B37** — **Given** `$C` who has already applied to role `1`, **when** they apply to role `1` again,
-  **then** `201` with a **new** id, and `psql` shows two rows. *(D-6 — unlimited, verified, not assumed.)*
+  **then** `201` with a **new** id, and `psql` shows two rows. _(D-6 — unlimited, verified, not assumed.)_
 - **AC-B38** — **Given** `$C`, **when** two `POST /api/applications` for the same role are **fired
   concurrently**, **then** both return `201` with distinct ids and `psql` shows exactly **two** rows —
   neither a `409` nor a single merged row (EC-06).
@@ -936,11 +962,11 @@ suite. `$C`, `$I`, `$R` below are access tokens for a candidate, an interviewer 
 - **AC-B47** — **Given** that role then closed, **when** `DELETE /api/roles/:id` is called, **then**
   `409 ROLE_HAS_APPLICATIONS`, and `psql` shows the `Role` row **and** the `Application` row both still exist.
 - **AC-B48** — **Given** a `CLOSED` role with **zero** applications, **when** `DELETE /api/roles/:id` is
-  called, **then** `204`. *(Roles feature behaviour is preserved where it still applies.)*
-- **AC-B49** — *(revised during implementation — as first written, half of this criterion was unreachable.)*
+  called, **then** `204`. _(Roles feature behaviour is preserved where it still applies.)_
+- **AC-B49** — _(revised during implementation — as first written, half of this criterion was unreachable.)_
   Applying requires the role to be `OPEN`; deleting requires it to be `CLOSED`. Those preconditions are
   **disjoint**, so a two-way apply-vs-delete race can never produce the `201` branch: the apply always `404`s
-  on the status predicate. The race that *is* reachable is three-way. **Given** `$C` applying to role `Z`,
+  on the status predicate. The race that _is_ reachable is three-way. **Given** `$C` applying to role `Z`,
   `$R` closing `Z`, and `$R` deleting `Z`, **all fired concurrently**, **then** every outcome is explainable
   and the database is consistent — and in particular the `Application` table **never** contains a row whose
   `roleId` has no `Role`, because the refusal is the foreign key's, not a `count()`'s (EC-07).
@@ -964,21 +990,21 @@ suite. `$C`, `$I`, `$R` below are access tokens for a candidate, an interviewer 
 
 ## Out of Scope
 
-| Excluded                                            | Why                                                                                                       |
-| --------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| Recruiter-facing application endpoints              | The pipeline feature owns counts-per-stage and ageing; specifying half of it here means specifying it twice |
-| Stage transitions and overrides                     | Brief §3.1/§3.3 — a separate feature with its own actor, reason and audit requirements                     |
-| Interview rounds, assignments, feedback             | Brief §3.2/§3.4 — the POC's hard case, and it needs the pipeline model first                               |
-| Withdrawing an application                          | D-8 — `WITHDRAWN` is not in the enum, and no code path could write one                                     |
-| Editing any profile field                           | D-12 — no write path to `User` exists, so read-only needs no enforcement                                   |
-| `CandidateProfile`, phone number, resume upload     | D-2/D-12 — the only contact detail this POC restricts is `email` on `User`, already covered                |
-| A unique constraint on `(candidateUserId, roleId)`  | D-6 — deliberately unlimited; the consequence is recorded in SEC-11, not hidden                            |
-| Pagination on `GET /api/applications`               | PERF-8 — bounded by the candidate's own behaviour; the first thing to add if SEC-11 is ever closed         |
-| Description search, location/department filters     | D-11 — `Role` has no such columns, and adding them changes the recruiter's shipped create/edit forms       |
-| Email verification, password reset, rate limiting   | SEC-12 — POC scope; all three are named as accepted gaps rather than left to be discovered                 |
-| An operator-secret provisioning route               | D-3/FR-3.3 — the seed already does this, and a second creation path is a second thing to secure            |
-| An audit **table**                                  | FR-9.5 — belongs to the feature that first needs to *read* the trail; `pino` lines carry it until then     |
-| Automated tests                                     | Repo-wide decision — verification is manual `curl` + `psql` (CLAUDE.md)                                    |
+| Excluded                                           | Why                                                                                                         |
+| -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| Recruiter-facing application endpoints             | The pipeline feature owns counts-per-stage and ageing; specifying half of it here means specifying it twice |
+| Stage transitions and overrides                    | Brief §3.1/§3.3 — a separate feature with its own actor, reason and audit requirements                      |
+| Interview rounds, assignments, feedback            | Brief §3.2/§3.4 — the POC's hard case, and it needs the pipeline model first                                |
+| Withdrawing an application                         | D-8 — `WITHDRAWN` is not in the enum, and no code path could write one                                      |
+| Editing any profile field                          | D-12 — no write path to `User` exists, so read-only needs no enforcement                                    |
+| `CandidateProfile`, phone number, resume upload    | D-2/D-12 — the only contact detail this POC restricts is `email` on `User`, already covered                 |
+| A unique constraint on `(candidateUserId, roleId)` | D-6 — deliberately unlimited; the consequence is recorded in SEC-11, not hidden                             |
+| Pagination on `GET /api/applications`              | PERF-8 — bounded by the candidate's own behaviour; the first thing to add if SEC-11 is ever closed          |
+| Description search, location/department filters    | D-11 — `Role` has no such columns, and adding them changes the recruiter's shipped create/edit forms        |
+| Email verification, password reset, rate limiting  | SEC-12 — POC scope; all three are named as accepted gaps rather than left to be discovered                  |
+| An operator-secret provisioning route              | D-3/FR-3.3 — the seed already does this, and a second creation path is a second thing to secure             |
+| An audit **table**                                 | FR-9.5 — belongs to the feature that first needs to _read_ the trail; `pino` lines carry it until then      |
+| Automated tests                                    | Repo-wide decision — verification is manual `curl` + `psql` (CLAUDE.md)                                     |
 
 ---
 
@@ -997,31 +1023,31 @@ SEC-11's counting caveat.
 
 **Modified existing files**
 
-| Path                                                                                            | Change                                                                                  |
-| ----------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
-| [`prisma/schema.prisma`](../../../prisma/schema.prisma)                                         | `UserRole` += `CANDIDATE`; `PipelineStage`, `ApplicationStatus`, `Application`; two back-relations |
-| [`prisma/seed.ts`](../../../prisma/seed.ts)                                                     | One candidate account + seeded applications (FR-10)                                     |
-| [`src/modules/auth/auth.schema.ts`](../../../src/modules/auth/auth.schema.ts)                   | **Remove** `role` from `signupSchema`                                                   |
-| [`src/modules/auth/auth.service.ts`](../../../src/modules/auth/auth.service.ts)                 | `signup` writes the `CANDIDATE` literal instead of `input.role`                          |
-| [`src/modules/auth/auth.routes.ts`](../../../src/modules/auth/auth.routes.ts)                   | Replace the SEC-11.1 comment with a note that the gap is closed                          |
-| [`src/modules/roles/roles.routes.ts`](../../../src/modules/roles/roles.routes.ts)               | Drop `requireRole(RECRUITER)` from the two GETs; keep it on the three writes             |
-| [`src/modules/roles/roles.service.ts`](../../../src/modules/roles/roles.service.ts)             | Role-aware `where` + `select` (FR-4.3/4.4/4.5); `q` filter; `P2003` → `409` on delete    |
-| [`src/modules/roles/roles.schema.ts`](../../../src/modules/roles/roles.schema.ts)               | `listRolesQuerySchema` gains `q`                                                        |
-| [`src/modules/roles/role.select.ts`](../../../src/modules/roles/role.select.ts)                 | Add `PUBLIC_ROLE_SELECT`                                                                |
-| [`src/modules/roles/roles.controller.ts`](../../../src/modules/roles/roles.controller.ts)       | Pass `req.user.role` through to the service                                             |
-| [`src/lib/errors.ts`](../../../src/lib/errors.ts)                                               | `ErrorCode` += `ROLE_HAS_APPLICATIONS`; new `RoleHasApplicationsError`                   |
-| [`src/app.ts`](../../../src/app.ts)                                                             | Mount `applicationsRouter` at `/api/applications`, before `notFound`                     |
-| [`CLAUDE.md`](../../../CLAUDE.md)                                                               | Feature table; the actors table; the "do not reintroduce a broad roles read" paragraph; the signup/SEC-11.1 paragraph |
-| [`../roles/spec.md`](../roles/spec.md)                                                          | `Revision 3` recording the authenticated-open reads and the FR-6.10 answer               |
+| Path                                                                                      | Change                                                                                                                |
+| ----------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| [`prisma/schema.prisma`](../../../prisma/schema.prisma)                                   | `UserRole` += `CANDIDATE`; `PipelineStage`, `ApplicationStatus`, `Application`; two back-relations                    |
+| [`prisma/seed.ts`](../../../prisma/seed.ts)                                               | One candidate account + seeded applications (FR-10)                                                                   |
+| [`src/modules/auth/auth.schema.ts`](../../../src/modules/auth/auth.schema.ts)             | **Remove** `role` from `signupSchema`                                                                                 |
+| [`src/modules/auth/auth.service.ts`](../../../src/modules/auth/auth.service.ts)           | `signup` writes the `CANDIDATE` literal instead of `input.role`                                                       |
+| [`src/modules/auth/auth.routes.ts`](../../../src/modules/auth/auth.routes.ts)             | Replace the SEC-11.1 comment with a note that the gap is closed                                                       |
+| [`src/modules/roles/roles.routes.ts`](../../../src/modules/roles/roles.routes.ts)         | Drop `requireRole(RECRUITER)` from the two GETs; keep it on the three writes                                          |
+| [`src/modules/roles/roles.service.ts`](../../../src/modules/roles/roles.service.ts)       | Role-aware `where` + `select` (FR-4.3/4.4/4.5); `q` filter; `P2003` → `409` on delete                                 |
+| [`src/modules/roles/roles.schema.ts`](../../../src/modules/roles/roles.schema.ts)         | `listRolesQuerySchema` gains `q`                                                                                      |
+| [`src/modules/roles/role.select.ts`](../../../src/modules/roles/role.select.ts)           | Add `PUBLIC_ROLE_SELECT`                                                                                              |
+| [`src/modules/roles/roles.controller.ts`](../../../src/modules/roles/roles.controller.ts) | Pass `req.user.role` through to the service                                                                           |
+| [`src/lib/errors.ts`](../../../src/lib/errors.ts)                                         | `ErrorCode` += `ROLE_HAS_APPLICATIONS`; new `RoleHasApplicationsError`                                                |
+| [`src/app.ts`](../../../src/app.ts)                                                       | Mount `applicationsRouter` at `/api/applications`, before `notFound`                                                  |
+| [`CLAUDE.md`](../../../CLAUDE.md)                                                         | Feature table; the actors table; the "do not reintroduce a broad roles read" paragraph; the signup/SEC-11.1 paragraph |
+| [`../roles/spec.md`](../roles/spec.md)                                                    | `Revision 3` recording the authenticated-open reads and the FR-6.10 answer                                            |
 
 **New files**
 
-| Path                                            | Responsibility                                          |
-| ----------------------------------------------- | ------------------------------------------------------- |
-| `src/modules/applications/applications.routes.ts`     | Two routes, middleware order, nothing else        |
-| `src/modules/applications/applications.controller.ts` | HTTP shaping only                                 |
-| `src/modules/applications/applications.service.ts`    | The apply transaction and the scoped list query   |
-| `src/modules/applications/applications.schema.ts`     | `createApplicationSchema`                         |
-| `src/modules/applications/application.select.ts`      | `APPLICATION_SELECT` — the single projection      |
+| Path                                                  | Responsibility                                  |
+| ----------------------------------------------------- | ----------------------------------------------- |
+| `src/modules/applications/applications.routes.ts`     | Two routes, middleware order, nothing else      |
+| `src/modules/applications/applications.controller.ts` | HTTP shaping only                               |
+| `src/modules/applications/applications.service.ts`    | The apply transaction and the scoped list query |
+| `src/modules/applications/applications.schema.ts`     | `createApplicationSchema`                       |
+| `src/modules/applications/application.select.ts`      | `APPLICATION_SELECT` — the single projection    |
 
 **External services:** none.

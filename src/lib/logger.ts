@@ -27,6 +27,12 @@ const REDACTED_PATHS = [
   '*.passwordHash',
   '*.accessToken',
   '*.refreshToken',
+  // A stage override's free text (audit spec FR-8.3, SEC-7). Nothing logs an
+  // override's metadata today - `recordAudit` logs ids and enum values only -
+  // so this is here purely so that a future line which accidentally does
+  // prints `[redacted]` rather than a recruiter's own words about a candidate.
+  'reason',
+  '*.reason',
 ];
 
 export const logger = pino({

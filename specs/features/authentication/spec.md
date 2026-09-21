@@ -36,20 +36,20 @@ and in §3.2:
 
 > An interviewer can view and act on only the candidates and rounds they are assigned to — this is the core hard case of this POC. Requesting a candidate outside their assignment, directly by ID, must be refused at the point of the query.
 
-Neither is expressible without identity. *"The candidates they are assigned to"* is a `WHERE` clause parameterised by `req.user.id`; *"contact details are recruiter-only"* (§3.6) is a branch on `req.user.role`. **This feature is therefore the blocking prerequisite for every other backend feature in the POC.**
+Neither is expressible without identity. _"The candidates they are assigned to"_ is a `WHERE` clause parameterised by `req.user.id`; _"contact details are recruiter-only"_ (§3.6) is a branch on `req.user.role`. **This feature is therefore the blocking prerequisite for every other backend feature in the POC.**
 
 ### Current state of `backend/`
 
-| | Today |
-|---|---|
-| Stack | Express 5.2, TypeScript ESM (`"type": "module"`), Prisma 7.10, PostgreSQL, `tsx` for dev |
-| Source | A single [`src/server.ts`](../../../src/server.ts) with one `GET /` route returning `{ message }` |
-| Structure | Flat — no `routes/`, `services/`, `middleware/`, `lib/` or `schemas/` directories |
-| Schema | [`prisma/schema.prisma`](../../../prisma/schema.prisma) — placeholder `User { id, name, email, createdAt }`, one migration `20260914094336_init` |
-| Validation | **none** — `zod` is not a backend dependency |
-| Error handling | **none** — no error middleware, no error shape |
-| Logging | `console.log` on server start |
-| Tests | **none** — `"test": "echo \"Error: no test specified\" && exit 1"`, and none planned. Verification for this POC is manual; automated testing is a later decision |
+|                | Today                                                                                                                                                            |
+| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Stack          | Express 5.2, TypeScript ESM (`"type": "module"`), Prisma 7.10, PostgreSQL, `tsx` for dev                                                                         |
+| Source         | A single [`src/server.ts`](../../../src/server.ts) with one `GET /` route returning `{ message }`                                                                |
+| Structure      | Flat — no `routes/`, `services/`, `middleware/`, `lib/` or `schemas/` directories                                                                                |
+| Schema         | [`prisma/schema.prisma`](../../../prisma/schema.prisma) — placeholder `User { id, name, email, createdAt }`, one migration `20260914094336_init`                 |
+| Validation     | **none** — `zod` is not a backend dependency                                                                                                                     |
+| Error handling | **none** — no error middleware, no error shape                                                                                                                   |
+| Logging        | `console.log` on server start                                                                                                                                    |
+| Tests          | **none** — `"test": "echo \"Error: no test specified\" && exit 1"`, and none planned. Verification for this POC is manual; automated testing is a later decision |
 
 This spec therefore introduces the first zod schemas, the first middleware chain, the first service layer, the first structured error contract, and the first migration beyond `init`.
 
@@ -67,12 +67,12 @@ Settled, not open:
 
 ## Users / Actors
 
-| Actor | Authenticated? | Can do against this API |
-|---|---|---|
-| **Anonymous caller** | No | `POST /api/auth/login` and `POST /api/auth/signup` only. Every other endpoint returns `401`. |
-| **Interviewer** (`INTERVIEWER`) | Yes | Log in, refresh, read own identity via `/api/auth/me`, log out. **Cannot** list users — `403`. Cannot create a user by any route. |
-| **Recruiter** (`RECRUITER`) | Yes | Everything an interviewer can do, plus list existing interviewers via `GET /api/users`. **Creates no accounts** — provisioning is not a recruiter capability. |
-| **Operator / developer** | N/A (shell or HTTP client) | **The only account-creating actor.** Provisions every user of either role via `npm run db:seed` or `POST /api/auth/signup` from curl/Postman. |
+| Actor                           | Authenticated?             | Can do against this API                                                                                                                                       |
+| ------------------------------- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Anonymous caller**            | No                         | `POST /api/auth/login` and `POST /api/auth/signup` only. Every other endpoint returns `401`.                                                                  |
+| **Interviewer** (`INTERVIEWER`) | Yes                        | Log in, refresh, read own identity via `/api/auth/me`, log out. **Cannot** list users — `403`. Cannot create a user by any route.                             |
+| **Recruiter** (`RECRUITER`)     | Yes                        | Everything an interviewer can do, plus list existing interviewers via `GET /api/users`. **Creates no accounts** — provisioning is not a recruiter capability. |
+| **Operator / developer**        | N/A (shell or HTTP client) | **The only account-creating actor.** Provisions every user of either role via `npm run db:seed` or `POST /api/auth/signup` from curl/Postman.                 |
 
 **Deliberate POC trade-off, stated explicitly:** `POST /api/auth/signup` is anonymous, accepts a `role`, and is the **only** way to create an account over HTTP. Anyone who can reach the API can therefore create a `RECRUITER` and see candidate contact details. This is acceptable **only** because the POC runs locally and the endpoint exists solely as an operator tool. It is called out here so it is not mistaken for an oversight, and tracked as **SEC-11.1** — the single item that must be closed before this API is reachable from anywhere but localhost.
 
@@ -143,7 +143,7 @@ Settled, not open:
 - **FR-5.7** `POST /api/auth/logout` revokes the presented token's **entire family** and clears the cookie. It responds `204` even when no valid cookie was presented (idempotent).
 - **FR-5.8** **Expired refresh tokens are deleted, not kept forever (added during review).** Rotation only ever wrote rows and revoked them, so an active session grew the table by roughly one row per access-token lifetime — about 96 a day — with nothing removing any of it. `login` now deletes that user's rows whose `expiresAt` has passed.
   - **Only expired rows.** A revoked but still-unexpired row is what a replayed token is matched against; removing those would turn a detected theft into an ordinary `unknown` 401 and leave the stolen family alive (FR-5.6).
-  - Knowingly given up: a token replayed *after its own expiry* no longer revokes its family. It is refused on its expiry regardless, so only the detection of an already-futile replay is lost.
+  - Knowingly given up: a token replayed _after its own expiry_ no longer revokes its family. It is refused on its expiry regardless, so only the detection of an already-futile replay is lost.
   - Placed at login, not refresh — login already pays ~200 ms of bcrypt, and `refresh` answers to a 50 ms budget (PERF-2). A failure is logged and swallowed: housekeeping never costs a user their login.
 - **FR-5.8** There is **no sliding access-token window and no server-driven refresh scheduling.** Refresh is client-initiated and reactive.
 
@@ -152,11 +152,17 @@ Settled, not open:
 - **FR-6.1** Exactly one shape is returned wherever a user appears in a response:
 
   ```jsonc
-  { "id": 1, "name": "Jane Doe", "email": "jane@example.com", "role": "INTERVIEWER", "createdAt": "2026-09-14T10:00:00.000Z" }
+  {
+    "id": 1,
+    "name": "Jane Doe",
+    "email": "jane@example.com",
+    "role": "INTERVIEWER",
+    "createdAt": "2026-09-14T10:00:00.000Z",
+  }
   ```
 
 - **FR-6.2** `passwordHash` **must never appear in any response body, at any layer, under any code path.**
-- **FR-6.3** This is enforced by an **explicit Prisma `select`** listing the safe columns — *not* by fetching the full row and deleting keys afterwards. This mirrors the contact-details rule in [../../../CLAUDE.md](../../../CLAUDE.md): a query that never selects a column cannot leak it, and the same discipline that will protect candidate email/phone is established here first.
+- **FR-6.3** This is enforced by an **explicit Prisma `select`** listing the safe columns — _not_ by fetching the full row and deleting keys afterwards. This mirrors the contact-details rule in [../../../CLAUDE.md](../../../CLAUDE.md): a query that never selects a column cannot leak it, and the same discipline that will protect candidate email/phone is established here first.
 - **FR-6.4** Refresh tokens, token hashes, and the JWT secret are likewise never serialised into a response.
 
 ### FR-7 — Request authentication & authorization
@@ -259,15 +265,15 @@ A single Express error middleware converts every thrown `AppError` into the flat
 
 `pino` replaces `console.log`. A `requestId` middleware assigns a per-request id, included on every log line. Auth events emitted:
 
-| Event | Level | Fields |
-|---|---|---|
-| `auth.login.success` | info | `userId`, `role`, `requestId` |
-| `auth.login.failure` | warn | `email`, `reason: 'invalid_credentials'`, `requestId` |
-| `auth.refresh.rotated` | info | `userId`, `familyId`, `requestId` |
-| `auth.refresh.reuse_detected` | **error** | `userId`, `familyId`, `action: 'family_revoked'` |
-| `auth.logout` | info | `userId`, `familyId` |
-| `user.created` | info | `createdUserId`, `role`, `source: 'signup' \| 'seed'` — **there is no actor**, because no authenticated user can create another |
-| `authz.denied` | warn | `userId`, `role`, `method`, `path` |
+| Event                         | Level     | Fields                                                                                                                          |
+| ----------------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `auth.login.success`          | info      | `userId`, `role`, `requestId`                                                                                                   |
+| `auth.login.failure`          | warn      | `email`, `reason: 'invalid_credentials'`, `requestId`                                                                           |
+| `auth.refresh.rotated`        | info      | `userId`, `familyId`, `requestId`                                                                                               |
+| `auth.refresh.reuse_detected` | **error** | `userId`, `familyId`, `action: 'family_revoked'`                                                                                |
+| `auth.logout`                 | info      | `userId`, `familyId`                                                                                                            |
+| `user.created`                | info      | `createdUserId`, `role`, `source: 'signup' \| 'seed'` — **there is no actor**, because no authenticated user can create another |
+| `authz.denied`                | warn      | `userId`, `role`, `method`, `path`                                                                                              |
 
 **Never logged, at any level:** plaintext passwords, bcrypt hashes, raw or hashed refresh tokens, access tokens, `Cookie` / `Set-Cookie` / `Authorization` header values, `JWT_SECRET`.
 
@@ -281,12 +287,25 @@ All endpoints are JSON and prefixed `/api`. Every error response uses the shape 
 
 ```jsonc
 // Request
-{ "name": "Ada Recruiter", "email": "ada@example.com", "password": "correct horse", "role": "RECRUITER" }
+{
+  "name": "Ada Recruiter",
+  "email": "ada@example.com",
+  "password": "correct horse",
+  "role": "RECRUITER",
+}
 ```
 
 ```jsonc
 // 201 Created — no Set-Cookie, no token
-{ "user": { "id": 1, "name": "Ada Recruiter", "email": "ada@example.com", "role": "RECRUITER", "createdAt": "2026-09-14T10:00:00.000Z" } }
+{
+  "user": {
+    "id": 1,
+    "name": "Ada Recruiter",
+    "email": "ada@example.com",
+    "role": "RECRUITER",
+    "createdAt": "2026-09-14T10:00:00.000Z",
+  },
+}
 ```
 
 Errors: `400 VALIDATION_ERROR` · `409 EMAIL_TAKEN` · `500 INTERNAL_ERROR`
@@ -301,9 +320,15 @@ Errors: `400 VALIDATION_ERROR` · `409 EMAIL_TAKEN` · `500 INTERNAL_ERROR`
 ```jsonc
 // 200 OK
 {
-  "user": { "id": 1, "name": "Ada Recruiter", "email": "ada@example.com", "role": "RECRUITER", "createdAt": "2026-09-14T10:00:00.000Z" },
+  "user": {
+    "id": 1,
+    "name": "Ada Recruiter",
+    "email": "ada@example.com",
+    "role": "RECRUITER",
+    "createdAt": "2026-09-14T10:00:00.000Z",
+  },
   "accessToken": "<jwt>",
-  "expiresIn": 900
+  "expiresIn": 900,
 }
 ```
 
@@ -338,7 +363,15 @@ Returns `204` **even when no cookie was sent or the token was already invalid** 
 
 ```jsonc
 // 200 OK
-{ "user": { "id": 1, "name": "Ada Recruiter", "email": "ada@example.com", "role": "RECRUITER", "createdAt": "2026-09-14T10:00:00.000Z" } }
+{
+  "user": {
+    "id": 1,
+    "name": "Ada Recruiter",
+    "email": "ada@example.com",
+    "role": "RECRUITER",
+    "createdAt": "2026-09-14T10:00:00.000Z",
+  },
+}
 ```
 
 Errors: `401 UNAUTHENTICATED` (missing / malformed / expired token, or the user no longer exists)
@@ -347,7 +380,17 @@ Errors: `401 UNAUTHENTICATED` (missing / malformed / expired token, or the user 
 
 ```jsonc
 // 200 OK — interviewers only, newest first
-{ "users": [ { "id": 7, "name": "Ivan Interviewer", "email": "ivan@example.com", "role": "INTERVIEWER", "createdAt": "2026-09-14T11:00:00.000Z" } ] }
+{
+  "users": [
+    {
+      "id": 7,
+      "name": "Ivan Interviewer",
+      "email": "ivan@example.com",
+      "role": "INTERVIEWER",
+      "createdAt": "2026-09-14T11:00:00.000Z",
+    },
+  ],
+}
 ```
 
 An empty result is `{ "users": [] }` with `200` — never `404`.
@@ -421,29 +464,29 @@ model RefreshToken {
 
 ### Credentials
 
-| Credential | Form | Lifetime | Server-side storage | Transport |
-|---|---|---|---|---|
-| Access token | Signed JWT (`sub`, `role`, `exp`) | 15 min | none (stateless) | `Authorization: Bearer` |
-| Refresh token | Opaque random 32 bytes | 1 day | SHA-256 hash in `RefreshToken` | `HttpOnly` cookie, `Path=/api/auth` |
+| Credential    | Form                              | Lifetime | Server-side storage            | Transport                           |
+| ------------- | --------------------------------- | -------- | ------------------------------ | ----------------------------------- |
+| Access token  | Signed JWT (`sub`, `role`, `exp`) | 15 min   | none (stateless)               | `Authorization: Bearer`             |
+| Refresh token | Opaque random 32 bytes            | 1 day    | SHA-256 hash in `RefreshToken` | `HttpOnly` cookie, `Path=/api/auth` |
 
-**Rationale, for the walkthrough:** the access token is attached to most requests, so it is the credential most exposed to client-side compromise — keeping it short-lived and stateless limits the blast radius. The refresh token is long-lived, so it is kept where script cannot reach it (`HttpOnly`) and where the server *can* revoke it (a database row). Neither credential is ever persisted in browser storage.
+**Rationale, for the walkthrough:** the access token is attached to most requests, so it is the credential most exposed to client-side compromise — keeping it short-lived and stateless limits the blast radius. The refresh token is long-lived, so it is kept where script cannot reach it (`HttpOnly`) and where the server _can_ revoke it (a database row). Neither credential is ever persisted in browser storage.
 
 ### Authorization matrix
 
-| Endpoint | Anonymous | INTERVIEWER | RECRUITER |
-|---|---|---|---|
-| `POST /api/auth/signup` | ✅ | ✅ | ✅ |
-| `POST /api/auth/login` | ✅ | ✅ | ✅ |
-| `POST /api/auth/refresh` | cookie-gated | cookie-gated | cookie-gated |
-| `POST /api/auth/logout` | ✅ (204) | ✅ | ✅ |
-| `GET /api/auth/me` | ❌ 401 | ✅ | ✅ |
-| `GET /api/users` | ❌ 401 | ❌ **403** | ✅ |
-| `POST /api/users` | ❌ 404 — route removed | ❌ 404 | ❌ 404 |
+| Endpoint                 | Anonymous              | INTERVIEWER  | RECRUITER    |
+| ------------------------ | ---------------------- | ------------ | ------------ |
+| `POST /api/auth/signup`  | ✅                     | ✅           | ✅           |
+| `POST /api/auth/login`   | ✅                     | ✅           | ✅           |
+| `POST /api/auth/refresh` | cookie-gated           | cookie-gated | cookie-gated |
+| `POST /api/auth/logout`  | ✅ (204)               | ✅           | ✅           |
+| `GET /api/auth/me`       | ❌ 401                 | ✅           | ✅           |
+| `GET /api/users`         | ❌ 401                 | ❌ **403**   | ✅           |
+| `POST /api/users`        | ❌ 404 — route removed | ❌ 404       | ❌ 404       |
 
 ### Non-negotiable rules
 
 - **AZ-1** Every endpoint enforces its own rule independently of any client-side guard. AC-B27 proves it by calling `GET /api/users` directly with an interviewer's token — the client never calls that endpoint at all, so the server is provably the only thing enforcing it.
-- **AZ-2** `401` means *"we don't know who you are"*; `403` means *"we know, and you may not"*. They are never interchanged.
+- **AZ-2** `401` means _"we don't know who you are"_; `403` means _"we know, and you may not"_. They are never interchanged.
 - **AZ-3** A role is read from the verified JWT claim. It is never read from a request body, query parameter, or client-supplied header.
 - **AZ-4** This feature establishes `req.user` only. The query-level scoping the brief demands (interviewer → only assigned candidates) is built on top of it by later features.
 
@@ -453,12 +496,12 @@ model RefreshToken {
 
 These rules are authoritative; the frontend mirrors them for responsiveness only.
 
-| Field | Rule |
-|---|---|
-| `name` | required, trimmed, 1–100 chars |
-| `email` | required, trimmed, lowercased, valid email, ≤ 254 chars |
-| `password` | required, ≥ 8 chars, ≤ 72 **bytes** |
-| `role` (signup only) | required, `INTERVIEWER` \| `RECRUITER` |
+| Field                | Rule                                                    |
+| -------------------- | ------------------------------------------------------- |
+| `name`               | required, trimmed, 1–100 chars                          |
+| `email`              | required, trimmed, lowercased, valid email, ≤ 254 chars |
+| `password`           | required, ≥ 8 chars, ≤ 72 **bytes**                     |
+| `role` (signup only) | required, `INTERVIEWER` \| `RECRUITER`                  |
 
 - **VAL-1** The 72-byte password ceiling is bcrypt's silent truncation point. It is enforced, not ignored — otherwise two different long passwords could authenticate the same account.
 - **VAL-2** No composition requirements (uppercase/digit/symbol) — length only, deliberately, to keep the POC demoable.
@@ -474,22 +517,26 @@ These rules are authoritative; the frontend mirrors them for responsiveness only
 ### Response shape
 
 ```jsonc
-{ "code": "VALIDATION_ERROR", "message": "Invalid request body", "details": { "email": ["Enter a valid email address"] } }
+{
+  "code": "VALIDATION_ERROR",
+  "message": "Invalid request body",
+  "details": { "email": ["Enter a valid email address"] },
+}
 ```
 
 Flat, with `message` at the top level — chosen so the frontend's existing `apiFetch` error path (which reads `data.message`) works unchanged. `details` is present only on `VALIDATION_ERROR`.
 
 ### Code catalogue
 
-| HTTP | `code` | `message` | Raised when |
-|---|---|---|---|
-| 400 | `VALIDATION_ERROR` | "Invalid request body" | zod rejects the payload |
-| 401 | `INVALID_CREDENTIALS` | "Invalid email or password" | Login: unknown email **or** wrong password |
-| 401 | `UNAUTHENTICATED` | "Authentication required" | Missing/malformed/expired access token; invalid/expired/reused refresh token |
-| 403 | `FORBIDDEN` | "You do not have access to this resource" | Authenticated, wrong role — `GET /api/users` as an interviewer is the only case today |
-| 404 | `NOT_FOUND` | "Resource not found" | Unknown route — **including `POST /api/users`**, which no longer exists |
-| 409 | `EMAIL_TAKEN` | "An account with this email already exists" | Unique constraint violation on `User.email` — reachable only via `POST /api/auth/signup` and the seed |
-| 500 | `INTERNAL_ERROR` | "Something went wrong" | Anything unhandled |
+| HTTP | `code`                | `message`                                   | Raised when                                                                                           |
+| ---- | --------------------- | ------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| 400  | `VALIDATION_ERROR`    | "Invalid request body"                      | zod rejects the payload                                                                               |
+| 401  | `INVALID_CREDENTIALS` | "Invalid email or password"                 | Login: unknown email **or** wrong password                                                            |
+| 401  | `UNAUTHENTICATED`     | "Authentication required"                   | Missing/malformed/expired access token; invalid/expired/reused refresh token                          |
+| 403  | `FORBIDDEN`           | "You do not have access to this resource"   | Authenticated, wrong role — `GET /api/users` as an interviewer is the only case today                 |
+| 404  | `NOT_FOUND`           | "Resource not found"                        | Unknown route — **including `POST /api/users`**, which no longer exists                               |
+| 409  | `EMAIL_TAKEN`         | "An account with this email already exists" | Unique constraint violation on `User.email` — reachable only via `POST /api/auth/signup` and the seed |
+| 500  | `INTERNAL_ERROR`      | "Something went wrong"                      | Anything unhandled                                                                                    |
 
 ### Rules
 
@@ -503,24 +550,24 @@ Flat, with `message` at the top level — chosen so the frontend's existing `api
 
 ## Edge Cases
 
-| # | Case | Required behaviour |
-|---|---|---|
-| EC-01 | Access token presented after expiry | `401 UNAUTHENTICATED`. Recoverable via `/refresh`. |
-| EC-02 | Refresh token expired (> 1 day) | `401`; no new token issued; the row is left revoked/expired. |
-| EC-03 | Revoked refresh token replayed | Entire family revoked, `auth.refresh.reuse_detected` logged at `error`, `401` returned. |
-| EC-04 | Two concurrent `/refresh` calls with the same token | The transaction (BE-5) serialises them: one rotates, the other presents a now-revoked token and trips EC-03. **Accepted and documented** — correctness (reuse detection) over convenience. |
-| EC-05 | Logout with no or invalid cookie | `204`. Never an error. |
-| EC-06 | Two identical signups race | One succeeds; the other hits the unique constraint → `409` (ERR-4). Never two rows, never a `500`. |
-| EC-07 | `"  Ada@Example.COM "` vs `"ada@example.com"` | Same account. Normalisation in the schema (VAL-3) means login and creation agree. |
-| EC-08 | 100-character password | `400` with an explicit message — not silently truncated to 72 bytes by bcrypt (VAL-1). |
-| EC-09 | Any caller `POST`s to `/api/users` | `404 NOT_FOUND` in the standard error shape. The route is not registered at all, so there is no privilege check to get wrong. **Must be checked explicitly (AC-B26).** |
-| EC-10 | `JWT_SECRET` missing or shorter than 32 chars at boot | Process **exits with a clear message** and binds no port. Never a default or generated secret. |
-| EC-11 | Valid JWT whose user row was deleted | `requireAuth` resolves the user, finds none, returns `401`. A token is never trusted to imply existence. |
-| EC-12 | Clock skew between issuer and verifier | `jsonwebtoken` verification allows `clockTolerance: 30` seconds. Beyond that it is a normal `401`. |
-| EC-13 | Signup body omits `role` | `400 VALIDATION_ERROR`. There is no default role (MIG-2). |
-| EC-14 | Operator signs up an `INTERVIEWER` using an email that already belongs to a `RECRUITER` | `409 EMAIL_TAKEN`. Emails are globally unique **across** roles, not per role — one person cannot hold two accounts. |
-| EC-15 | `Authorization` header present but not `Bearer <token>` | `401`, never `500`, and the response never explains why parsing failed. |
-| EC-16 | Request to an unknown route | `404 NOT_FOUND` in the standard error shape — not Express's default HTML page. |
+| #     | Case                                                                                    | Required behaviour                                                                                                                                                                         |
+| ----- | --------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| EC-01 | Access token presented after expiry                                                     | `401 UNAUTHENTICATED`. Recoverable via `/refresh`.                                                                                                                                         |
+| EC-02 | Refresh token expired (> 1 day)                                                         | `401`; no new token issued; the row is left revoked/expired.                                                                                                                               |
+| EC-03 | Revoked refresh token replayed                                                          | Entire family revoked, `auth.refresh.reuse_detected` logged at `error`, `401` returned.                                                                                                    |
+| EC-04 | Two concurrent `/refresh` calls with the same token                                     | The transaction (BE-5) serialises them: one rotates, the other presents a now-revoked token and trips EC-03. **Accepted and documented** — correctness (reuse detection) over convenience. |
+| EC-05 | Logout with no or invalid cookie                                                        | `204`. Never an error.                                                                                                                                                                     |
+| EC-06 | Two identical signups race                                                              | One succeeds; the other hits the unique constraint → `409` (ERR-4). Never two rows, never a `500`.                                                                                         |
+| EC-07 | `"  Ada@Example.COM "` vs `"ada@example.com"`                                           | Same account. Normalisation in the schema (VAL-3) means login and creation agree.                                                                                                          |
+| EC-08 | 100-character password                                                                  | `400` with an explicit message — not silently truncated to 72 bytes by bcrypt (VAL-1).                                                                                                     |
+| EC-09 | Any caller `POST`s to `/api/users`                                                      | `404 NOT_FOUND` in the standard error shape. The route is not registered at all, so there is no privilege check to get wrong. **Must be checked explicitly (AC-B26).**                     |
+| EC-10 | `JWT_SECRET` missing or shorter than 32 chars at boot                                   | Process **exits with a clear message** and binds no port. Never a default or generated secret.                                                                                             |
+| EC-11 | Valid JWT whose user row was deleted                                                    | `requireAuth` resolves the user, finds none, returns `401`. A token is never trusted to imply existence.                                                                                   |
+| EC-12 | Clock skew between issuer and verifier                                                  | `jsonwebtoken` verification allows `clockTolerance: 30` seconds. Beyond that it is a normal `401`.                                                                                         |
+| EC-13 | Signup body omits `role`                                                                | `400 VALIDATION_ERROR`. There is no default role (MIG-2).                                                                                                                                  |
+| EC-14 | Operator signs up an `INTERVIEWER` using an email that already belongs to a `RECRUITER` | `409 EMAIL_TAKEN`. Emails are globally unique **across** roles, not per role — one person cannot hold two accounts.                                                                        |
+| EC-15 | `Authorization` header present but not `Bearer <token>`                                 | `401`, never `500`, and the response never explains why parsing failed.                                                                                                                    |
+| EC-16 | Request to an unknown route                                                             | `404 NOT_FOUND` in the standard error shape — not Express's default HTML page.                                                                                                             |
 
 ---
 
@@ -535,7 +582,7 @@ Flat, with `message` at the top level — chosen so the frontend's existing `api
 - **SEC-7 — Strict CORS.** Explicit `origin`, `credentials: true`, never a wildcard.
 - **SEC-8 — Secrets from the environment only.** `JWT_SECRET` is validated at boot with a minimum length and has no fallback (EC-10). `.env` is gitignored; `.env.example` carries placeholders only.
 - **SEC-9 — Hashing.** bcrypt cost 12, per-password salt (bcrypt's default), verified with `bcrypt.compare` and never a string equality check.
-- **SEC-10 — No authenticated write path to `User`.** No endpoint lets one authenticated user create, modify, or delete another. The attack surface for privilege escalation *through an authenticated session* is therefore empty: there is no body to tamper with, because there is no such request. Note what this does **not** cover — the anonymous creation path, which is SEC-11.1 below.
+- **SEC-10 — No authenticated write path to `User`.** No endpoint lets one authenticated user create, modify, or delete another. The attack surface for privilege escalation _through an authenticated session_ is therefore empty: there is no body to tamper with, because there is no such request. Note what this does **not** cover — the anonymous creation path, which is SEC-11.1 below.
 - **SEC-11 — Known accepted gaps** (stated so a reviewer need not find them):
   - **SEC-11.1 — The sole account-creation endpoint is anonymous and role-accepting.** `POST /api/auth/signup` takes a `role` from an unauthenticated request body. Anyone who can reach the API can mint a `RECRUITER` and, once later features land, read candidate contact details. **This is the single most serious gap in the feature.** There is no lower-privileged alternative to prefer: this one endpoint is the whole of account provisioning, not merely a bootstrap beside a safer path.
     **Mitigating conditions this depends on:** the API binds only to localhost, it is never port-forwarded or tunnelled, and `FRONTEND_ORIGIN` is a local origin.
@@ -628,26 +675,26 @@ Checking against the **real PostgreSQL database** is not optional: the query-lev
 
 Explicitly excluded. Each is a deliberate decision, not an omission.
 
-| Excluded | Note |
-|---|---|
-| **Authenticated user provisioning (`POST /api/users`)** | No role can create an account through the API. Provisioning is `POST /api/auth/signup` or `npm run db:seed`, both operator actions. |
-| **Protecting `POST /api/auth/signup`** | It stays anonymous and role-accepting in this POC. An operator token / bootstrap secret is specified as the *required* fix before non-localhost exposure (SEC-11.1) but is **not built here**. |
-| **Password reset / forgot password** | No reset tokens, no email. A forgotten password means recreating the account. |
-| **Email verification** | Accounts are usable immediately on creation. |
-| **MFA / TOTP** | Email + password only. |
-| **SSO / OAuth / SAML** | No third-party identity providers. |
-| **User edit** | No endpoint to change a name, email, or password after creation. |
-| **Role change** | No promotion or demotion endpoint — which is why BE-4.3's 15-minute role-claim staleness is harmless. |
-| **Account deactivation / deletion** | No soft-delete flag, no delete endpoint. |
-| **`HIRING_MANAGER` role** | Excluded from the POC entirely, including from the `Role` enum. Adding it later requires an enum migration. |
-| **Rate limiting / account lockout** | Recorded as a known gap in SEC-11. |
-| **"Remember me" / configurable session length** | Fixed 15 min / 1 day. |
-| **`logout-all-devices`** | Logout revokes one family, not every family for the user. |
-| **Refresh-token garbage collection** | Expired rows accumulate; acceptable at POC scale (MIG-6). |
-| **Session listing / device management endpoints** | No "active sessions" API. |
-| **Audit table for auth events** | Auth events go to structured logs, not a DB table. The domain audit trail belongs to later pipeline features. |
-| **Pipeline authorization rules** | Interviewer-scoped candidate queries and the contact-details restriction are later features. This spec only guarantees a trustworthy `req.user`. |
-| **`docker-compose.yml`** | Required by brief §6 but tracked as its own infrastructure task. |
+| Excluded                                                             | Note                                                                                                                                                                                                    |
+| -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Authenticated user provisioning (`POST /api/users`)**              | No role can create an account through the API. Provisioning is `POST /api/auth/signup` or `npm run db:seed`, both operator actions.                                                                     |
+| **Protecting `POST /api/auth/signup`**                               | It stays anonymous and role-accepting in this POC. An operator token / bootstrap secret is specified as the _required_ fix before non-localhost exposure (SEC-11.1) but is **not built here**.          |
+| **Password reset / forgot password**                                 | No reset tokens, no email. A forgotten password means recreating the account.                                                                                                                           |
+| **Email verification**                                               | Accounts are usable immediately on creation.                                                                                                                                                            |
+| **MFA / TOTP**                                                       | Email + password only.                                                                                                                                                                                  |
+| **SSO / OAuth / SAML**                                               | No third-party identity providers.                                                                                                                                                                      |
+| **User edit**                                                        | No endpoint to change a name, email, or password after creation.                                                                                                                                        |
+| **Role change**                                                      | No promotion or demotion endpoint — which is why BE-4.3's 15-minute role-claim staleness is harmless.                                                                                                   |
+| **Account deactivation / deletion**                                  | No soft-delete flag, no delete endpoint.                                                                                                                                                                |
+| **`HIRING_MANAGER` role**                                            | Excluded from the POC entirely, including from the `Role` enum. Adding it later requires an enum migration.                                                                                             |
+| **Rate limiting / account lockout**                                  | Recorded as a known gap in SEC-11.                                                                                                                                                                      |
+| **"Remember me" / configurable session length**                      | Fixed 15 min / 1 day.                                                                                                                                                                                   |
+| **`logout-all-devices`**                                             | Logout revokes one family, not every family for the user.                                                                                                                                               |
+| **Refresh-token garbage collection**                                 | Expired rows accumulate; acceptable at POC scale (MIG-6).                                                                                                                                               |
+| **Session listing / device management endpoints**                    | No "active sessions" API.                                                                                                                                                                               |
+| **Audit table for auth events**                                      | Auth events go to structured logs, not a DB table. The domain audit trail belongs to later pipeline features.                                                                                           |
+| **Pipeline authorization rules**                                     | Interviewer-scoped candidate queries and the contact-details restriction are later features. This spec only guarantees a trustworthy `req.user`.                                                        |
+| **`docker-compose.yml`**                                             | Required by brief §6 but tracked as its own infrastructure task.                                                                                                                                        |
 | **Automated tests of any kind** (Vitest, Supertest, a test database) | Every criterion above is verified manually against the running API and database. A test runner and suite are a deliberate later decision — no test dependency, config or file is added by this feature. |
 
 ---
@@ -660,14 +707,14 @@ Explicitly excluded. Each is a deliberate decision, not an omission.
 
 ### New npm dependencies
 
-| Package | Purpose |
-|---|---|
-| `zod` | Route-boundary validation (BE-2) — **not currently a backend dependency** |
-| `bcrypt` (+ `@types/bcrypt`) | Password hashing, cost 12 |
-| `jsonwebtoken` (+ `@types/jsonwebtoken`) | Access-token sign/verify |
-| `cookie-parser` (+ `@types/cookie-parser`) | Read the refresh cookie |
-| `pino` (+ `pino-pretty` dev) | Structured JSON logging |
-| `tsx` (already present) | Runs `prisma/seed.ts` |
+| Package                                    | Purpose                                                                   |
+| ------------------------------------------ | ------------------------------------------------------------------------- |
+| `zod`                                      | Route-boundary validation (BE-2) — **not currently a backend dependency** |
+| `bcrypt` (+ `@types/bcrypt`)               | Password hashing, cost 12                                                 |
+| `jsonwebtoken` (+ `@types/jsonwebtoken`)   | Access-token sign/verify                                                  |
+| `cookie-parser` (+ `@types/cookie-parser`) | Read the refresh cookie                                                   |
+| `pino` (+ `pino-pretty` dev)               | Structured JSON logging                                                   |
+| `tsx` (already present)                    | Runs `prisma/seed.ts`                                                     |
 
 `@types/node` must be added to `tsconfig.json`'s `types` array (currently `[]`) for `crypto` and `process` typings.
 
@@ -685,13 +732,13 @@ SEED_PASSWORD="Password123!"                      # POC demo accounts only
 
 ### Modified existing files
 
-| File | Change |
-|---|---|
-| [`src/server.ts`](../../../src/server.ts) | Reduced to app wiring; adds `cookie-parser`, `credentials: true` on CORS, request-id + error middleware, and the auth/users routers |
-| [`prisma/schema.prisma`](../../../prisma/schema.prisma) | `Role` enum, `User` extended, `RefreshToken` added |
-| `package.json` | New deps; `db:seed` and `typecheck` scripts (the placeholder `test` script is left as-is — this feature adds no test suite) |
-| `tsconfig.json` | `types: ["node"]` |
-| `.env.example` | New variables above |
+| File                                                    | Change                                                                                                                              |
+| ------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| [`src/server.ts`](../../../src/server.ts)               | Reduced to app wiring; adds `cookie-parser`, `credentials: true` on CORS, request-id + error middleware, and the auth/users routers |
+| [`prisma/schema.prisma`](../../../prisma/schema.prisma) | `Role` enum, `User` extended, `RefreshToken` added                                                                                  |
+| `package.json`                                          | New deps; `db:seed` and `typecheck` scripts (the placeholder `test` script is left as-is — this feature adds no test suite)         |
+| `tsconfig.json`                                         | `types: ["node"]`                                                                                                                   |
+| `.env.example`                                          | New variables above                                                                                                                 |
 
 ### Infrastructure
 

@@ -12,12 +12,12 @@ center is **restricted data excluded at the query, not filtered after the fact**
 
 ## Actors
 
-| Role | Can do |
-|---|---|
-| Candidate | Read `OPEN` requisitions only · apply to one · list **their own** applications. The only role `POST /api/auth/signup` can create |
-| Interviewer | View/submit feedback only for candidates+rounds they're assigned to. May **read** requisitions (`OPEN` only); the three roles writes are recruiter-only |
-| Recruiter | Full pipeline visibility, assign interviewers, stage overrides, contact details |
-| Hiring manager (stretch) | View pipeline/ageing for their own open roles |
+| Role                     | Can do                                                                                                                                                  |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Candidate                | Read `OPEN` requisitions only · apply to one · list **their own** applications. The only role `POST /api/auth/signup` can create                        |
+| Interviewer              | View/submit feedback only for candidates+rounds they're assigned to. May **read** requisitions (`OPEN` only); the three roles writes are recruiter-only |
+| Recruiter                | Full pipeline visibility, assign interviewers, stage overrides, contact details                                                                         |
+| Hiring manager (stretch) | View pipeline/ageing for their own open roles                                                                                                           |
 
 Every request must resolve to a real authenticated user — there is no anonymous read or
 write path onto a candidate.
@@ -65,8 +65,9 @@ write path onto a candidate.
 - **Feedback** — tied to a specific round, a specific interviewer, a rating + notes
 - **StageOverride** — who performed it, when, and why (recruiter-only unless documented
   otherwise); this must be a real recorded row, never inferred from a stage change alone
-- An audit/event trail for stage transitions, overrides, and feedback submissions — a hiring
-  manager needs to be able to reconstruct how a candidate was assessed
+- **Built** — the audit/event trail: `AuditLog`, plus the `AuditAction` and `AuditEntityType`
+  enums. See [specs/features/audit/spec.md](specs/features/audit/spec.md) and the "Audit trail"
+  section below, which every later feature is bound by
 
 ## Authorization & data exposure (read before writing any query)
 
@@ -98,6 +99,40 @@ them; a shape that redacts them after fetching is one missed call site away from
   computed as indexed SQL aggregates — never by loading every candidate into memory. Expect this
   to be verified against simulated scale (200 roles / 20,000 candidates).
 
+## Audit trail (read before adding any state-changing endpoint)
+
+Shipped by the [audit feature](specs/features/audit/spec.md). Pipeline, interviews, feedback and
+candidate-access all write through it; none of them may invent a second way.
+
+- **One writer.** `recordAudit(tx, entry, log)` in `src/modules/audit/audit.service.ts` is the only
+  thing that creates an `AuditLog` row. The module exports exactly two functions — that one and
+  `listAuditEntries`. There is no update and no delete, and the absence is the immutability
+  guarantee: don't add a `PATCH /api/audit/:id` or an `auditLog.update` call anywhere.
+- **It takes the transaction client, and it must be called inside the same `prisma.$transaction`
+  as the state change it records.** Passing the global `prisma` is a compile error (the parameter
+  is `Prisma.TransactionClient & { $connect?: never }` — the bare Prisma type is _not_ enough,
+  because `PrismaClient` structurally satisfies it).
+- **A failed audit write aborts the transaction.** `recordAudit` does not catch. The state change
+  rolls back with it and the endpoint answers `500`. An action that could not be recorded did not
+  happen — don't wrap a call in `try/catch` to "keep the endpoint working".
+- **`AuditEntry` is a discriminated union over `action`**, so the metadata each action must carry
+  is enforced at the call site. Writing `STAGE_OVERRIDE_CREATED` without a `reason` does not
+  compile — that is how the brief's §3.3 rule is enforced, not by a runtime check.
+- **`metadata` never carries personal text**: no email, no phone, no name, no title, and never the
+  `notes` of a feedback submission. An override's `reason` is the one free-text value permitted
+  anywhere in it. `reason` is also on the pino `redact` list, so a log line that includes it prints
+  `[redacted]` — note this also redacts the pre-existing `role.delete.refused` line's constant.
+- **The actor is always `req.user.id`.** No body, query parameter or header supplies one. The seed
+  is the single documented exception (it is also the only caller outside an HTTP request, and the
+  only code that deletes audit rows — its delete-then-create reset, scoped to the ids it owns).
+- **`GET /api/audit` is recruiter-only, and the role guard is the whole authorization.** There is
+  no per-row scoping behind it. Widening the guard leaks the entire trace; there is no partial view.
+- `AuditLog.entityId` is deliberately **not** a foreign key — it addresses four tables. It may name
+  a row that no longer exists; treat it as a historical reference, not a join target.
+- All nine `AuditAction` values already exist in the schema although only three are written today.
+  That is the documented exception to "an enum value no code writes is a lie in the schema", and it
+  closes when the candidate-access feature ships. Don't add a fifth enum migration.
+
 ## Verification expectations
 
 **This project has no automated test suite.** Verification is manual — `curl` against the running
@@ -105,6 +140,7 @@ API, plus `psql` where the proof is database state. Automated tests are a delibe
 decision; do not add a test runner, test files, or test dependencies unless asked.
 
 Manual verification must specifically cover, not just exercise happy paths:
+
 1. An interviewer fetching a candidate outside their assignment, by ID, is refused at the query.
 2. An override without a recorded actor + reason is rejected.
 3. Two interviewers submitting feedback for the same round concurrently (fired concurrently, not
@@ -118,17 +154,18 @@ Feature specs live in `specs/features/<feature>/`, each holding `spec.md` (what 
 `plan.md` (how). Phases run in that order and each is approved before the next begins; if implementation reveals
 the spec is wrong, update the spec and get it re-approved rather than letting code and spec drift.
 
-| Feature | spec | plan | code |
-|---|---|---|---|
-| [authentication](specs/features/authentication/spec.md) | ✅ approved | [✅ approved](specs/features/authentication/plan.md) | ✅ implemented |
-| [roles](specs/features/roles/spec.md) | ✅ approved | [✅ drafted](specs/features/roles/plan.md) | ⬜ not started |
-| [candidate](specs/features/candidate/spec.md) | ✅ approved | ⬜ skipped (implemented straight from the spec) | ✅ implemented — all 55 acceptance criteria verified by hand against the running API |
+| Feature                                                 | spec        | plan                                                 | code                                                                                                        |
+| ------------------------------------------------------- | ----------- | ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| [authentication](specs/features/authentication/spec.md) | ✅ approved | [✅ approved](specs/features/authentication/plan.md) | ✅ implemented                                                                                              |
+| [roles](specs/features/roles/spec.md)                   | ✅ approved | [✅ drafted](specs/features/roles/plan.md)           | ⬜ not started                                                                                              |
+| [candidate](specs/features/candidate/spec.md)           | ✅ approved | ⬜ skipped (implemented straight from the spec)      | ✅ implemented — all 55 acceptance criteria verified by hand against the running API                        |
+| [audit](specs/features/audit/spec.md)                   | ✅ approved | ⬜ skipped (implemented straight from the spec)      | ✅ implemented — 27 acceptance criteria verified by hand (`curl` + `psql` + `EXPLAIN ANALYZE` at 120k rows) |
 
 The **candidate** feature added a third `UserRole`, made signup candidate-only, and introduced
 `Application`. It **deliberately reversed two rules that used to be stated below**; both paragraphs are now
 rewritten to match the code. No `plan.md` was written — it was implemented straight from the spec.
 
-The roles plan renames the `Role` **enum** to `UserRole` so the name `Role` can mean *open requisition*.
+The roles plan renames the `Role` **enum** to `UserRole` so the name `Role` can mean _open requisition_.
 From that point on: **`UserRole` is who you are; `Role` is an open req.** `requireRole` keeps its name — it
 gates on the caller's `UserRole`. The rename changes no API contract; the column, the values and the JWT
 claim are all untouched.
@@ -159,7 +196,7 @@ an `INTERVIEWER` or a `RECRUITER`**; both come from the seed. Do not reintroduce
 creation path.
 
 What is still accepted, and still localhost-only: signup has no rate limit, no CAPTCHA and no email
-verification, so anyone who can reach it can create unlimited *candidate* accounts. A candidate can also
+verification, so anyone who can reach it can create unlimited _candidate_ accounts. A candidate can also
 apply to the same requisition without limit — there is deliberately no unique constraint on
 `(candidateUserId, roleId)` (candidate spec SEC-11).
 

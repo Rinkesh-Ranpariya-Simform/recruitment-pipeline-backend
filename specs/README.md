@@ -13,19 +13,19 @@ proves the spec wrong, the spec is corrected and re-approved — code and spec d
 
 ## Status
 
-| # | Feature | spec | plan | code |
-|---|---|---|---|---|
-| 1 | [authentication](features/authentication/spec.md) | ✅ approved | [✅ approved](features/authentication/plan.md) | ✅ implemented |
-| 2 | [roles](features/roles/spec.md) | ✅ approved | [✅ drafted](features/roles/plan.md) | ✅ implemented |
-| 3 | [candidate](features/candidate/spec.md) | ✅ approved | ⬜ skipped | ✅ implemented |
-| 4 | [audit](features/audit/spec.md) | 🟡 draft | ⬜ not started | ⬜ not started |
-| 5 | [pipeline](features/pipeline/spec.md) | 🟡 draft | ⬜ not started | ⬜ not started |
-| 6 | [interviews](features/interviews/spec.md) | 🟡 draft | ⬜ not started | ⬜ not started |
-| 7 | [feedback](features/feedback/spec.md) | 🟡 draft | ⬜ not started | ⬜ not started |
-| 8 | [candidate-access](features/candidate-access/spec.md) | 🟡 draft | ⬜ not started | ⬜ not started |
+| #   | Feature                                               | spec        | plan                                           | code           |
+| --- | ----------------------------------------------------- | ----------- | ---------------------------------------------- | -------------- |
+| 1   | [authentication](features/authentication/spec.md)     | ✅ approved | [✅ approved](features/authentication/plan.md) | ✅ implemented |
+| 2   | [roles](features/roles/spec.md)                       | ✅ approved | [✅ drafted](features/roles/plan.md)           | ✅ implemented |
+| 3   | [candidate](features/candidate/spec.md)               | ✅ approved | ⬜ skipped                                     | ✅ implemented |
+| 4   | [audit](features/audit/spec.md)                       | 🟡 draft    | ⬜ not started                                 | ⬜ not started |
+| 5   | [pipeline](features/pipeline/spec.md)                 | 🟡 draft    | ⬜ not started                                 | ⬜ not started |
+| 6   | [interviews](features/interviews/spec.md)             | 🟡 draft    | ⬜ not started                                 | ⬜ not started |
+| 7   | [feedback](features/feedback/spec.md)                 | 🟡 draft    | ⬜ not started                                 | ⬜ not started |
+| 8   | [candidate-access](features/candidate-access/spec.md) | 🟡 draft    | ⬜ not started                                 | ⬜ not started |
 
 Features 1–3 shipped. Features 4–8 are this pass: they are the half of the brief that carries its
-stated centre of gravity — *restricted data excluded at the query, not filtered after the fact*.
+stated centre of gravity — _restricted data excluded at the query, not filtered after the fact_.
 
 ---
 
@@ -57,17 +57,17 @@ stated centre of gravity — *restricted data excluded at the query, not filtere
                                    └─────────────────────┘
 ```
 
-| Feature | Must come after | Because |
-|---|---|---|
-| audit | candidate | It is written by everything below it. A feature that writes an audit event in the same transaction as its state change cannot be built before the table and the writer exist. |
-| pipeline | audit | Every transition, override and outcome writes an `AuditLog` row inside its own transaction. |
-| interviews | pipeline | A round is scheduled *for a stage*; `Interview.stage` is a `PipelineStage` and rounds are created against an `ACTIVE` application whose stage rules pipeline owns. |
-| feedback | interviews | Feedback is authorized by an `InterviewAssignment` row. Without that table there is nothing to join. |
-| candidate-access | interviews, feedback, pipeline | `getInterviewerCandidate()` joins `InterviewAssignment`. The recruiter candidate view renders stage history, rounds and feedback. It composes all three. |
+| Feature          | Must come after                | Because                                                                                                                                                                       |
+| ---------------- | ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| audit            | candidate                      | It is written by everything below it. A feature that writes an audit event in the same transaction as its state change cannot be built before the table and the writer exist. |
+| pipeline         | audit                          | Every transition, override and outcome writes an `AuditLog` row inside its own transaction.                                                                                   |
+| interviews       | pipeline                       | A round is scheduled _for a stage_; `Interview.stage` is a `PipelineStage` and rounds are created against an `ACTIVE` application whose stage rules pipeline owns.            |
+| feedback         | interviews                     | Feedback is authorized by an `InterviewAssignment` row. Without that table there is nothing to join.                                                                          |
+| candidate-access | interviews, feedback, pipeline | `getInterviewerCandidate()` joins `InterviewAssignment`. The recruiter candidate view renders stage history, rounds and feedback. It composes all three.                      |
 
 **`candidate-access` is the feature the brief names first and the one built last.** That is deliberate,
 not an oversight: the sharpest requirement in the POC — an interviewer requesting a candidate they
-are not assigned to, by ID, refused *at the query* — cannot be specified before the table the query
+are not assigned to, by ID, refused _at the query_ — cannot be specified before the table the query
 joins against exists. Writing it first would have meant writing the authorization predicate against
 an imaginary schema and correcting it later, which is how a leak gets shipped.
 
@@ -75,13 +75,13 @@ an imaginary schema and correcting it later, which is how a leak gets shipped.
 
 ## What each feature owns
 
-| Feature | Models | Endpoints |
-|---|---|---|
-| audit | `AuditLog`, `AuditAction`, `AuditEntityType` | `GET /api/audit` |
-| pipeline | `StageHistory`, `StageOverride` | `PATCH /api/applications/:applicationId/stage` · `POST /api/applications/:applicationId/stage-override` · `PATCH /api/applications/:applicationId/outcome` · `GET /api/pipeline` · `GET /api/pipeline/summary` |
-| interviews | `Interview`, `InterviewAssignment`, `InterviewType`, `InterviewStatus` | `POST`/`GET /api/applications/:applicationId/interviews` · `GET /api/interviews` · `GET /api/interviews/:interviewId` · `POST /api/interviews/:interviewId/assignments` · `DELETE /api/interviews/:interviewId/assignments/:userId` |
-| feedback | `Feedback` | `POST`/`GET`/`PATCH /api/interviews/:interviewId/feedback` |
-| candidate-access | `CandidateProfile` | `GET /api/candidates` · `GET /api/candidates/:candidateId` · `PATCH /api/candidates/:candidateId` |
+| Feature          | Models                                                                 | Endpoints                                                                                                                                                                                                                           |
+| ---------------- | ---------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| audit            | `AuditLog`, `AuditAction`, `AuditEntityType`                           | `GET /api/audit`                                                                                                                                                                                                                    |
+| pipeline         | `StageHistory`, `StageOverride`                                        | `PATCH /api/applications/:applicationId/stage` · `POST /api/applications/:applicationId/stage-override` · `PATCH /api/applications/:applicationId/outcome` · `GET /api/pipeline` · `GET /api/pipeline/summary`                      |
+| interviews       | `Interview`, `InterviewAssignment`, `InterviewType`, `InterviewStatus` | `POST`/`GET /api/applications/:applicationId/interviews` · `GET /api/interviews` · `GET /api/interviews/:interviewId` · `POST /api/interviews/:interviewId/assignments` · `DELETE /api/interviews/:interviewId/assignments/:userId` |
+| feedback         | `Feedback`                                                             | `POST`/`GET`/`PATCH /api/interviews/:interviewId/feedback`                                                                                                                                                                          |
+| candidate-access | `CandidateProfile`                                                     | `GET /api/candidates` · `GET /api/candidates/:candidateId` · `PATCH /api/candidates/:candidateId`                                                                                                                                   |
 
 Existing endpoints none of these features widen: `POST`/`GET /api/applications` stays candidate-scoped
 and unpaged; `GET /api/roles` keeps `buildRoleWhere`; `GET /api/users` keeps returning interviewers
@@ -138,12 +138,12 @@ InterviewAssignment.interviewerId
 ## Reading order for a reviewer
 
 1. This file.
-2. [features/candidate-access/spec.md](features/candidate-access/spec.md) § *Authentication / Authorization* —
+2. [features/candidate-access/spec.md](features/candidate-access/spec.md) § _Authentication / Authorization_ —
    the query the whole POC is judged on.
-3. [features/feedback/spec.md](features/feedback/spec.md) § *Edge Cases* — the concurrent-panel case.
-4. [features/pipeline/spec.md](features/pipeline/spec.md) § *Performance Requirements* — the ageing
+3. [features/feedback/spec.md](features/feedback/spec.md) § _Edge Cases_ — the concurrent-panel case.
+4. [features/pipeline/spec.md](features/pipeline/spec.md) § _Performance Requirements_ — the ageing
    aggregate and why nothing is computed in Node.
-5. [features/audit/spec.md](features/audit/spec.md) § *Functional Requirements* — what a hiring
+5. [features/audit/spec.md](features/audit/spec.md) § _Functional Requirements_ — what a hiring
    manager can reconstruct.
 
 The frontend counterparts live at [../../frontend/specs/README.md](../../frontend/specs/README.md).

@@ -6,7 +6,7 @@
 > **Status:** Ready for review
 
 **The whole feature in one line:** one Prisma enum is renamed `UserRole` so the name `Role` can mean
-*open requisition*, a `Role` model and five endpoints are added behind `requireAuth`, **all five**
+_open requisition_, a `Role` model and five endpoints are added behind `requireAuth`, **all five**
 gated by `requireRole(UserRole.RECRUITER)`, and the API learns to validate path parameters and query
 strings for the first time.
 
@@ -30,17 +30,17 @@ forms are its first real consumer (spec BE-5, AC-B22).
 
 ## Architecture Impact
 
-| What | Change |
-| --- | --- |
-| **First domain model** | `src/modules/roles/` is the first module that is not auth or user plumbing. It sets the module shape every later feature copies: `routes` → `controller` → `service` → `schema` + a `select` constant. |
-| **First path parameter** | No route in the API has ever had one. `GET`/`PATCH /api/roles/:roleId` introduce `src/middleware/validateParams.ts`. |
-| **First query string** | `GET /api/roles?status=&page=&pageSize=` introduces `src/middleware/validateQuery.ts`. |
-| **First paginated list** | `{ roles, pagination }` with `{ page, pageSize, total, totalPages }` becomes the envelope every later list endpoint uses. `GET /api/users` stays unpaginated as the documented exception (spec PERF-4). |
-| **Longest middleware chain so far** | `requireAuth` → `requireRole` → `validateParams` → `validateQuery` → `validate` → controller. |
+| What                                | Change                                                                                                                                                                                                  |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **First domain model**              | `src/modules/roles/` is the first module that is not auth or user plumbing. It sets the module shape every later feature copies: `routes` → `controller` → `service` → `schema` + a `select` constant.  |
+| **First path parameter**            | No route in the API has ever had one. `GET`/`PATCH /api/roles/:roleId` introduce `src/middleware/validateParams.ts`.                                                                                    |
+| **First query string**              | `GET /api/roles?status=&page=&pageSize=` introduces `src/middleware/validateQuery.ts`.                                                                                                                  |
+| **First paginated list**            | `{ roles, pagination }` with `{ page, pageSize, total, totalPages }` becomes the envelope every later list endpoint uses. `GET /api/users` stays unpaginated as the documented exception (spec PERF-4). |
+| **Longest middleware chain so far** | `requireAuth` → `requireRole` → `validateParams` → `validateQuery` → `validate` → controller.                                                                                                           |
 
 ### The one change that alters an existing pattern
 
-Everything above *extends*. This does not:
+Everything above _extends_. This does not:
 
 **`enum Role` is renamed `enum UserRole` across the whole codebase.** Prisma models and enums share
 one namespace, so `model Role` and `enum Role` cannot coexist — it is a hard schema error, not a
@@ -67,15 +67,15 @@ This is a backend plan. The actual frontend plan is
 [../../../../frontend/specs/features/roles/plan.md](../../../../frontend/specs/features/roles/plan.md).
 Only what the frontend is **forced** to change by this backend work is recorded here.
 
-| What the frontend must do | Because of |
-| --- | --- |
-| Rename its exported `Role` type to `UserRole` in `features/auth/types.ts` and its three importers | Naming convention parity. **No request or response field changes** — `/api/auth/me` still returns `role: "RECRUITER" \| "INTERVIEWER"` (MIG-2). This is cosmetic on the client and could be skipped without breaking anything; it is done so the two repos read the same way. |
-| Add `features/roles/types.ts` mirroring the role shape — six fields, **no user reference of any kind** | FR-7.1, FR-7.2 |
-| Call **five** endpoints, including `DELETE /api/roles/:roleId` — *(revised; there were four)* | FR-6.6 |
-| Offer the delete affordance **only on a `CLOSED` role**, and treat `409 ROLE_NOT_CLOSED` as a real, distinct outcome rather than a generic failure | FR-6.7, ERR-6, XFE-9 |
-| **Change `ApiErrorBody.details` from `Record<string, string>` to `Record<string, string[]>`** and render the array | **Load-bearing — see R-3.** The backend has always declared `ErrorDetails = Record<string, string[]>` ([`src/lib/errors.ts`](../../../src/lib/errors.ts)). The frontend declares a `string`. The mismatch is invisible only because BE-5 keeps `details` empty. Fixing BE-5 makes it visible, and the login form would start rendering `["Password is required"]`. |
-| Read `pagination.totalPages` rather than inferring whether more pages exist | FR-2.3 |
-| Treat a `400` on a bad `?status=`/`?page=` as real — the parameter is rejected, never silently ignored | XFE-2, EC-02 |
+| What the frontend must do                                                                                                                          | Because of                                                                                                                                                                                                                                                                                                                                                         |
+| -------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Rename its exported `Role` type to `UserRole` in `features/auth/types.ts` and its three importers                                                  | Naming convention parity. **No request or response field changes** — `/api/auth/me` still returns `role: "RECRUITER" \| "INTERVIEWER"` (MIG-2). This is cosmetic on the client and could be skipped without breaking anything; it is done so the two repos read the same way.                                                                                      |
+| Add `features/roles/types.ts` mirroring the role shape — six fields, **no user reference of any kind**                                             | FR-7.1, FR-7.2                                                                                                                                                                                                                                                                                                                                                     |
+| Call **five** endpoints, including `DELETE /api/roles/:roleId` — _(revised; there were four)_                                                      | FR-6.6                                                                                                                                                                                                                                                                                                                                                             |
+| Offer the delete affordance **only on a `CLOSED` role**, and treat `409 ROLE_NOT_CLOSED` as a real, distinct outcome rather than a generic failure | FR-6.7, ERR-6, XFE-9                                                                                                                                                                                                                                                                                                                                               |
+| **Change `ApiErrorBody.details` from `Record<string, string>` to `Record<string, string[]>`** and render the array                                 | **Load-bearing — see R-3.** The backend has always declared `ErrorDetails = Record<string, string[]>` ([`src/lib/errors.ts`](../../../src/lib/errors.ts)). The frontend declares a `string`. The mismatch is invisible only because BE-5 keeps `details` empty. Fixing BE-5 makes it visible, and the login form would start rendering `["Password is required"]`. |
+| Read `pagination.totalPages` rather than inferring whether more pages exist                                                                        | FR-2.3                                                                                                                                                                                                                                                                                                                                                             |
+| Treat a `400` on a bad `?status=`/`?page=` as real — the parameter is rejected, never silently ignored                                             | XFE-2, EC-02                                                                                                                                                                                                                                                                                                                                                       |
 
 No other frontend change is required by this plan.
 
@@ -128,7 +128,7 @@ All paths relative to `backend/`. Every entry is **NEW** unless marked MODIFIED.
 - **Responsibility:** query-string validation, coercion and defaulting.
 
 Both new middlewares produce the identical `400 VALIDATION_ERROR` body as body validation. A caller
-cannot tell from the *shape* which part of the request was wrong, only from the `details` keys
+cannot tell from the _shape_ which part of the request was wrong, only from the `details` keys
 (BE-2.3, ERR-3).
 
 ### Types
@@ -171,20 +171,20 @@ Exports `createRoleSchema`, `updateRoleSchema`, `roleIdParamSchema`, `listRolesQ
 four inferred input types. Private `titleField` / `descriptionField`, shared between create and patch
 so the two cannot drift.
 
-| Schema | Shape |
-| --- | --- |
-| `createRoleSchema` | `{ title, description }` — **no `status`.** Unknown keys are stripped by zod's default object behaviour, so `status`, `id`, `createdAt` never reach a Prisma `data` object (VAL-3, SEC-3, EC-06). |
-| `updateRoleSchema` | all three optional, then `.refine((v) => Object.keys(v).length > 0, 'Provide at least one of title, description, status')`. The refine runs **after** unknown-key stripping, so `{ "nonsense": 1 }` is an empty patch and is rejected (VAL-4, EC-05). |
-| `roleIdParamSchema` | `{ roleId: z.coerce.number(...).int(...).positive(...) }` — the controller receives a real `number` (BE-2.4). |
-| `listRolesQuerySchema` | `status` optional; `page` default `1`; `pageSize` default `20`, `.min(1).max(100)`. **101 is a `400`, not a clamp** (VAL-5). |
+| Schema                 | Shape                                                                                                                                                                                                                                                 |
+| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `createRoleSchema`     | `{ title, description }` — **no `status`.** Unknown keys are stripped by zod's default object behaviour, so `status`, `id`, `createdAt` never reach a Prisma `data` object (VAL-3, SEC-3, EC-06).                                                     |
+| `updateRoleSchema`     | all three optional, then `.refine((v) => Object.keys(v).length > 0, 'Provide at least one of title, description, status')`. The refine runs **after** unknown-key stripping, so `{ "nonsense": 1 }` is an empty patch and is rejected (VAL-4, EC-05). |
+| `roleIdParamSchema`    | `{ roleId: z.coerce.number(...).int(...).positive(...) }` — the controller receives a real `number` (BE-2.4).                                                                                                                                         |
+| `listRolesQuerySchema` | `status` optional; `page` default `1`; `pageSize` default `20`, `.min(1).max(100)`. **101 is a `400`, not a clamp** (VAL-5).                                                                                                                          |
 
 - `title`: `z.string().trim().min(1, …).max(120, …)`. `description`: the same with `.max(5000, …)`.
   **Trimming happens inside the schema**, so every downstream consumer gets the normalised value and
-  no service can forget (VAL-1); `"   "` fails `min(1)` *after* the trim (VAL-2, EC-12).
+  no service can forget (VAL-1); `"   "` fails `min(1)` _after_ the trim (VAL-2, EC-12).
 - **zod is v4** (`^4.6.5`). Use `z.enum(RoleStatus, 'Status must be one of OPEN, CLOSED')` — the
   object-plus-string form already shipped in
   [`auth.schema.ts`](../../../src/modules/auth/auth.schema.ts). **Not** `z.nativeEnum`, and **not**
-  `{ message: … }`. The authentication *plan* says `nativeEnum`; the shipped code does not — follow
+  `{ message: … }`. The authentication _plan_ says `nativeEnum`; the shipped code does not — follow
   the code.
 - `z.coerce.number().int().positive()` is already proven in
   [`src/config/env.ts`](../../../src/config/env.ts). Note `.default()` short-circuits `undefined`
@@ -224,7 +224,11 @@ so the two cannot drift.
   ```ts
   const { role, previousStatus } = await prisma.$transaction(async (tx) => {
     const existing = await tx.role.findUnique({ where: { id: roleId }, select: { status: true } });
-    const updated = await tx.role.update({ where: { id: roleId }, data: patch, select: ROLE_SELECT });
+    const updated = await tx.role.update({
+      where: { id: roleId },
+      data: patch,
+      select: ROLE_SELECT,
+    });
     return { role: updated, previousStatus: existing?.status };
   });
   ```
@@ -237,7 +241,7 @@ so the two cannot drift.
   [`auth.service.ts`](../../../src/modules/auth/auth.service.ts). `Prisma` is a **value** import from
   `../../generated/prisma/client.js`, not from `@prisma/client`. A raw Prisma error never reaches the
   error middleware's output.
-- **Only the keys present are written**, so two recruiters amending *different* fields do not clobber
+- **Only the keys present are written**, so two recruiters amending _different_ fields do not clobber
   one another (FR-5.4). The same field is last-write-wins, documented (EC-09).
 
 **`deleteRole(roleId, actorId, log): Promise<void>`** — NEW in Revision 2
@@ -261,8 +265,8 @@ so the two cannot drift.
 
 - Exports `list`, `get`, `create`, `update`, `remove`. Each is `async (req, res): Promise<void>` with
   **no try/catch** — Express 5 forwards a rejected promise to the error middleware, exactly as
-  `auth.controller.ts` notes. *(`remove` added in Revision 2. It is named `remove`, not `delete`,
-  because `delete` is a reserved word and cannot be an exported binding.)*
+  `auth.controller.ts` notes. _(`remove` added in Revision 2. It is named `remove`, not `delete`,
+  because `delete` is a reserved word and cannot be an exported binding.)_
 - Reads `req.validatedQuery as ListRolesQuery` / `req.validatedParams as RoleIdParam` /
   `req.body as CreateRoleInput`. **Never re-reads `req.params` or `req.query`.**
 - `actorId` is `req.user!.id`, read from the verified token — never from a body, a query parameter or
@@ -279,13 +283,13 @@ so the two cannot drift.
 Exports `rolesRouter`. Imports the controller as a namespace (`import * as rolesController from …`),
 matching `auth.routes.ts`.
 
-| Method | Path | Chain |
-| --- | --- | --- |
-| GET | `/` | `requireAuth` → `requireRole(UserRole.RECRUITER)` → `validateQuery(listRolesQuerySchema)` → controller |
-| GET | `/:roleId` | `requireAuth` → `requireRole(UserRole.RECRUITER)` → `validateParams(roleIdParamSchema)` → controller |
-| POST | `/` | `requireAuth` → `requireRole(UserRole.RECRUITER)` → `validate(createRoleSchema)` → controller |
-| PATCH | `/:roleId` | `requireAuth` → `requireRole(UserRole.RECRUITER)` → `validateParams(roleIdParamSchema)` → `validate(updateRoleSchema)` → controller |
-| DELETE | `/:roleId` | `requireAuth` → `requireRole(UserRole.RECRUITER)` → `validateParams(roleIdParamSchema)` → controller |
+| Method | Path       | Chain                                                                                                                               |
+| ------ | ---------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/`        | `requireAuth` → `requireRole(UserRole.RECRUITER)` → `validateQuery(listRolesQuerySchema)` → controller                              |
+| GET    | `/:roleId` | `requireAuth` → `requireRole(UserRole.RECRUITER)` → `validateParams(roleIdParamSchema)` → controller                                |
+| POST   | `/`        | `requireAuth` → `requireRole(UserRole.RECRUITER)` → `validate(createRoleSchema)` → controller                                       |
+| PATCH  | `/:roleId` | `requireAuth` → `requireRole(UserRole.RECRUITER)` → `validateParams(roleIdParamSchema)` → `validate(updateRoleSchema)` → controller |
+| DELETE | `/:roleId` | `requireAuth` → `requireRole(UserRole.RECRUITER)` → `validateParams(roleIdParamSchema)` → controller                                |
 
 - **Authorization is settled before any parsing cost is paid** (BE-3). An interviewer's malformed
   request is a `403`, not a `400` — the API does not help an unauthorized caller fix their payload or
@@ -317,14 +321,14 @@ matching `auth.routes.ts`.
 
 Each is a type or value import swap. **Behaviour and names are otherwise unchanged.**
 
-| File | Change | MODIFIED |
-| --- | --- | --- |
-| [`src/middleware/requireRole.ts`](../../../src/middleware/requireRole.ts) | `import type { Role }` → `UserRole`; signature `(...roles: UserRole[])`. **The middleware keeps its name** — it gates on the caller's user-role and has nothing to do with requisitions. | ✔ |
-| [`src/lib/tokens.ts`](../../../src/lib/tokens.ts) | `Role` → `UserRole`. This is a **value** import (`role !== Role.INTERVIEWER && …`), so real code changes. The claim **value** is untouched. | ✔ |
-| [`src/modules/auth/auth.schema.ts`](../../../src/modules/auth/auth.schema.ts) | `z.enum(UserRole, 'Role must be one of INTERVIEWER, RECRUITER')` — **message text unchanged**, because it is user-facing copy about a request field still named `role`. | ✔ |
-| [`src/modules/auth/auth.service.ts`](../../../src/modules/auth/auth.service.ts) | `Role` → `UserRole` on the `SafeUser` interface. | ✔ |
-| [`src/modules/users/users.routes.ts`](../../../src/modules/users/users.routes.ts) | `requireRole(UserRole.RECRUITER)` | ✔ |
-| [`src/modules/users/users.service.ts`](../../../src/modules/users/users.service.ts) | `where: { role: UserRole.INTERVIEWER }` | ✔ |
+| File                                                                                | Change                                                                                                                                                                                   | MODIFIED |
+| ----------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- |
+| [`src/middleware/requireRole.ts`](../../../src/middleware/requireRole.ts)           | `import type { Role }` → `UserRole`; signature `(...roles: UserRole[])`. **The middleware keeps its name** — it gates on the caller's user-role and has nothing to do with requisitions. | ✔        |
+| [`src/lib/tokens.ts`](../../../src/lib/tokens.ts)                                   | `Role` → `UserRole`. This is a **value** import (`role !== Role.INTERVIEWER && …`), so real code changes. The claim **value** is untouched.                                              | ✔        |
+| [`src/modules/auth/auth.schema.ts`](../../../src/modules/auth/auth.schema.ts)       | `z.enum(UserRole, 'Role must be one of INTERVIEWER, RECRUITER')` — **message text unchanged**, because it is user-facing copy about a request field still named `role`.                  | ✔        |
+| [`src/modules/auth/auth.service.ts`](../../../src/modules/auth/auth.service.ts)     | `Role` → `UserRole` on the `SafeUser` interface.                                                                                                                                         | ✔        |
+| [`src/modules/users/users.routes.ts`](../../../src/modules/users/users.routes.ts)   | `requireRole(UserRole.RECRUITER)`                                                                                                                                                        | ✔        |
+| [`src/modules/users/users.service.ts`](../../../src/modules/users/users.service.ts) | `where: { role: UserRole.INTERVIEWER }`                                                                                                                                                  | ✔        |
 
 Plus `src/types/express.d.ts` (above) and `prisma/seed.ts` (below) — **eight files total.**
 
@@ -340,8 +344,13 @@ Plus `src/types/express.d.ts` (above) and `prisma/seed.ts` (below) — **eight f
 - **Idempotency is `findFirst`-then-`create` per title, not `upsert`** — `title` is not unique
   (FR-1.3), so there is no key to upsert on:
   ```ts
-  const existing = await prisma.role.findFirst({ where: { title: seed.title }, select: { id: true } });
-  if (existing === null) { await prisma.role.create({ data: seed, select: ROLE_SELECT }); }
+  const existing = await prisma.role.findFirst({
+    where: { title: seed.title },
+    select: { id: true },
+  });
+  if (existing === null) {
+    await prisma.role.create({ data: seed, select: ROLE_SELECT });
+  }
   ```
   **A check-then-write is acceptable here and nowhere else in this codebase** (FR-9.3): the seed is a
   single-process script with no concurrent caller, whereas a request path must derive conflicts from a
@@ -351,17 +360,17 @@ Plus `src/types/express.d.ts` (above) and `prisma/seed.ts` (below) — **eight f
 
 ### Logging — `src/modules/roles/roles.service.ts`
 
-| Event | Level | Fields |
-| --- | --- | --- |
-| `role.created` | info | `actorId`, `roleId` |
-| `role.updated` | info | `actorId`, `roleId`, `changedFields: string[]` |
-| `role.status_changed` | info | `actorId`, `roleId`, `from`, `to` |
-| `role.deleted` | info | `actorId`, `roleId` — emitted **after commit** (FR-8.5) |
+| Event                 | Level | Fields                                                  |
+| --------------------- | ----- | ------------------------------------------------------- |
+| `role.created`        | info  | `actorId`, `roleId`                                     |
+| `role.updated`        | info  | `actorId`, `roleId`, `changedFields: string[]`          |
+| `role.status_changed` | info  | `actorId`, `roleId`, `from`, `to`                       |
+| `role.deleted`        | info  | `actorId`, `roleId` — emitted **after commit** (FR-8.5) |
 
 - **`requestId` needs no explicit field.** [`src/middleware/requestId.ts`](../../../src/middleware/requestId.ts)
   binds it on the child logger, so it lands on every line the service emits through `req.log`.
 - `role.status_changed` fires **only on an actual transition** — `patch.status !== undefined &&
-  patch.status !== previousStatus`. A no-op status write emits `role.updated` and no transition event,
+patch.status !== previousStatus`. A no-op status write emits `role.updated` and no transition event,
   so a client retrying cannot produce a fictitious second close (FR-6.3, FR-8.3, EC-07, AC-B24).
 - **`role.deleted` is the only surviving trace of the role**, since the row is gone. That is why it is
   emitted unconditionally on success and why it carries `actorId` — a deletion with no attributable
@@ -414,10 +423,10 @@ model Role {
 
 ### Indexes
 
-| Index | Serves |
-| --- | --- |
+| Index                          | Serves                                                                                  |
+| ------------------------------ | --------------------------------------------------------------------------------------- |
 | `@@index([status, createdAt])` | `GET /api/roles?status=OPEN` — the filtered listing, filtering and sorting in one index |
-| `@@index([createdAt])` | `GET /api/roles` — the unfiltered listing's `ORDER BY createdAt DESC` |
+| `@@index([createdAt])`         | `GET /api/roles` — the unfiltered listing's `ORDER BY createdAt DESC`                   |
 
 Both are added **now**, not after a slow query is observed — the brief expects the query plan to be
 defensible at 200 roles (MIG-5, PERF-1, AC-B30).
@@ -438,10 +447,10 @@ npx prisma migrate dev --create-only --name add_roles
 
 Then **read `prisma/migrations/<timestamp>_add_roles/migration.sql`** and take one of two paths:
 
-| The generated SQL | Path |
-| --- | --- |
-| Preserves `User.role` — an `ALTER TYPE "Role" RENAME TO "UserRole"`, or a recreate with a `USING` cast | **Ships as generated.** Apply with `npx prisma migrate dev`. |
-| Would drop `User.role`, the type, or the rows | **Regenerate it — never hand-edit** ([../../../CLAUDE.md](../../../CLAUDE.md)). Recovery is `npx prisma migrate reset` followed by `npm run db:seed`. |
+| The generated SQL                                                                                      | Path                                                                                                                                                  |
+| ------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Preserves `User.role` — an `ALTER TYPE "Role" RENAME TO "UserRole"`, or a recreate with a `USING` cast | **Ships as generated.** Apply with `npx prisma migrate dev`.                                                                                          |
+| Would drop `User.role`, the type, or the rows                                                          | **Regenerate it — never hand-edit** ([../../../CLAUDE.md](../../../CLAUDE.md)). Recovery is `npx prisma migrate reset` followed by `npm run db:seed`. |
 
 `migrate reset` is acceptable **only** because the database holds nothing but seeded demo accounts.
 Confirm that with `SELECT count(*) FROM "User";` before running it. If the two paths both prove
@@ -484,11 +493,11 @@ error body is `{ code, message, details? }`.
 
 ### `GET /api/roles` — NEW · `RECRUITER`
 
-| Parameter | Type | Default | Notes |
-| --- | --- | --- | --- |
-| `status` | `OPEN` \| `CLOSED` | — | Omitted means **all** statuses, not a hidden default of `OPEN` |
-| `page` | integer ≥ 1 | `1` | |
-| `pageSize` | integer 1–100 | `20` | Above 100 is a `400`, **not a clamp** |
+| Parameter  | Type               | Default | Notes                                                          |
+| ---------- | ------------------ | ------- | -------------------------------------------------------------- |
+| `status`   | `OPEN` \| `CLOSED` | —       | Omitted means **all** statuses, not a hidden default of `OPEN` |
+| `page`     | integer ≥ 1        | `1`     |                                                                |
+| `pageSize` | integer 1–100      | `20`    | Above 100 is a `400`, **not a clamp**                          |
 
 Response `200`: `{ roles: Role[], pagination: { page, pageSize, total, totalPages } }`.
 Errors: `400 VALIDATION_ERROR` · `401 UNAUTHENTICATED` · `403 FORBIDDEN` · `500 INTERNAL_ERROR`.
@@ -528,18 +537,18 @@ touches. It is not a reused `VALIDATION_ERROR`: the request was well-formed and 
 
 ### Authorization matrix
 
-| Endpoint | Anonymous | INTERVIEWER | RECRUITER |
-| --- | --- | --- | --- |
-| `GET /api/roles` | 401 | **403** | ✅ |
-| `GET /api/roles/:roleId` | 401 | **403** | ✅ |
-| `POST /api/roles` | 401 | **403** | ✅ |
-| `PATCH /api/roles/:roleId` | 401 | **403** | ✅ |
-| `DELETE /api/roles/:roleId` | 401 | **403** | ✅ — `CLOSED` only; `409` otherwise |
+| Endpoint                    | Anonymous | INTERVIEWER | RECRUITER                           |
+| --------------------------- | --------- | ----------- | ----------------------------------- |
+| `GET /api/roles`            | 401       | **403**     | ✅                                  |
+| `GET /api/roles/:roleId`    | 401       | **403**     | ✅                                  |
+| `POST /api/roles`           | 401       | **403**     | ✅                                  |
+| `PATCH /api/roles/:roleId`  | 401       | **403**     | ✅                                  |
+| `DELETE /api/roles/:roleId` | 401       | **403**     | ✅ — `CLOSED` only; `409` otherwise |
 
-`401` means *"we don't know who you are"*; `403` means *"we know, and you may not"* (AZ-4, EC-10).
+`401` means _"we don't know who you are"_; `403` means _"we know, and you may not"_ (AZ-4, EC-10).
 **Reads are recruiter-only, like the writes** (AZ-1, revised after implementation). `GET /api/roles` is
 the whole hiring picture, which is a recruiter's working surface; the narrower thing an interviewer
-actually needs — the title of the req behind *their* round — belongs on an assignment-scoped rounds
+actually needs — the title of the req behind _their_ round — belongs on an assignment-scoped rounds
 endpoint, not on this one. See the spec's [Revision](./spec.md#revision--reads-became-recruiter-only).
 
 ### Breaking changes
@@ -554,19 +563,19 @@ rename (MIG-2). No existing client needs a migration note.
 Two separate git repos. **Nothing is shared by import, only by agreement** — a change on either side
 is a change to both specs.
 
-| Contract item | Owned by | Breaks on the frontend if changed |
-| --- | --- | --- |
-| Role shape — `{ id, title, description, status, createdAt, updatedAt }` | Backend `ROLE_SELECT` | `features/roles/types.ts` stops matching; the detail view renders blanks. **No user field may ever appear** — if one does it is a backend bug to flag, not to filter client-side |
-| `RoleStatus` values `OPEN` \| `CLOSED` | Backend `enum RoleStatus` | The status badge, the filter and the close/reopen action all branch on these literals |
-| `UserRole` values `INTERVIEWER` \| `RECRUITER` | Backend `enum UserRole` | `canManageRoles` and the post-login landing route. **The rename changes the type name only; the wire values are unchanged** |
-| List envelope — `{ roles, pagination: { page, pageSize, total, totalPages } }` | Backend `roles.service.listRoles` | The pager renders from `totalPages`; a rename silently gives it `undefined` pages |
-| Query parameters `status`, `page`, `pageSize` | Backend `listRolesQuerySchema` | Linkable filter URLs break; a renamed parameter becomes a stripped unknown key and the list silently returns unfiltered |
-| Error body `{ code, message, details? }` | Backend `errorHandler` | Every error branch in the client keys off `body.code` |
-| **`details: Record<string, string[]>`** — **array**, not string | Backend `ErrorDetails` | **Currently mismatched — see R-3.** The client declares `Record<string, string>` and passes the value straight to `setError`. Once BE-5 lands, forms render `["Title is required"]` |
-| Error `code` values — `VALIDATION_ERROR`, `UNAUTHENTICATED`, `FORBIDDEN`, `NOT_FOUND`, `INTERNAL_ERROR` | Backend `ErrorCode` | This feature adds none |
-| `403`, never `401`, for an authenticated interviewer's request | Backend `requireRole` | A `401` would trigger the client's refresh-and-replay interceptor on what is an authorization failure |
-| `201` on create carrying the new `id` | Backend `roles.controller.create` | The client navigates straight to the new role's detail view |
-| Cookie name `refresh_token`, path `/api/auth` | Backend, unchanged | Untouched by this feature |
+| Contract item                                                                                           | Owned by                          | Breaks on the frontend if changed                                                                                                                                                   |
+| ------------------------------------------------------------------------------------------------------- | --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Role shape — `{ id, title, description, status, createdAt, updatedAt }`                                 | Backend `ROLE_SELECT`             | `features/roles/types.ts` stops matching; the detail view renders blanks. **No user field may ever appear** — if one does it is a backend bug to flag, not to filter client-side    |
+| `RoleStatus` values `OPEN` \| `CLOSED`                                                                  | Backend `enum RoleStatus`         | The status badge, the filter and the close/reopen action all branch on these literals                                                                                               |
+| `UserRole` values `INTERVIEWER` \| `RECRUITER`                                                          | Backend `enum UserRole`           | `canManageRoles` and the post-login landing route. **The rename changes the type name only; the wire values are unchanged**                                                         |
+| List envelope — `{ roles, pagination: { page, pageSize, total, totalPages } }`                          | Backend `roles.service.listRoles` | The pager renders from `totalPages`; a rename silently gives it `undefined` pages                                                                                                   |
+| Query parameters `status`, `page`, `pageSize`                                                           | Backend `listRolesQuerySchema`    | Linkable filter URLs break; a renamed parameter becomes a stripped unknown key and the list silently returns unfiltered                                                             |
+| Error body `{ code, message, details? }`                                                                | Backend `errorHandler`            | Every error branch in the client keys off `body.code`                                                                                                                               |
+| **`details: Record<string, string[]>`** — **array**, not string                                         | Backend `ErrorDetails`            | **Currently mismatched — see R-3.** The client declares `Record<string, string>` and passes the value straight to `setError`. Once BE-5 lands, forms render `["Title is required"]` |
+| Error `code` values — `VALIDATION_ERROR`, `UNAUTHENTICATED`, `FORBIDDEN`, `NOT_FOUND`, `INTERNAL_ERROR` | Backend `ErrorCode`               | This feature adds none                                                                                                                                                              |
+| `403`, never `401`, for an authenticated interviewer's request                                          | Backend `requireRole`             | A `401` would trigger the client's refresh-and-replay interceptor on what is an authorization failure                                                                               |
+| `201` on create carrying the new `id`                                                                   | Backend `roles.controller.create` | The client navigates straight to the new role's detail view                                                                                                                         |
+| Cookie name `refresh_token`, path `/api/auth`                                                           | Backend, unchanged                | Untouched by this feature                                                                                                                                                           |
 
 ---
 
@@ -658,7 +667,7 @@ These are the ones that are easy to fake by looking at the wrong thing.
   client with `log: ['query']`, hit `GET /api/roles?pageSize=20` with 20 roles seeded, count the
   emitted statements, then **revert the change**. Two, not three, and never a per-row query.
 - **AC-B26 (a live session survives the rename)** — the ordering is the whole test. Log in and capture
-  a token **before** step 4, apply the migration, *then* call `GET /api/auth/me` with that same token
+  a token **before** step 4, apply the migration, _then_ call `GET /api/auth/me` with that same token
   → `200` with `role: "RECRUITER"`. Logging in afterwards proves nothing.
 - **AC-B30 (`EXPLAIN ANALYZE` at 200 roles)** — **needs 200 rows the seed does not create**, and must
   not: FR-9.2 fixes the seed at three. Insert throwaway rows directly, and delete them afterwards:
@@ -694,24 +703,24 @@ These are the ones that are easy to fake by looking at the wrong thing.
 
 ## Risks
 
-| # | Risk | Impact | Mitigation |
-| --- | --- | --- | --- |
-| R-1 | **The enum rename may be generated as a drop-and-recreate.** Prisma does not reliably detect an enum rename, and `User.role` is `NOT NULL`. | Every user row lost; every seeded account and live session gone. | `--create-only` and **read the SQL before applying** (MIG-1). Confirm `User` holds only demo rows first. Recovery is `migrate reset` + `db:seed`. Never hand-edit beyond a comment. Fallback: split into two migrations. |
-| R-2 | **`req.query` is a getter in Express 5.** Copying `validate()`'s `req.body = result.data` into `validateQuery` throws at runtime, and only on a request that reaches that route. | The list endpoint 500s on every call, with nothing caught at build time. | `req.validatedQuery` (BE-2.2), and the rule that controllers never re-read `req.query`. Covered by AC-B03 and AC-B09. |
-| R-3 | **Fixing BE-5 exposes a frontend type mismatch.** `details` has always been `Record<string, string[]>` on this side and `Record<string, string>` on the client; the client passes the value straight to `setError`. The bug is invisible today **only because `details` is always `{}`**. | The moment this ships, the **login form** — already in production behaviour — starts rendering `["Password is required"]`. This is a regression in a feature nobody touched. | Flagged under § Frontend Changes and carried in the frontend plan as a MODIFIED `features/auth/types.ts` entry. **The two repos must ship together, or the backend must ship second.** |
-| R-4 | **Paging can repeat or drop a row** if two roles share a `createdAt` — the seed creates three in a tight loop, so this is likely, not theoretical. | A recruiter paging through sees a role twice and another never. | `orderBy: [{ createdAt: 'desc' }, { id: 'desc' }]` makes the ordering total (FR-2.4, PERF-6). AC-B04 checks page 2 shares no row with page 1. |
-| R-5 | **`total` and the rows can describe different snapshots** if the count runs outside the page query. | `totalPages` disagrees with what is rendered under concurrent writes. | One `$transaction` carrying both, with the same `where` (BE-4.2, PERF-5). |
-| R-6 | **`updateRole`'s `from` could be read outside the transaction**, making the logged transition a lie under a concurrent patch. | The audit story — the point of FR-8 — is quietly wrong. | Read and write inside one interactive transaction (BE-4.3). |
-| R-7 | **A check-then-write for the `404`.** Reading first, then updating, loses under a race and turns a clean `404` into a `500`. | Wrong status code, and a Prisma error reaching the error middleware. | The `404` is derived from `P2025` on the update (FR-5.5, ERR-2). The read supplies `from` only. |
-| R-8 | **`z.nativeEnum` and `{ message: … }` are zod v3.** This repo is on zod `^4.6.5`, and the *authentication plan* still says `nativeEnum`. | Copying the older plan produces code that does not compile. | Follow the shipped [`auth.schema.ts`](../../../src/modules/auth/auth.schema.ts), not the older plan. Caught by `npm run typecheck`. |
-| R-9 | **An incomplete rename type-checks in the wrong direction.** A missed `Role` import in a file that also imports the new model gets confusing errors. | Time lost to misleading diagnostics. | Do the rename as **one atomic step** across all eight files (Implementation Order step 3), then `npm run typecheck` before writing any new code. |
-| R-10 | **`requireRole` after `validate` would leak validation feedback to an unauthorized caller** and let them probe the schema — now on the reads too, where it would also leak which role ids exist. | An interviewer learns the shape of a payload they may not send, or which requisitions exist. | Chain order is fixed on all four routes in `roles.routes.ts` and checked by AC-B18 (`403`, not `404`, for a nonexistent id) and AC-B18b (`403`, not `400`, for a bad query). |
-| R-11 | **Performance at the brief's stated scale is asserted, not measured**, until AC-B30 runs — and the seed creates three roles, so the natural check proves nothing. | A sequential scan ships unnoticed. | The throwaway `generate_series` procedure above, plus honest reporting if Postgres picks a seq scan because the table is small. |
-| R-12 | **No rate limiting and no per-role ownership** — any recruiter may amend or close any role, including one they did not create, and can do so as fast as they can send requests. | Accepted for a POC with one recruiter. | **Not mitigated by this plan.** Documented as SEC-5, so a later "only the creating recruiter may close it" rule is a deliberate addition rather than a bug report. |
-| R-13 | **Last-write-wins on concurrent edits** (EC-09). No `If-Match`, no version column. | A recruiter silently overwrites another's edit to the same field. | **Not mitigated.** Disjoint fields survive because only present keys are written; `updatedAt` and the two log lines make the order reconstructable. Optimistic concurrency is explicitly out of scope. |
-| R-14 | **A check-then-delete outside a transaction loses the CLOSED guard.** Read the status, a concurrent `PATCH` reopens the role, then the delete lands — and an **open** requisition is gone. | The one rule protecting a live req fails exactly when two people are working at once, and there is no row left to notice it with. | The status read and the `delete` share **one interactive `$transaction`** in `deleteRole` (FR-6.7). Verified by EC-14d and AC-B37. |
-| R-15 | **A hard delete cannot be undone, and this is the first destructive endpoint in the POC.** There is no `deletedAt`, no restore, and the row is the only copy. | A recruiter removes the wrong requisition and it is gone; only a log line says it existed. | **Accepted, with two guards**: the CLOSED-only rule makes it two deliberate acts (FR-6.7), and the client confirms with a dialog naming the role and saying it cannot be undone. `role.deleted` (FR-8.5) is the audit record. Documented as SEC-5, not mitigated further — see the spec's [Revision 2](./spec.md#revision-2--delete-exists-restricted-to-closed-roles) on why a soft delete was rejected. |
-| R-16 | **The first model to take a foreign key to `Role` inherits an undecided `onDelete`.** Prisma's default is `Restrict` for a required relation, but nothing in *this* plan says so, and a later spec could silently pick `Cascade` and take candidates with the req. | A deleted requisition silently deletes candidate history — the exact outcome the original no-delete rule existed to prevent. | **Deferred by design, and recorded as an obligation**: FR-6.10 requires the feature adding the first inbound FK to state its delete behaviour explicitly in its own spec. Postgres's default is not a decision. |
+| #    | Risk                                                                                                                                                                                                                                                                                      | Impact                                                                                                                                                                       | Mitigation                                                                                                                                                                                                                                                                                                                                                                                                |
+| ---- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| R-1  | **The enum rename may be generated as a drop-and-recreate.** Prisma does not reliably detect an enum rename, and `User.role` is `NOT NULL`.                                                                                                                                               | Every user row lost; every seeded account and live session gone.                                                                                                             | `--create-only` and **read the SQL before applying** (MIG-1). Confirm `User` holds only demo rows first. Recovery is `migrate reset` + `db:seed`. Never hand-edit beyond a comment. Fallback: split into two migrations.                                                                                                                                                                                  |
+| R-2  | **`req.query` is a getter in Express 5.** Copying `validate()`'s `req.body = result.data` into `validateQuery` throws at runtime, and only on a request that reaches that route.                                                                                                          | The list endpoint 500s on every call, with nothing caught at build time.                                                                                                     | `req.validatedQuery` (BE-2.2), and the rule that controllers never re-read `req.query`. Covered by AC-B03 and AC-B09.                                                                                                                                                                                                                                                                                     |
+| R-3  | **Fixing BE-5 exposes a frontend type mismatch.** `details` has always been `Record<string, string[]>` on this side and `Record<string, string>` on the client; the client passes the value straight to `setError`. The bug is invisible today **only because `details` is always `{}`**. | The moment this ships, the **login form** — already in production behaviour — starts rendering `["Password is required"]`. This is a regression in a feature nobody touched. | Flagged under § Frontend Changes and carried in the frontend plan as a MODIFIED `features/auth/types.ts` entry. **The two repos must ship together, or the backend must ship second.**                                                                                                                                                                                                                    |
+| R-4  | **Paging can repeat or drop a row** if two roles share a `createdAt` — the seed creates three in a tight loop, so this is likely, not theoretical.                                                                                                                                        | A recruiter paging through sees a role twice and another never.                                                                                                              | `orderBy: [{ createdAt: 'desc' }, { id: 'desc' }]` makes the ordering total (FR-2.4, PERF-6). AC-B04 checks page 2 shares no row with page 1.                                                                                                                                                                                                                                                             |
+| R-5  | **`total` and the rows can describe different snapshots** if the count runs outside the page query.                                                                                                                                                                                       | `totalPages` disagrees with what is rendered under concurrent writes.                                                                                                        | One `$transaction` carrying both, with the same `where` (BE-4.2, PERF-5).                                                                                                                                                                                                                                                                                                                                 |
+| R-6  | **`updateRole`'s `from` could be read outside the transaction**, making the logged transition a lie under a concurrent patch.                                                                                                                                                             | The audit story — the point of FR-8 — is quietly wrong.                                                                                                                      | Read and write inside one interactive transaction (BE-4.3).                                                                                                                                                                                                                                                                                                                                               |
+| R-7  | **A check-then-write for the `404`.** Reading first, then updating, loses under a race and turns a clean `404` into a `500`.                                                                                                                                                              | Wrong status code, and a Prisma error reaching the error middleware.                                                                                                         | The `404` is derived from `P2025` on the update (FR-5.5, ERR-2). The read supplies `from` only.                                                                                                                                                                                                                                                                                                           |
+| R-8  | **`z.nativeEnum` and `{ message: … }` are zod v3.** This repo is on zod `^4.6.5`, and the _authentication plan_ still says `nativeEnum`.                                                                                                                                                  | Copying the older plan produces code that does not compile.                                                                                                                  | Follow the shipped [`auth.schema.ts`](../../../src/modules/auth/auth.schema.ts), not the older plan. Caught by `npm run typecheck`.                                                                                                                                                                                                                                                                       |
+| R-9  | **An incomplete rename type-checks in the wrong direction.** A missed `Role` import in a file that also imports the new model gets confusing errors.                                                                                                                                      | Time lost to misleading diagnostics.                                                                                                                                         | Do the rename as **one atomic step** across all eight files (Implementation Order step 3), then `npm run typecheck` before writing any new code.                                                                                                                                                                                                                                                          |
+| R-10 | **`requireRole` after `validate` would leak validation feedback to an unauthorized caller** and let them probe the schema — now on the reads too, where it would also leak which role ids exist.                                                                                          | An interviewer learns the shape of a payload they may not send, or which requisitions exist.                                                                                 | Chain order is fixed on all four routes in `roles.routes.ts` and checked by AC-B18 (`403`, not `404`, for a nonexistent id) and AC-B18b (`403`, not `400`, for a bad query).                                                                                                                                                                                                                              |
+| R-11 | **Performance at the brief's stated scale is asserted, not measured**, until AC-B30 runs — and the seed creates three roles, so the natural check proves nothing.                                                                                                                         | A sequential scan ships unnoticed.                                                                                                                                           | The throwaway `generate_series` procedure above, plus honest reporting if Postgres picks a seq scan because the table is small.                                                                                                                                                                                                                                                                           |
+| R-12 | **No rate limiting and no per-role ownership** — any recruiter may amend or close any role, including one they did not create, and can do so as fast as they can send requests.                                                                                                           | Accepted for a POC with one recruiter.                                                                                                                                       | **Not mitigated by this plan.** Documented as SEC-5, so a later "only the creating recruiter may close it" rule is a deliberate addition rather than a bug report.                                                                                                                                                                                                                                        |
+| R-13 | **Last-write-wins on concurrent edits** (EC-09). No `If-Match`, no version column.                                                                                                                                                                                                        | A recruiter silently overwrites another's edit to the same field.                                                                                                            | **Not mitigated.** Disjoint fields survive because only present keys are written; `updatedAt` and the two log lines make the order reconstructable. Optimistic concurrency is explicitly out of scope.                                                                                                                                                                                                    |
+| R-14 | **A check-then-delete outside a transaction loses the CLOSED guard.** Read the status, a concurrent `PATCH` reopens the role, then the delete lands — and an **open** requisition is gone.                                                                                                | The one rule protecting a live req fails exactly when two people are working at once, and there is no row left to notice it with.                                            | The status read and the `delete` share **one interactive `$transaction`** in `deleteRole` (FR-6.7). Verified by EC-14d and AC-B37.                                                                                                                                                                                                                                                                        |
+| R-15 | **A hard delete cannot be undone, and this is the first destructive endpoint in the POC.** There is no `deletedAt`, no restore, and the row is the only copy.                                                                                                                             | A recruiter removes the wrong requisition and it is gone; only a log line says it existed.                                                                                   | **Accepted, with two guards**: the CLOSED-only rule makes it two deliberate acts (FR-6.7), and the client confirms with a dialog naming the role and saying it cannot be undone. `role.deleted` (FR-8.5) is the audit record. Documented as SEC-5, not mitigated further — see the spec's [Revision 2](./spec.md#revision-2--delete-exists-restricted-to-closed-roles) on why a soft delete was rejected. |
+| R-16 | **The first model to take a foreign key to `Role` inherits an undecided `onDelete`.** Prisma's default is `Restrict` for a required relation, but nothing in _this_ plan says so, and a later spec could silently pick `Cascade` and take candidates with the req.                        | A deleted requisition silently deletes candidate history — the exact outcome the original no-delete rule existed to prevent.                                                 | **Deferred by design, and recorded as an obligation**: FR-6.10 requires the feature adding the first inbound FK to state its delete behaviour explicitly in its own spec. Postgres's default is not a decision.                                                                                                                                                                                           |
 
 ---
 
@@ -757,13 +766,13 @@ dependency** — that is the whole advantage of a hard delete over a `deletedAt`
    `status !== CLOSED` → 409** (ERR-5); log `role.deleted` after the commit.
 3. **`roles.controller.ts`** — add `remove`, answering `res.status(204).send()`.
 4. **`roles.routes.ts`** — register `rolesRouter.delete('/:roleId', requireAuth,
-   requireRole(UserRole.RECRUITER), validateParams(roleIdParamSchema), rolesController.remove)`.
+requireRole(UserRole.RECRUITER), validateParams(roleIdParamSchema), rolesController.remove)`.
    Nothing else in the chain: the status guard belongs to the service (R-14).
 5. **`npm run typecheck && npm run lint`**, then work AC-B36…AC-B41 with `curl`.
 
 The frontend counterpart ships in the same pass — see
 [the frontend plan](../../../../frontend/specs/features/roles/plan.md). Order does not matter here:
-the client only *adds* a call, so a client shipped first simply gets a `404` from an unregistered
+the client only _adds_ a call, so a client shipped first simply gets a `404` from an unregistered
 route until the backend lands.
 
 ---
@@ -776,42 +785,42 @@ original thirty plus AC-B36…AC-B41 from Revision 2. Implementation entries use
 The third column is the **manual check** — this repo has no automated tests and none are being added.
 `$REC` and `$INT` are the two tokens captured above; `BASE` is `localhost:3000`.
 
-| Acceptance Criterion | Implementation | Manual Verification |
-| --- | --- | --- |
-| AC-B01 — list returns 3 roles newest-first with pagination | `roles.service.listRoles`, `roles.controller.list`, `role.select.ts` | `curl -s $BASE/api/roles -H "authorization: Bearer $REC" \| jq` → `200`, 3 entries, `pagination` is `{page:1,pageSize:20,total:3,totalPages:1}` |
-| AC-B02 — interviewer's reads are both 403 | `roles.routes.ts` `requireRole(UserRole.RECRUITER)` on **both** GETs | `GET /api/roles` and `GET /api/roles/1` with `$INT` → `403 FORBIDDEN` each, and `jq '.roles, .role, .pagination'` is `null` on both. A `200` is a failure (AZ-1, EC-15) |
-| AC-B03 — `?status=OPEN` returns 2, total 2 | `listRoles` `where` + `count` sharing it | `curl "$BASE/api/roles?status=OPEN" …` → 2 roles, `total` is **2**, not 3 (PERF-5) |
-| AC-B04 — `?pageSize=2&page=2` returns 1 unseen role | `listRoles` `skip`/`take`, `orderBy [createdAt desc, id desc]` | Fetch page 1 and page 2; `totalPages` is 2, page 2 has 1 role, and its `id` appears on neither page 1 row |
-| AC-B05 — `?page=99` is a truthful empty page | `listRoles`, `totalPages` from `count` | `curl "$BASE/api/roles?page=99" …` → `200`, `roles: []`, `total: 3`. Not a `404` |
-| AC-B06 — detail deep-equals the list entry | `ROLE_SELECT` used by every query | `jq '.roles[0]'` from the list vs `jq '.role'` from the detail → identical. One shape, one select (FR-7.1) |
-| AC-B07 — unknown id is 404 | `roles.service.getRole` null check | `curl -i $BASE/api/roles/9999 …` → `404`, body `{code:"NOT_FOUND",message:"Resource not found"}` |
-| AC-B08 — `/api/roles/abc` is 400 with `details.roleId` | `validateParams`, `roleIdParamSchema` | `curl -s $BASE/api/roles/abc … \| jq '.details.roleId'` → non-empty array. **No query runs**; never a 500 from a failed parse (EC-01) |
-| AC-B09 — `?status=PENDING` is 400, not unfiltered | `validateQuery`, `listRolesQuerySchema` | `jq '.details.status'` non-empty. A `200` with 3 roles is a failure — the parameter must not be silently ignored (EC-02) |
-| AC-B10 — `?pageSize=101` is 400, not clamped | `listRolesQuerySchema` `.max(100)` | `curl -i "$BASE/api/roles?pageSize=101" …` → `400`. A `200` with 100 roles is a failure (VAL-5) |
-| AC-B11 — create returns 201, status OPEN | `roles.service.createRole` (explicit `RoleStatus.OPEN`), `roles.controller.create` | `POST` a valid body with `$REC` → `201`, `status:"OPEN"`, and `id`/`createdAt`/`updatedAt` all present |
-| AC-B12 — `status:"CLOSED"` on create is stripped | `createRoleSchema` (no `status` key) | `POST {"title":…,"description":…,"status":"CLOSED"}` → `201` with `status:"OPEN"`. Stripped, **not** an error (EC-06) |
-| AC-B13 — whitespace title is 400, no row written | `titleField` `.trim().min(1)` | `POST {"title":"   ",…}` → `400`, `details.title` non-empty; then `SELECT count(*) FROM "Role"` unchanged (EC-12) |
-| AC-B14 — missing description is 400 | `createRoleSchema` required `description` | `POST` without `description` → `400`, `details.description` non-empty (FR-1.4) |
-| AC-B15 — `id`/`createdAt` in the body are stripped | zod unknown-key stripping, `createRoleSchema` | `POST {…, "id":1, "createdAt":"1999-01-01T00:00:00.000Z"}` → `201` with a fresh autoincrement `id` and a `createdAt` of now (SEC-3) |
-| AC-B16 — interviewer POST is 403, no row | `roles.routes.ts` `requireRole(UserRole.RECRUITER)` | `POST` a **perfectly valid** body with `$INT` → `403 FORBIDDEN`; `SELECT count(*) FROM "Role"` unchanged. *This is the criterion that proves "only recruiters may modify roles"* |
-| AC-B17 — interviewer PATCH is 403, status unchanged | same | `PATCH {"status":"CLOSED"}` with `$INT` → `403`; `SELECT status FROM "Role" WHERE id=…` still `OPEN` |
-| AC-B18b — interviewer's bad query is 403, not 400 | chain order: `requireRole` before `validateQuery` | `GET "$BASE/api/roles?status=PENDING"` with `$INT` → `403`. The same call with `$REC` is a `400` — that contrast is the check (EC-16) |
-| AC-B18 — interviewer PATCH of id 9999 is 403, not 404 | chain order: `requireRole` before `validateParams` | `PATCH $BASE/api/roles/9999` with `$INT` → `403`. A `404` means authorization ran after existence (ERR-4, EC-11) |
-| AC-B19 — all five endpoints 401 without a header | `requireAuth` first in every chain | Call all five with no `Authorization` → every one `401 UNAUTHENTICATED`. Not `403`, not `404` (AZ-4, EC-10) |
-| AC-B20 — an interviewer's DELETE is 403, row survives *(revised)* | `roles.routes.ts` DELETE chain: `requireRole` **before** the controller | `curl -i -X DELETE $BASE/api/roles/1 -H "authorization: Bearer $INT"` → `403 FORBIDDEN`; then `psql` → the row is still there. A `404` or `409` is a failure — both would mean authorization ran after existence or status (AZ-6, ERR-4) |
-| AC-B21 — PATCH title leaves other fields alone | `updateRole` writes only present keys | `PATCH {"title":"New title"}` → `200`, title changed, `description` and `status` unchanged, `updatedAt` > `createdAt` (FR-5.4) |
-| AC-B22 — `details` carries **both** fields | **`zod-details.ts` — the BE-5 fix** | `PATCH {"title":"","description":""}` → `400` with `details.title` **and** `details.description`, both non-empty arrays. *An empty `details: {}` fails this* — see § Checks needing particular care |
-| AC-B23 — empty `{}` PATCH is 400 | `updateRoleSchema` `.refine()` | `PATCH {}` → `400`. Also check `{"nonsense":1}` → `400`, since stripping leaves an empty patch (VAL-4, EC-05) |
-| AC-B24 — double close: one transition event, two updates | `updateRole` transition guard, `role.status_changed` | `PATCH {"status":"CLOSED"}` twice → both `200` with `status:"CLOSED"`; the log shows `role.status_changed` **once**, `role.updated` **twice** (EC-07, FR-6.3) |
-| AC-B25 — a 20-row page costs exactly 2 SQL statements | `listRoles` `$transaction([findMany, count])` | Needs `log: ['query']` added to `src/lib/prisma.ts` temporarily — see § Checks needing particular care. Two statements, then **revert** (PERF-3) |
-| AC-B26 — a pre-rename token still works | `tokens.ts`, `requireAuth` — claim **value** unchanged | Capture a token **before** the migration, apply it, then `GET /api/auth/me` with that same token → `200`, `role:"RECRUITER"`. Order is the test (MIG-2, EC-14) |
-| AC-B27 — no response carries any user field | `ROLE_SELECT`; `Role` has no relation | Exercise all four endpoints and `jq` each body — no `name`, `email`, `passwordHash`, or user id anywhere. Absence is the assertion (SEC-2) |
-| AC-B28 — log carries `actorId`, never the text | `roles.service` log calls, `changedFields: Object.keys(patch)` | Create then close a role; read the log — `role.created` and `role.status_changed` carry the recruiter's `actorId`, and **neither line contains the title or description text** (FR-8.4) |
-| AC-B29 — seed is idempotent | `prisma/seed.ts` `findFirst`-then-`create` | `npm run db:seed && npm run db:seed` on a fresh DB → exit `0` both times; `SELECT count(*) FROM "Role"` is `3` both times (FR-9.3) |
-| AC-B30 — the filtered list uses the index | `@@index([status, createdAt])` | 200 throwaway rows, then `EXPLAIN ANALYZE` — see § Checks needing particular care. Index scan on `Role_status_createdAt_idx`, no sequential scan of `Role` (PERF-1) |
-| AC-B36 — deleting a CLOSED role is 204 and the row is gone | `deleteRole`; `rolesController.remove` | Close a role, then `curl -i -X DELETE $BASE/api/roles/$ID -H "authorization: Bearer $REC"` → `204` with a **byte-empty** body; `psql "$DATABASE_URL" -c 'SELECT * FROM "Role" WHERE id = '$ID` → 0 rows (FR-6.6, FR-6.8) |
-| AC-B37 — deleting an OPEN role is 409 and changes nothing | the `status !== CLOSED` guard in `deleteRole` | `DELETE` an open role → `409` with `code: "ROLE_NOT_CLOSED"`; then `GET` it → same `status: "OPEN"` and **the same `updatedAt` as before the attempt**. A bumped `updatedAt` means the endpoint touched the row (FR-6.7, EC-14) |
-| AC-B38 — an unknown id is 404, not 409 | the `null` check **before** the status check in `deleteRole` | `curl -i -X DELETE $BASE/api/roles/9999 -H "authorization: Bearer $REC"` → `404 NOT_FOUND`. A `409` means the two checks are in the wrong order (FR-6.9, ERR-5, EC-14b) |
-| AC-B39 — `role.deleted` carries the actor, never the text | the post-commit `log.info` in `deleteRole` | Delete a closed role, read the log → exactly one `role.deleted` line with `actorId` and `roleId`, and **no title or description text** on it (FR-8.4, FR-8.5) |
-| AC-B40 — the second delete is a 404 | the `null` check in `deleteRole` | `DELETE` the same closed role twice → `204`, then `404` (EC-14c) |
-| AC-B41 — a malformed `:roleId` is a 400 | `validateParams(roleIdParamSchema)` on the DELETE chain | `curl -i -X DELETE $BASE/api/roles/abc -H "authorization: Bearer $REC"` → `400 VALIDATION_ERROR` with `roleId` in `details` (FR-3.2) |
+| Acceptance Criterion                                              | Implementation                                                                     | Manual Verification                                                                                                                                                                                                                      |
+| ----------------------------------------------------------------- | ---------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| AC-B01 — list returns 3 roles newest-first with pagination        | `roles.service.listRoles`, `roles.controller.list`, `role.select.ts`               | `curl -s $BASE/api/roles -H "authorization: Bearer $REC" \| jq` → `200`, 3 entries, `pagination` is `{page:1,pageSize:20,total:3,totalPages:1}`                                                                                          |
+| AC-B02 — interviewer's reads are both 403                         | `roles.routes.ts` `requireRole(UserRole.RECRUITER)` on **both** GETs               | `GET /api/roles` and `GET /api/roles/1` with `$INT` → `403 FORBIDDEN` each, and `jq '.roles, .role, .pagination'` is `null` on both. A `200` is a failure (AZ-1, EC-15)                                                                  |
+| AC-B03 — `?status=OPEN` returns 2, total 2                        | `listRoles` `where` + `count` sharing it                                           | `curl "$BASE/api/roles?status=OPEN" …` → 2 roles, `total` is **2**, not 3 (PERF-5)                                                                                                                                                       |
+| AC-B04 — `?pageSize=2&page=2` returns 1 unseen role               | `listRoles` `skip`/`take`, `orderBy [createdAt desc, id desc]`                     | Fetch page 1 and page 2; `totalPages` is 2, page 2 has 1 role, and its `id` appears on neither page 1 row                                                                                                                                |
+| AC-B05 — `?page=99` is a truthful empty page                      | `listRoles`, `totalPages` from `count`                                             | `curl "$BASE/api/roles?page=99" …` → `200`, `roles: []`, `total: 3`. Not a `404`                                                                                                                                                         |
+| AC-B06 — detail deep-equals the list entry                        | `ROLE_SELECT` used by every query                                                  | `jq '.roles[0]'` from the list vs `jq '.role'` from the detail → identical. One shape, one select (FR-7.1)                                                                                                                               |
+| AC-B07 — unknown id is 404                                        | `roles.service.getRole` null check                                                 | `curl -i $BASE/api/roles/9999 …` → `404`, body `{code:"NOT_FOUND",message:"Resource not found"}`                                                                                                                                         |
+| AC-B08 — `/api/roles/abc` is 400 with `details.roleId`            | `validateParams`, `roleIdParamSchema`                                              | `curl -s $BASE/api/roles/abc … \| jq '.details.roleId'` → non-empty array. **No query runs**; never a 500 from a failed parse (EC-01)                                                                                                    |
+| AC-B09 — `?status=PENDING` is 400, not unfiltered                 | `validateQuery`, `listRolesQuerySchema`                                            | `jq '.details.status'` non-empty. A `200` with 3 roles is a failure — the parameter must not be silently ignored (EC-02)                                                                                                                 |
+| AC-B10 — `?pageSize=101` is 400, not clamped                      | `listRolesQuerySchema` `.max(100)`                                                 | `curl -i "$BASE/api/roles?pageSize=101" …` → `400`. A `200` with 100 roles is a failure (VAL-5)                                                                                                                                          |
+| AC-B11 — create returns 201, status OPEN                          | `roles.service.createRole` (explicit `RoleStatus.OPEN`), `roles.controller.create` | `POST` a valid body with `$REC` → `201`, `status:"OPEN"`, and `id`/`createdAt`/`updatedAt` all present                                                                                                                                   |
+| AC-B12 — `status:"CLOSED"` on create is stripped                  | `createRoleSchema` (no `status` key)                                               | `POST {"title":…,"description":…,"status":"CLOSED"}` → `201` with `status:"OPEN"`. Stripped, **not** an error (EC-06)                                                                                                                    |
+| AC-B13 — whitespace title is 400, no row written                  | `titleField` `.trim().min(1)`                                                      | `POST {"title":"   ",…}` → `400`, `details.title` non-empty; then `SELECT count(*) FROM "Role"` unchanged (EC-12)                                                                                                                        |
+| AC-B14 — missing description is 400                               | `createRoleSchema` required `description`                                          | `POST` without `description` → `400`, `details.description` non-empty (FR-1.4)                                                                                                                                                           |
+| AC-B15 — `id`/`createdAt` in the body are stripped                | zod unknown-key stripping, `createRoleSchema`                                      | `POST {…, "id":1, "createdAt":"1999-01-01T00:00:00.000Z"}` → `201` with a fresh autoincrement `id` and a `createdAt` of now (SEC-3)                                                                                                      |
+| AC-B16 — interviewer POST is 403, no row                          | `roles.routes.ts` `requireRole(UserRole.RECRUITER)`                                | `POST` a **perfectly valid** body with `$INT` → `403 FORBIDDEN`; `SELECT count(*) FROM "Role"` unchanged. _This is the criterion that proves "only recruiters may modify roles"_                                                         |
+| AC-B17 — interviewer PATCH is 403, status unchanged               | same                                                                               | `PATCH {"status":"CLOSED"}` with `$INT` → `403`; `SELECT status FROM "Role" WHERE id=…` still `OPEN`                                                                                                                                     |
+| AC-B18b — interviewer's bad query is 403, not 400                 | chain order: `requireRole` before `validateQuery`                                  | `GET "$BASE/api/roles?status=PENDING"` with `$INT` → `403`. The same call with `$REC` is a `400` — that contrast is the check (EC-16)                                                                                                    |
+| AC-B18 — interviewer PATCH of id 9999 is 403, not 404             | chain order: `requireRole` before `validateParams`                                 | `PATCH $BASE/api/roles/9999` with `$INT` → `403`. A `404` means authorization ran after existence (ERR-4, EC-11)                                                                                                                         |
+| AC-B19 — all five endpoints 401 without a header                  | `requireAuth` first in every chain                                                 | Call all five with no `Authorization` → every one `401 UNAUTHENTICATED`. Not `403`, not `404` (AZ-4, EC-10)                                                                                                                              |
+| AC-B20 — an interviewer's DELETE is 403, row survives _(revised)_ | `roles.routes.ts` DELETE chain: `requireRole` **before** the controller            | `curl -i -X DELETE $BASE/api/roles/1 -H "authorization: Bearer $INT"` → `403 FORBIDDEN`; then `psql` → the row is still there. A `404` or `409` is a failure — both would mean authorization ran after existence or status (AZ-6, ERR-4) |
+| AC-B21 — PATCH title leaves other fields alone                    | `updateRole` writes only present keys                                              | `PATCH {"title":"New title"}` → `200`, title changed, `description` and `status` unchanged, `updatedAt` > `createdAt` (FR-5.4)                                                                                                           |
+| AC-B22 — `details` carries **both** fields                        | **`zod-details.ts` — the BE-5 fix**                                                | `PATCH {"title":"","description":""}` → `400` with `details.title` **and** `details.description`, both non-empty arrays. _An empty `details: {}` fails this_ — see § Checks needing particular care                                      |
+| AC-B23 — empty `{}` PATCH is 400                                  | `updateRoleSchema` `.refine()`                                                     | `PATCH {}` → `400`. Also check `{"nonsense":1}` → `400`, since stripping leaves an empty patch (VAL-4, EC-05)                                                                                                                            |
+| AC-B24 — double close: one transition event, two updates          | `updateRole` transition guard, `role.status_changed`                               | `PATCH {"status":"CLOSED"}` twice → both `200` with `status:"CLOSED"`; the log shows `role.status_changed` **once**, `role.updated` **twice** (EC-07, FR-6.3)                                                                            |
+| AC-B25 — a 20-row page costs exactly 2 SQL statements             | `listRoles` `$transaction([findMany, count])`                                      | Needs `log: ['query']` added to `src/lib/prisma.ts` temporarily — see § Checks needing particular care. Two statements, then **revert** (PERF-3)                                                                                         |
+| AC-B26 — a pre-rename token still works                           | `tokens.ts`, `requireAuth` — claim **value** unchanged                             | Capture a token **before** the migration, apply it, then `GET /api/auth/me` with that same token → `200`, `role:"RECRUITER"`. Order is the test (MIG-2, EC-14)                                                                           |
+| AC-B27 — no response carries any user field                       | `ROLE_SELECT`; `Role` has no relation                                              | Exercise all four endpoints and `jq` each body — no `name`, `email`, `passwordHash`, or user id anywhere. Absence is the assertion (SEC-2)                                                                                               |
+| AC-B28 — log carries `actorId`, never the text                    | `roles.service` log calls, `changedFields: Object.keys(patch)`                     | Create then close a role; read the log — `role.created` and `role.status_changed` carry the recruiter's `actorId`, and **neither line contains the title or description text** (FR-8.4)                                                  |
+| AC-B29 — seed is idempotent                                       | `prisma/seed.ts` `findFirst`-then-`create`                                         | `npm run db:seed && npm run db:seed` on a fresh DB → exit `0` both times; `SELECT count(*) FROM "Role"` is `3` both times (FR-9.3)                                                                                                       |
+| AC-B30 — the filtered list uses the index                         | `@@index([status, createdAt])`                                                     | 200 throwaway rows, then `EXPLAIN ANALYZE` — see § Checks needing particular care. Index scan on `Role_status_createdAt_idx`, no sequential scan of `Role` (PERF-1)                                                                      |
+| AC-B36 — deleting a CLOSED role is 204 and the row is gone        | `deleteRole`; `rolesController.remove`                                             | Close a role, then `curl -i -X DELETE $BASE/api/roles/$ID -H "authorization: Bearer $REC"` → `204` with a **byte-empty** body; `psql "$DATABASE_URL" -c 'SELECT * FROM "Role" WHERE id = '$ID` → 0 rows (FR-6.6, FR-6.8)                 |
+| AC-B37 — deleting an OPEN role is 409 and changes nothing         | the `status !== CLOSED` guard in `deleteRole`                                      | `DELETE` an open role → `409` with `code: "ROLE_NOT_CLOSED"`; then `GET` it → same `status: "OPEN"` and **the same `updatedAt` as before the attempt**. A bumped `updatedAt` means the endpoint touched the row (FR-6.7, EC-14)          |
+| AC-B38 — an unknown id is 404, not 409                            | the `null` check **before** the status check in `deleteRole`                       | `curl -i -X DELETE $BASE/api/roles/9999 -H "authorization: Bearer $REC"` → `404 NOT_FOUND`. A `409` means the two checks are in the wrong order (FR-6.9, ERR-5, EC-14b)                                                                  |
+| AC-B39 — `role.deleted` carries the actor, never the text         | the post-commit `log.info` in `deleteRole`                                         | Delete a closed role, read the log → exactly one `role.deleted` line with `actorId` and `roleId`, and **no title or description text** on it (FR-8.4, FR-8.5)                                                                            |
+| AC-B40 — the second delete is a 404                               | the `null` check in `deleteRole`                                                   | `DELETE` the same closed role twice → `204`, then `404` (EC-14c)                                                                                                                                                                         |
+| AC-B41 — a malformed `:roleId` is a 400                           | `validateParams(roleIdParamSchema)` on the DELETE chain                            | `curl -i -X DELETE $BASE/api/roles/abc -H "authorization: Bearer $REC"` → `400 VALIDATION_ERROR` with `roleId` in `details` (FR-3.2)                                                                                                     |

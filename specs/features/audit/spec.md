@@ -1,6 +1,7 @@
 # Audit — Structured Trace of Every State Change (Backend)
 
-> **Status:** Draft — awaiting approval. `plan.md` is a later artifact and does not exist yet.
+> **Status:** ✅ Approved — implemented. `plan.md` was deliberately skipped; this feature was built
+> straight from the spec, as `candidate` was.
 > **Feature slug:** `audit`
 > **Scope:** `backend/` — Express 5 + Prisma 7 + PostgreSQL
 > **Counterpart:** [../../../../frontend/specs/features/audit/spec.md](../../../../frontend/specs/features/audit/spec.md)
@@ -43,78 +44,78 @@ The brief asks for this twice, in the requirements and again in the checks:
 > — §6
 
 And [../../../CLAUDE.md](../../../CLAUDE.md) already states the standing rule this feature makes
-true: *"Never rely solely on application logs for business auditing."* Pino writes to stdout, is
+true: _"Never rely solely on application logs for business auditing."_ Pino writes to stdout, is
 redacted, rotates away, and is not queryable. It is an operations tool. A candidate disputing a
 rejection is a business question, and it needs a table.
 
 This feature is specified **first among the five remaining** and contains no business rules of its
-own. It exists so that pipeline, interviews, feedback and candidates can each say *"and it writes
-this audit row, in the same transaction"* and mean something concrete.
+own. It exists so that pipeline, interviews, feedback and candidates can each say _"and it writes
+this audit row, in the same transaction"_ and mean something concrete.
 
 ### Current state of `backend/`
 
-|                | Today |
-| -------------- | ------ |
-| Stack | Express 5.2, TypeScript ESM, Prisma 7.10, PostgreSQL, `tsx` for dev, `zod` 4.6 |
-| Auth | `requireAuth` (Bearer, one `user.findUnique` per request) → `req.user = { id, role }` |
-| Roles | `UserRole { INTERVIEWER, RECRUITER, CANDIDATE }` |
-| Models | `User`, `RefreshToken`, `Role`, `Application` |
-| Transactions | `prisma.$transaction` called directly in services; **no helper exists** in [`src/lib/prisma.ts`](../../../src/lib/prisma.ts) |
-| Logging | pino, `req.log` bound to `requestId`, a `redact` list covering tokens and passwords. Event names are `noun.verb` (`application.created`), **ids only, never names or emails** |
-| Error envelope | flat `{ code, message, details? }` from [`src/middleware/errorHandler.ts`](../../../src/middleware/errorHandler.ts) |
-| Pagination | `{ page, pageSize, total, totalPages }`, established by `roles.service.listRoles`, page + count in one `$transaction` sharing one `where` |
-| Audit | **none.** No model, no table, no endpoint |
-| Tests | **none**, and none planned — verification is manual `curl` + `psql` |
+|                | Today                                                                                                                                                                         |
+| -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Stack          | Express 5.2, TypeScript ESM, Prisma 7.10, PostgreSQL, `tsx` for dev, `zod` 4.6                                                                                                |
+| Auth           | `requireAuth` (Bearer, one `user.findUnique` per request) → `req.user = { id, role }`                                                                                         |
+| Roles          | `UserRole { INTERVIEWER, RECRUITER, CANDIDATE }`                                                                                                                              |
+| Models         | `User`, `RefreshToken`, `Role`, `Application`                                                                                                                                 |
+| Transactions   | `prisma.$transaction` called directly in services; **no helper exists** in [`src/lib/prisma.ts`](../../../src/lib/prisma.ts)                                                  |
+| Logging        | pino, `req.log` bound to `requestId`, a `redact` list covering tokens and passwords. Event names are `noun.verb` (`application.created`), **ids only, never names or emails** |
+| Error envelope | flat `{ code, message, details? }` from [`src/middleware/errorHandler.ts`](../../../src/middleware/errorHandler.ts)                                                           |
+| Pagination     | `{ page, pageSize, total, totalPages }`, established by `roles.service.listRoles`, page + count in one `$transaction` sharing one `where`                                     |
+| Audit          | **none.** No model, no table, no endpoint                                                                                                                                     |
+| Tests          | **none**, and none planned — verification is manual `curl` + `psql`                                                                                                           |
 
 ### Decisions settled during the interview
 
-| # | Question | Decision | Recorded in |
-|---|---|---|---|
-| D-1 | Where does this sit in the build order? | **First of the remaining five.** It is infrastructure; the other four write through it | this document, [../README.md](../../README.md) |
-| D-2 | Application log or database table? | **Table.** Pino stays for operations. `AuditLog` is the business record | FR-1 |
-| D-3 | Written how? | **`recordAudit(tx, …)` taking the transaction client**, called inside the same `$transaction` as the state change. Never the global `prisma` | FR-3, BE-2 |
-| D-4 | Is a failed audit write survivable? | **No.** It aborts the transaction, so the state change rolls back with it. A change nobody can trace does not happen | FR-3.4, EC-04 |
-| D-5 | Who can read the trace? | **Recruiters only.** Not interviewers — the feed names candidates and other interviewers' actions | AZ-2 |
-| D-6 | Can an audit row be edited or deleted? | **No.** No `PATCH`, no `DELETE`, no service function that writes to an existing row | FR-6, AZ-4 |
-| D-7 | What is in `metadata`? | A per-action **closed shape**, listed in FR-4. Ids, enum values and an override reason — never an email, a phone number, or the text of feedback notes | FR-4, SEC-3 |
-| D-8 | `action` as a Postgres enum or a string? | **Enum.** A free-text action column is how a typo becomes an unqueryable row | MIG-2 |
-| D-9 | Does the audit endpoint paginate? | **Yes**, on the shipped `{ page, pageSize, total, totalPages }` envelope. The table is append-only and grows without bound | FR-5.4, PERF-2 |
-| D-10 | Does this feature write any audit rows itself? | **One:** `CANDIDATE_CONTACT_UPDATED`, owned by the candidate-access feature. Every other action enum value is written by a later feature; they are all declared here so the enum is not altered five times | FR-4, MIG-3 |
+| #    | Question                                       | Decision                                                                                                                                                                                                   | Recorded in                                    |
+| ---- | ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------- |
+| D-1  | Where does this sit in the build order?        | **First of the remaining five.** It is infrastructure; the other four write through it                                                                                                                     | this document, [../README.md](../../README.md) |
+| D-2  | Application log or database table?             | **Table.** Pino stays for operations. `AuditLog` is the business record                                                                                                                                    | FR-1                                           |
+| D-3  | Written how?                                   | **`recordAudit(tx, …)` taking the transaction client**, called inside the same `$transaction` as the state change. Never the global `prisma`                                                               | FR-3, BE-2                                     |
+| D-4  | Is a failed audit write survivable?            | **No.** It aborts the transaction, so the state change rolls back with it. A change nobody can trace does not happen                                                                                       | FR-3.4, EC-04                                  |
+| D-5  | Who can read the trace?                        | **Recruiters only.** Not interviewers — the feed names candidates and other interviewers' actions                                                                                                          | AZ-2                                           |
+| D-6  | Can an audit row be edited or deleted?         | **No.** No `PATCH`, no `DELETE`, no service function that writes to an existing row                                                                                                                        | FR-6, AZ-4                                     |
+| D-7  | What is in `metadata`?                         | A per-action **closed shape**, listed in FR-4. Ids, enum values and an override reason — never an email, a phone number, or the text of feedback notes                                                     | FR-4, SEC-3                                    |
+| D-8  | `action` as a Postgres enum or a string?       | **Enum.** A free-text action column is how a typo becomes an unqueryable row                                                                                                                               | MIG-2                                          |
+| D-9  | Does the audit endpoint paginate?              | **Yes**, on the shipped `{ page, pageSize, total, totalPages }` envelope. The table is append-only and grows without bound                                                                                 | FR-5.4, PERF-2                                 |
+| D-10 | Does this feature write any audit rows itself? | **One:** `CANDIDATE_CONTACT_UPDATED`, owned by the candidate-access feature. Every other action enum value is written by a later feature; they are all declared here so the enum is not altered five times | FR-4, MIG-3                                    |
 
 ---
 
 ## Users / Actors
 
-| Actor | May do, after this feature |
-|---|---|
-| Anonymous | Nothing. `GET /api/audit` is `401` |
-| Candidate | Nothing. `403`. A candidate cannot read the trace of their own application either |
-| Interviewer | Nothing. `403` |
-| Recruiter | Read the whole trace, filtered by entity, action or actor |
+| Actor       | May do, after this feature                                                        |
+| ----------- | --------------------------------------------------------------------------------- |
+| Anonymous   | Nothing. `GET /api/audit` is `401`                                                |
+| Candidate   | Nothing. `403`. A candidate cannot read the trace of their own application either |
+| Interviewer | Nothing. `403`                                                                    |
+| Recruiter   | Read the whole trace, filtered by entity, action or actor                         |
 
 **Deliberate POC trade-offs, so they are not read as oversights:**
 
-- **A candidate cannot see their own audit trail.** The brief's disputing candidate asks a *hiring
-  manager*, who asks the system; there is no candidate-facing disclosure surface in this POC. Adding
+- **A candidate cannot see their own audit trail.** The brief's disputing candidate asks a _hiring
+  manager_, who asks the system; there is no candidate-facing disclosure surface in this POC. Adding
   one means deciding what a candidate may see of a recruiter's internal reasoning, which is a
   product question this POC does not answer.
 - **There is no hiring-manager role.** The brief marks it optional (§2). A recruiter reads the
   trace on their behalf.
 - **Nothing outside this API writes audit rows.** The seed writes them (FR-7); a human running an
   `UPDATE` in `psql` does not. That is an accepted gap (SEC-5) and it is the reason the trace is a
-  record of *what this API did*, not of *what the database contains*.
+  record of _what this API did_, not of _what the database contains_.
 
 ---
 
 ## User Stories
 
-| ID | Story |
-|---|---|
-| **US-01** | As a recruiter, I want to see every action taken on one application in order, so that I can answer a candidate's dispute with facts instead of memory. |
-| **US-02** | As a recruiter, I want each entry to name the person who performed it, so that "who moved this candidate to Offer" is never a question I have to ask in Slack. |
-| **US-03** | As a recruiter, I want an override's recorded reason to appear in the trace, so that a skipped stage is explained where it is discovered. |
-| **US-04** | As a recruiter, I want to filter the trace by action, so that I can review every stage override performed this month without reading everything else. |
-| **US-05** | As an engineer, I want the audit write to share the transaction with the state change, so that a half-written history is impossible rather than merely unlikely. |
+| ID        | Story                                                                                                                                                                      |
+| --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **US-01** | As a recruiter, I want to see every action taken on one application in order, so that I can answer a candidate's dispute with facts instead of memory.                     |
+| **US-02** | As a recruiter, I want each entry to name the person who performed it, so that "who moved this candidate to Offer" is never a question I have to ask in Slack.             |
+| **US-03** | As a recruiter, I want an override's recorded reason to appear in the trace, so that a skipped stage is explained where it is discovered.                                  |
+| **US-04** | As a recruiter, I want to filter the trace by action, so that I can review every stage override performed this month without reading everything else.                      |
+| **US-05** | As an engineer, I want the audit write to share the transaction with the state change, so that a half-written history is impossible rather than merely unlikely.           |
 | **US-06** | As a security reviewer, I want to confirm the trace contains no candidate contact details, so that an audit feed does not become the leak the rest of the design prevents. |
 
 ---
@@ -162,6 +163,7 @@ this audit row, in the same transaction"* and mean something concrete.
 
   It lives in `src/modules/audit/audit.service.ts` and takes the **transaction client** as its first
   argument (D-3).
+
 - **FR-3.2** Every caller invokes it **inside** the `prisma.$transaction` that performs the state
   change. There is no call site that passes the global `prisma` client, and no call site outside a
   transaction.
@@ -172,7 +174,7 @@ this audit row, in the same transaction"* and mean something concrete.
   transaction aborts, and the state change rolls back with it (D-4, EC-04). **An action that could
   not be recorded did not happen.**
 - **FR-3.5** After a successful write, `recordAudit` logs `{ event: 'audit.recorded', action,
-  entityType, entityId, actorUserId }` at `info` — ids and enum values only, matching the shipped
+entityType, entityId, actorUserId }` at `info` — ids and enum values only, matching the shipped
   logging convention. It never logs `metadata`.
 
 ### FR-4 — Actions and their metadata
@@ -181,17 +183,17 @@ this audit row, in the same transaction"* and mean something concrete.
   migration even though eight of them are first written by a later feature (D-10) — one enum
   migration, not five.
 
-  | `action` | Written by | `entityType` | `entityId` | `metadata` |
-  |---|---|---|---|---|
-  | `CANDIDATE_STAGE_CHANGED` | pipeline | `APPLICATION` | application id | `{ fromStage, toStage }` |
-  | `STAGE_OVERRIDE_CREATED` | pipeline | `APPLICATION` | application id | `{ fromStage, toStage, reason, overrideId, skipped }` |
-  | `APPLICATION_OUTCOME_SET` | pipeline | `APPLICATION` | application id | `{ fromStatus, toStatus, atStage }` |
-  | `INTERVIEW_CREATED` | interviews | `INTERVIEW` | interview id | `{ applicationId, type, stage, scheduledAt }` |
-  | `INTERVIEWER_ASSIGNED` | interviews | `INTERVIEW` | interview id | `{ interviewerId }` |
-  | `INTERVIEWER_UNASSIGNED` | interviews | `INTERVIEW` | interview id | `{ interviewerId }` |
-  | `FEEDBACK_SUBMITTED` | feedback | `FEEDBACK` | feedback id | `{ interviewId, rating }` |
-  | `FEEDBACK_UPDATED` | feedback | `FEEDBACK` | feedback id | `{ interviewId, fromRating, toRating }` |
-  | `CANDIDATE_CONTACT_UPDATED` | candidates | `CANDIDATE` | candidate user id | `{ fields }` — the **names** of the changed fields, never their values |
+  | `action`                    | Written by | `entityType`  | `entityId`        | `metadata`                                                             |
+  | --------------------------- | ---------- | ------------- | ----------------- | ---------------------------------------------------------------------- |
+  | `CANDIDATE_STAGE_CHANGED`   | pipeline   | `APPLICATION` | application id    | `{ fromStage, toStage }`                                               |
+  | `STAGE_OVERRIDE_CREATED`    | pipeline   | `APPLICATION` | application id    | `{ fromStage, toStage, reason, overrideId, skipped }`                  |
+  | `APPLICATION_OUTCOME_SET`   | pipeline   | `APPLICATION` | application id    | `{ fromStatus, toStatus, atStage }`                                    |
+  | `INTERVIEW_CREATED`         | interviews | `INTERVIEW`   | interview id      | `{ applicationId, type, stage, scheduledAt }`                          |
+  | `INTERVIEWER_ASSIGNED`      | interviews | `INTERVIEW`   | interview id      | `{ interviewerId }`                                                    |
+  | `INTERVIEWER_UNASSIGNED`    | interviews | `INTERVIEW`   | interview id      | `{ interviewerId }`                                                    |
+  | `FEEDBACK_SUBMITTED`        | feedback   | `FEEDBACK`    | feedback id       | `{ interviewId, rating }`                                              |
+  | `FEEDBACK_UPDATED`          | feedback   | `FEEDBACK`    | feedback id       | `{ interviewId, fromRating, toRating }`                                |
+  | `CANDIDATE_CONTACT_UPDATED` | candidates | `CANDIDATE`   | candidate user id | `{ fields }` — the **names** of the changed fields, never their values |
 
 - **FR-4.2** `AuditEntityType` holds exactly `APPLICATION`, `INTERVIEW`, `FEEDBACK`, `CANDIDATE`.
 - **FR-4.3** `metadata` is `Json`, never null. An action with nothing to record writes `{}`; a null
@@ -325,14 +327,14 @@ the log field table — is `plan.md § Backend Changes`.** This section states o
 
 Query parameters:
 
-| Parameter | Type | Default | Notes |
-|---|---|---|---|
-| `entityType` | `APPLICATION` \| `INTERVIEW` \| `FEEDBACK` \| `CANDIDATE` | — | Optional |
-| `entityId` | positive integer | — | Optional; **requires `entityType`** |
-| `action` | one of the nine `AuditAction` values | — | Optional |
-| `actorId` | positive integer | — | Optional |
-| `page` | integer ≥ 1 | `1` | |
-| `pageSize` | integer 1–100 | `20` | `101` is a `400`, not a clamp |
+| Parameter    | Type                                                      | Default | Notes                               |
+| ------------ | --------------------------------------------------------- | ------- | ----------------------------------- |
+| `entityType` | `APPLICATION` \| `INTERVIEW` \| `FEEDBACK` \| `CANDIDATE` | —       | Optional                            |
+| `entityId`   | positive integer                                          | —       | Optional; **requires `entityType`** |
+| `action`     | one of the nine `AuditAction` values                      | —       | Optional                            |
+| `actorId`    | positive integer                                          | —       | Optional                            |
+| `page`       | integer ≥ 1                                               | `1`     |                                     |
+| `pageSize`   | integer 1–100                                             | `20`    | `101` is a `400`, not a clamp       |
 
 ```jsonc
 // 200 OK — GET /api/audit?entityType=APPLICATION&entityId=12
@@ -348,10 +350,10 @@ Query parameters:
         "toStage": "OFFER",
         "reason": "Candidate completed equivalent external screening.",
         "overrideId": 4,
-        "skipped": 1
+        "skipped": 1,
       },
       "createdAt": "2026-09-18T09:14:02.881Z",
-      "actor": { "id": 1, "name": "Rhea Recruiter", "role": "RECRUITER" }
+      "actor": { "id": 1, "name": "Rhea Recruiter", "role": "RECRUITER" },
     },
     {
       "id": 298,
@@ -360,10 +362,10 @@ Query parameters:
       "entityId": 12,
       "metadata": { "fromStage": "APPLIED", "toStage": "SCREEN" },
       "createdAt": "2026-09-16T11:02:40.117Z",
-      "actor": { "id": 1, "name": "Rhea Recruiter", "role": "RECRUITER" }
-    }
+      "actor": { "id": 1, "name": "Rhea Recruiter", "role": "RECRUITER" },
+    },
   ],
-  "pagination": { "page": 1, "pageSize": 20, "total": 2, "totalPages": 1 }
+  "pagination": { "page": 1, "pageSize": 20, "total": 2, "totalPages": 1 },
 }
 ```
 
@@ -372,17 +374,17 @@ Query parameters:
 {
   "code": "VALIDATION_ERROR",
   "message": "Invalid request body",
-  "details": { "entityId": ["Provide entityType when filtering by entityId"] }
+  "details": { "entityId": ["Provide entityType when filtering by entityId"] },
 }
 ```
 
-| Status | `code` | When |
-|---|---|---|
-| `200` | — | Success, including an empty page |
-| `400` | `VALIDATION_ERROR` | Unknown `action`/`entityType`, non-numeric `entityId`/`actorId`/`page`, `pageSize` > 100, or `entityId` without `entityType` |
-| `401` | `UNAUTHENTICATED` | No token, malformed header, expired or invalid token, deleted user |
-| `403` | `FORBIDDEN` | Authenticated as `CANDIDATE` or `INTERVIEWER` |
-| `500` | `INTERNAL_ERROR` | Anything unhandled |
+| Status | `code`             | When                                                                                                                         |
+| ------ | ------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
+| `200`  | —                  | Success, including an empty page                                                                                             |
+| `400`  | `VALIDATION_ERROR` | Unknown `action`/`entityType`, non-numeric `entityId`/`actorId`/`page`, `pageSize` > 100, or `entityId` without `entityType` |
+| `401`  | `UNAUTHENTICATED`  | No token, malformed header, expired or invalid token, deleted user                                                           |
+| `403`  | `FORBIDDEN`        | Authenticated as `CANDIDATE` or `INTERVIEWER`                                                                                |
+| `500`  | `INTERNAL_ERROR`   | Anything unhandled                                                                                                           |
 
 ### Contract invariants — what must appear in **zero** responses
 
@@ -496,7 +498,7 @@ model User {
   and the reason the endpoint paginates rather than returning everything (D-9).
 - **MIG-7** No backfill. There is no history before this table exists, and inventing rows for past
   state changes would produce a trace that is false in exactly the way the feature exists to
-  prevent. The pipeline feature backfills `StageHistory` for *ageing*, which is a different
+  prevent. The pipeline feature backfills `StageHistory` for _ageing_, which is a different
   question; it does **not** backfill `AuditLog`.
 
 ---
@@ -505,9 +507,9 @@ model User {
 
 ### Endpoint × role matrix
 
-| Endpoint | Anonymous | Candidate | Interviewer | Recruiter |
-|---|---|---|---|---|
-| `GET /api/audit` | `401` | **`403`** | **`403`** | ✅ |
+| Endpoint         | Anonymous | Candidate | Interviewer | Recruiter |
+| ---------------- | --------- | --------- | ----------- | --------- |
+| `GET /api/audit` | `401`     | **`403`** | **`403`**   | ✅        |
 
 ### Non-negotiable rules
 
@@ -537,15 +539,15 @@ model User {
 All query parameters on `GET /api/audit`, via `listAuditQuerySchema` and the shipped
 `validateQuery` middleware.
 
-| Field | Where | Rule | Failure |
-|---|---|---|---|
-| `entityType` | query | `z.enum(AuditEntityType)`, optional | `400` `details.entityType` |
-| `entityId` | query | `z.coerce.number().int().positive()`, optional | `400` `details.entityId` |
-| `action` | query | `z.enum(AuditAction)`, optional | `400` `details.action` |
-| `actorId` | query | `z.coerce.number().int().positive()`, optional | `400` `details.actorId` |
-| `page` | query | `z.coerce.number().int().min(1).default(1)` | `400` `details.page` |
-| `pageSize` | query | `z.coerce.number().int().min(1).max(100).default(20)` | `400` `details.pageSize` |
-| — | query | `.refine(entityId === undefined \|\| entityType !== undefined)` | `400` `details.entityId` |
+| Field        | Where | Rule                                                            | Failure                    |
+| ------------ | ----- | --------------------------------------------------------------- | -------------------------- |
+| `entityType` | query | `z.enum(AuditEntityType)`, optional                             | `400` `details.entityType` |
+| `entityId`   | query | `z.coerce.number().int().positive()`, optional                  | `400` `details.entityId`   |
+| `action`     | query | `z.enum(AuditAction)`, optional                                 | `400` `details.action`     |
+| `actorId`    | query | `z.coerce.number().int().positive()`, optional                  | `400` `details.actorId`    |
+| `page`       | query | `z.coerce.number().int().min(1).default(1)`                     | `400` `details.page`       |
+| `pageSize`   | query | `z.coerce.number().int().min(1).max(100).default(20)`           | `400` `details.pageSize`   |
+| —            | query | `.refine(entityId === undefined \|\| entityType !== undefined)` | `400` `details.entityId`   |
 
 - **VAL-1** Validation runs **after** `requireAuth` and `requireRole` (BE-3), so a candidate sending
   a malformed query gets `403` and learns nothing about the query contract.
@@ -553,7 +555,7 @@ All query parameters on `GET /api/audit`, via `listAuditQuerySchema` and the shi
   where the same decision was taken and for the same reason: a clamped page size makes the client's
   pagination arithmetic silently wrong.
 - **VAL-3** `?entityId=12` with no `entityType` is a `400`, not an unfiltered result. An entity id
-  is ambiguous across four tables; returning application 12's trace *and* interview 12's trace
+  is ambiguous across four tables; returning application 12's trace _and_ interview 12's trace
   because the caller forgot a parameter is worse than refusing.
 - **VAL-4** `?action=BANANA` is a `400` before any service runs. The brief requires bad input to be
   rejected before business logic (§6), and a zod enum at the route boundary is where that happens.
@@ -571,12 +573,12 @@ The shipped envelope, unchanged — flat, no `error` wrapper:
 { "code": "VALIDATION_ERROR", "message": "Invalid request body", "details": { "field": ["…"] } }
 ```
 
-| `code` | Status | Raised when | New? |
-|---|---|---|---|
-| `VALIDATION_ERROR` | `400` | Any rule in the Validation table fails (`details` set) | no |
-| `UNAUTHENTICATED` | `401` | No/invalid/expired token, or the user row is gone | no |
-| `FORBIDDEN` | `403` | Authenticated as `CANDIDATE` or `INTERVIEWER` | no |
-| `INTERNAL_ERROR` | `500` | Anything unhandled, including a failed audit write | no |
+| `code`             | Status | Raised when                                            | New? |
+| ------------------ | ------ | ------------------------------------------------------ | ---- |
+| `VALIDATION_ERROR` | `400`  | Any rule in the Validation table fails (`details` set) | no   |
+| `UNAUTHENTICATED`  | `401`  | No/invalid/expired token, or the user row is gone      | no   |
+| `FORBIDDEN`        | `403`  | Authenticated as `CANDIDATE` or `INTERVIEWER`          | no   |
+| `INTERNAL_ERROR`   | `500`  | Anything unhandled, including a failed audit write     | no   |
 
 **This feature adds no new error code.** That is worth stating: an audit failure is not a client
 error and has no client remedy, so it surfaces as `500` like any other internal fault.
@@ -592,26 +594,26 @@ error and has no client remedy, so it surfaces as `500` like any other internal 
   `404`. A `404` would mean "this entity does not exist", which this endpoint cannot determine and
   must not imply.
 - **ERR-4** Errors are never swallowed. [../../../CLAUDE.md](../../../CLAUDE.md) states it and this
-  feature is the reason it matters: *"an audit trail is only useful if failures are visible too."*
+  feature is the reason it matters: _"an audit trail is only useful if failures are visible too."_
 
 ---
 
 ## Edge Cases
 
-| ID | Case | Behaviour |
-|---|---|---|
-| **EC-01** | The state change commits but the audit insert fails | Impossible by construction. Both are in one `prisma.$transaction`; the insert's failure rolls the change back (FR-3.4) |
-| **EC-02** | The audit insert commits but the state change fails | Same answer, same reason. One transaction, both or neither |
-| **EC-03** | A caller invokes `recordAudit` with the global `prisma` instead of `tx` | A type error: the parameter is `Prisma.TransactionClient`, which `PrismaClient` does not satisfy in the position used. The mistake does not compile (FR-3.1) |
-| **EC-04** | A caller writes `STAGE_OVERRIDE_CREATED` without a `reason` in metadata | A type error. `AuditEntry` is a discriminated union over `action` (FR-3.3) |
-| **EC-05** | Two actions on the same entity commit at the same instant | Both rows persist. `AuditLog` has no unique constraint and nothing to contend on; `id` and `createdAt` order them, with `id` as the tiebreak when timestamps collide (FR-5.1) |
-| **EC-06** | `entityId` points at a row that has since been deleted | The entry still returns, with its `entityId` intact. The trace outlives the entity **by design** (FR-1.5, SEC-4) |
-| **EC-07** | Someone tries to delete a recruiter who has audit rows | Postgres raises `P2003` from `onDelete: Restrict`. There is no user-deletion endpoint, so this is unreachable over HTTP; it is recorded because a future one must anonymise, not delete (MIG-4) |
-| **EC-08** | `?page=999` on a 2-row table | `200`, `entries: []`, `pagination: { page: 999, pageSize: 20, total: 2, totalPages: 1 }`. Matching the shipped roles behaviour — an empty page past the end, not an error |
-| **EC-09** | `total` is 0 | `totalPages` is `0`, not `1` — `Math.ceil(0 / 20)`, matching `roles.service` |
-| **EC-10** | A `metadata` object contains a key the client does not know | Returned verbatim. The client renders it defensively (XFE-4); the API does not filter its own metadata to match a client's expectations |
-| **EC-11** | The seed is run twice | The audit rows are rewritten in the same delete-then-create block that owns the seeded applications (FR-7.2). No duplicates |
-| **EC-12** | An interviewer guesses `/api/audit?actorId=<their own id>` | `403`. The guard is on the route, not on the filter; there is no self-scoped read (AZ-3) |
+| ID        | Case                                                                    | Behaviour                                                                                                                                                                                       |
+| --------- | ----------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **EC-01** | The state change commits but the audit insert fails                     | Impossible by construction. Both are in one `prisma.$transaction`; the insert's failure rolls the change back (FR-3.4)                                                                          |
+| **EC-02** | The audit insert commits but the state change fails                     | Same answer, same reason. One transaction, both or neither                                                                                                                                      |
+| **EC-03** | A caller invokes `recordAudit` with the global `prisma` instead of `tx` | A type error: the parameter is `Prisma.TransactionClient`, which `PrismaClient` does not satisfy in the position used. The mistake does not compile (FR-3.1)                                    |
+| **EC-04** | A caller writes `STAGE_OVERRIDE_CREATED` without a `reason` in metadata | A type error. `AuditEntry` is a discriminated union over `action` (FR-3.3)                                                                                                                      |
+| **EC-05** | Two actions on the same entity commit at the same instant               | Both rows persist. `AuditLog` has no unique constraint and nothing to contend on; `id` and `createdAt` order them, with `id` as the tiebreak when timestamps collide (FR-5.1)                   |
+| **EC-06** | `entityId` points at a row that has since been deleted                  | The entry still returns, with its `entityId` intact. The trace outlives the entity **by design** (FR-1.5, SEC-4)                                                                                |
+| **EC-07** | Someone tries to delete a recruiter who has audit rows                  | Postgres raises `P2003` from `onDelete: Restrict`. There is no user-deletion endpoint, so this is unreachable over HTTP; it is recorded because a future one must anonymise, not delete (MIG-4) |
+| **EC-08** | `?page=999` on a 2-row table                                            | `200`, `entries: []`, `pagination: { page: 999, pageSize: 20, total: 2, totalPages: 1 }`. Matching the shipped roles behaviour — an empty page past the end, not an error                       |
+| **EC-09** | `total` is 0                                                            | `totalPages` is `0`, not `1` — `Math.ceil(0 / 20)`, matching `roles.service`                                                                                                                    |
+| **EC-10** | A `metadata` object contains a key the client does not know             | Returned verbatim. The client renders it defensively (XFE-4); the API does not filter its own metadata to match a client's expectations                                                         |
+| **EC-11** | The seed is run twice                                                   | The audit rows are rewritten in the same delete-then-create block that owns the seeded applications (FR-7.2). No duplicates                                                                     |
+| **EC-12** | An interviewer guesses `/api/audit?actorId=<their own id>`              | `403`. The guard is on the route, not on the filter; there is no self-scoped read (AZ-3)                                                                                                        |
 
 ---
 
@@ -770,17 +772,17 @@ candidate's — all from `npm run db:seed`.
 
 ## Out of Scope
 
-| Excluded | Why |
-|---|---|
-| A candidate-facing view of their own trace | Requires deciding what a candidate may see of a recruiter's reasoning — a product question this POC does not answer (Actors) |
-| Tamper-evidence (hash chain, append-only grants) | Stated as an accepted gap (SEC-8a) rather than half-built; a partial integrity scheme is worse than an honest absence |
-| Retention, archival or partitioning | The table grows forever and that is fine at POC scale (SEC-8b) |
-| CSV / JSON export of the trace | A reporting feature; the brief asks for a trace, not a reporting tool |
-| Diffing arbitrary before/after column values | `metadata` records the specific fields each action changes (FR-4.1). A generic diff engine would capture columns the feed must not carry |
-| Auditing reads | The brief asks for state changes. Logging every read would multiply the table's growth by an order of magnitude and record nothing a reviewer asked for |
-| Auditing authentication events | `auth.login.success` and friends are already pino events and are an operations concern, not a hiring-decision one |
-| Backfilling history for pre-existing rows | There is no history before this table; invented rows would be false in exactly the way the feature prevents (MIG-7) |
-| A `hiringManager` actor | Optional in the brief (§2) and absent from the requirements this pass covers |
+| Excluded                                         | Why                                                                                                                                                     |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A candidate-facing view of their own trace       | Requires deciding what a candidate may see of a recruiter's reasoning — a product question this POC does not answer (Actors)                            |
+| Tamper-evidence (hash chain, append-only grants) | Stated as an accepted gap (SEC-8a) rather than half-built; a partial integrity scheme is worse than an honest absence                                   |
+| Retention, archival or partitioning              | The table grows forever and that is fine at POC scale (SEC-8b)                                                                                          |
+| CSV / JSON export of the trace                   | A reporting feature; the brief asks for a trace, not a reporting tool                                                                                   |
+| Diffing arbitrary before/after column values     | `metadata` records the specific fields each action changes (FR-4.1). A generic diff engine would capture columns the feed must not carry                |
+| Auditing reads                                   | The brief asks for state changes. Logging every read would multiply the table's growth by an order of magnitude and record nothing a reviewer asked for |
+| Auditing authentication events                   | `auth.login.success` and friends are already pino events and are an operations concern, not a hiring-decision one                                       |
+| Backfilling history for pre-existing rows        | There is no history before this table; invented rows would be false in exactly the way the feature prevents (MIG-7)                                     |
+| A `hiringManager` actor                          | Optional in the brief (§2) and absent from the requirements this pass covers                                                                            |
 
 ---
 
@@ -803,23 +805,23 @@ features already in use.
 
 **New files**
 
-| Path | Purpose |
-|---|---|
-| `src/modules/audit/audit.service.ts` | `recordAudit` (write) + `listAuditEntries` (read) |
-| `src/modules/audit/audit.controller.ts` | HTTP concerns only |
-| `src/modules/audit/audit.routes.ts` | One route, guarded per BE-3 |
-| `src/modules/audit/audit.schema.ts` | `listAuditQuerySchema` |
-| `src/modules/audit/audit.select.ts` | `AUDIT_SELECT` |
+| Path                                    | Purpose                                           |
+| --------------------------------------- | ------------------------------------------------- |
+| `src/modules/audit/audit.service.ts`    | `recordAudit` (write) + `listAuditEntries` (read) |
+| `src/modules/audit/audit.controller.ts` | HTTP concerns only                                |
+| `src/modules/audit/audit.routes.ts`     | One route, guarded per BE-3                       |
+| `src/modules/audit/audit.schema.ts`     | `listAuditQuerySchema`                            |
+| `src/modules/audit/audit.select.ts`     | `AUDIT_SELECT`                                    |
 
 **Modified existing files**
 
-| Path | Change |
-|---|---|
-| [`prisma/schema.prisma`](../../../prisma/schema.prisma) | Two enums, one model, one back-relation on `User` |
-| [`src/app.ts`](../../../src/app.ts) | Mount `auditRouter` at `/api/audit` |
-| [`src/lib/logger.ts`](../../../src/lib/logger.ts) | `redact` gains `reason`, `*.reason` (FR-8.3) |
-| [`prisma/seed.ts`](../../../prisma/seed.ts) | Seed audit rows for the existing seeded applications (FR-7) |
-| [`CLAUDE.md`](../../../CLAUDE.md) | Feature table row; the "Domain model to build out" audit bullet now points here |
+| Path                                                    | Change                                                                          |
+| ------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| [`prisma/schema.prisma`](../../../prisma/schema.prisma) | Two enums, one model, one back-relation on `User`                               |
+| [`src/app.ts`](../../../src/app.ts)                     | Mount `auditRouter` at `/api/audit`                                             |
+| [`src/lib/logger.ts`](../../../src/lib/logger.ts)       | `redact` gains `reason`, `*.reason` (FR-8.3)                                    |
+| [`prisma/seed.ts`](../../../prisma/seed.ts)             | Seed audit rows for the existing seeded applications (FR-7)                     |
+| [`CLAUDE.md`](../../../CLAUDE.md)                       | Feature table row; the "Domain model to build out" audit bullet now points here |
 
 **External services:** none.
 

@@ -11,6 +11,7 @@ import { errorHandler } from './middleware/errorHandler.js';
 import { notFound } from './middleware/notFound.js';
 import { requestId } from './middleware/requestId.js';
 import { applicationsRouter } from './modules/applications/applications.routes.js';
+import { auditRouter } from './modules/audit/audit.routes.js';
 import { authRouter } from './modules/auth/auth.routes.js';
 import { rolesRouter } from './modules/roles/roles.routes.js';
 import { usersRouter } from './modules/users/users.routes.js';
@@ -57,6 +58,10 @@ app.use('/api/roles', rolesRouter);
 // Two routes, both CANDIDATE-only. `GET /api/applications/:id` is deliberately
 // not among them and therefore falls through to `notFound` (FR-6.8, EC-09).
 app.use('/api/applications', applicationsRouter);
+// One RECRUITER-only GET. There is no PATCH, DELETE or `/:id` on this router:
+// an audit row is never updated or deleted, so those paths fall through to
+// `notFound` and answer 404 (audit spec FR-6.1, AZ-4).
+app.use('/api/audit', auditRouter);
 
 // Last, and in this order: every unmatched path must reach `notFound` before
 // the error handler renders it.

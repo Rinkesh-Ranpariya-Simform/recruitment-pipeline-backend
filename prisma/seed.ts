@@ -1,6 +1,8 @@
 import { env } from '../src/config/env.js';
 import {
   ApplicationStatus,
+  AuditAction,
+  AuditEntityType,
   PipelineStage,
   RoleStatus,
   UserRole,
@@ -9,6 +11,8 @@ import { logger } from '../src/lib/logger.js';
 import { hashPassword } from '../src/lib/password.js';
 import { disconnect, prisma } from '../src/lib/prisma.js';
 import { APPLICATION_SELECT } from '../src/modules/applications/application.select.js';
+import { recordAudit } from '../src/modules/audit/audit.service.js';
+import type { AuditEntry } from '../src/modules/audit/audit.service.js';
 import { ROLE_SELECT } from '../src/modules/roles/role.select.js';
 import { SAFE_USER_SELECT } from '../src/modules/users/user.select.js';
 
@@ -33,6 +37,17 @@ const SEED_ACCOUNTS = [
 
 /** The candidate whose applications are seeded below. */
 const SEED_CANDIDATE_EMAIL = 'candidate@demo.test';
+
+/**
+ * The actor on every seeded audit row (audit spec FR-2.3, FR-7.2).
+ *
+ * The seed is the SINGLE exception to "the actor is always `req.user.id`"
+ * (FR-2.1) and the SINGLE writer that calls `recordAudit` outside an HTTP
+ * request (FR-7.3) - the second exception this file carries, alongside the
+ * check-then-write note on the role loop above. A demo database with an empty
+ * audit table teaches the wrong thing about the feature.
+ */
+const SEED_AUDIT_ACTOR_EMAIL = 'recruiter@demo.test';
 
 /**
  * Demo applications for that candidate (FR-10.2, FR-10.3).
@@ -68,6 +83,91 @@ const SEED_APPLICATIONS = [
     status: ApplicationStatus.REJECTED,
     currentStage: PipelineStage.SCREEN,
     daysAgo: 30,
+  },
+] as const;
+
+/**
+ * The audit trace for each seeded application (audit spec FR-7.1).
+ *
+ * These are the rows that EXPLAIN the seeded state rather than inventing a
+ * separate history: `SEED_APPLICATIONS` already places one application at
+ * `INTERVIEW` and one at `REJECTED`/`SCREEN`, which no API path can produce
+ * yet, and a trace that does not account for how they got there is worse than
+ * no trace. This is not a backfill of real history - there is none (MIG-7) -
+ * it is the demo state described in the demo table.
+ *
+ * Keyed by role title, matching `SEED_APPLICATIONS`, because `Role.id` and
+ * `Application.id` are not stable across a reseed.
+ *
+ * Listed in CHRONOLOGICAL order and inserted in that order. Every seeded row
+ * shares roughly one `createdAt` - `recordAudit` takes no timestamp, because
+ * the column is the database's `now()` and never a caller's (FR-1.6) - so the
+ * feed's `id desc` tiebreak is what actually orders them (FR-5.1). Inserting
+ * oldest-first is therefore what makes the newest-first feed read correctly.
+ *
+ * "Product Designer" appears here with NO entries, deliberately: it is the
+ * application that proves an entity with no trace answers `200 { entries: [] }`
+ * rather than a 404 (AC-B06).
+ */
+type SeedAuditEntry<Entry = Extract<AuditEntry, { entityType: 'APPLICATION' }>> =
+  // DISTRIBUTIVE on purpose. A bare `Omit<Union, K>` collapses the union into
+  // one object whose `action` is every literal at once, which then matches no
+  // member of `AuditEntry` - the discriminated union's whole guarantee (FR-3.3)
+  // is lost exactly where the seed most needs it. The naked type parameter is
+  // what keeps each variant separate through the omission.
+  Entry extends unknown ? Omit<Entry, 'actorUserId' | 'entityId' | 'entityType'> : never;
+
+const SEED_AUDIT: ReadonlyArray<{
+  roleTitle: string;
+  entries: ReadonlyArray<SeedAuditEntry>;
+}> = [
+  {
+    roleTitle: 'Senior Backend Engineer',
+    entries: [
+      {
+        action: AuditAction.CANDIDATE_STAGE_CHANGED,
+        metadata: { fromStage: PipelineStage.APPLIED, toStage: PipelineStage.SCREEN },
+      },
+      {
+        action: AuditAction.CANDIDATE_STAGE_CHANGED,
+        metadata: { fromStage: PipelineStage.SCREEN, toStage: PipelineStage.INTERVIEW },
+      },
+    ],
+  },
+  {
+    roleTitle: 'Engineering Manager',
+    entries: [
+      /**
+       * The one seeded override, and the only free text anywhere in the seeded
+       * trace (FR-4.5, AC-B25). Without it there is no `reason` in the database
+       * to check that claim against, and the recruiter feed has nothing to show
+       * for the brief's section 3.3 requirement.
+       *
+       * KNOWN PLACEHOLDER: `overrideId` names a `StageOverride` row that does
+       * not exist yet - that table arrives with the pipeline feature, which
+       * owns this action (FR-4.1). `entityId` on the row itself is a real
+       * application. When pipeline ships, this entry must be rewritten to
+       * create the real override row and use its id.
+       */
+      {
+        action: AuditAction.STAGE_OVERRIDE_CREATED,
+        metadata: {
+          fromStage: PipelineStage.APPLIED,
+          toStage: PipelineStage.SCREEN,
+          reason: 'Candidate completed an equivalent external screening; skipping ours.',
+          overrideId: 1,
+          skipped: 0,
+        },
+      },
+      {
+        action: AuditAction.APPLICATION_OUTCOME_SET,
+        metadata: {
+          fromStatus: ApplicationStatus.ACTIVE,
+          toStatus: ApplicationStatus.REJECTED,
+          atStage: PipelineStage.SCREEN,
+        },
+      },
+    ],
   },
 ] as const;
 
@@ -178,10 +278,52 @@ async function main(): Promise<void> {
     select: { id: true },
   });
 
+  const auditActor = await prisma.user.findUnique({
+    where: { email: SEED_AUDIT_ACTOR_EMAIL },
+    select: { id: true },
+  });
+
   if (candidate === null) {
     throw new Error(
       `Seeded candidate ${SEED_CANDIDATE_EMAIL} is missing — account seeding failed.`,
     );
+  }
+
+  if (auditActor === null) {
+    throw new Error(
+      `Seeded audit actor ${SEED_AUDIT_ACTOR_EMAIL} is missing — account seeding failed.`,
+    );
+  }
+
+  // The seeded applications' audit rows go FIRST, before the applications
+  // themselves are deleted, because the ids are the only thing linking them:
+  // `AuditLog.entityId` is deliberately not a foreign key (FR-1.5), so nothing
+  // in the database would clean these up on its own.
+  //
+  // Scoped to exactly the application ids about to be removed - not to
+  // `entityType: APPLICATION` wholesale, and not to the recruiter's rows -
+  // so a reseed cannot erase a trace this seed did not write (FR-7.2, EC-11).
+  // This is the ONLY code path in the repository that deletes an audit row,
+  // and it is a local reset script, not a request path (FR-6.1).
+  const doomed = await prisma.application.findMany({
+    where: { candidateUserId: candidate.id },
+    select: { id: true },
+  });
+
+  if (doomed.length > 0) {
+    const clearedAudit = await prisma.auditLog.deleteMany({
+      where: {
+        entityType: AuditEntityType.APPLICATION,
+        entityId: { in: doomed.map((application) => application.id) },
+      },
+    });
+
+    if (clearedAudit.count > 0) {
+      logger.info(
+        { event: 'audit.seed_cleared', count: clearedAudit.count, source: 'seed' },
+        'cleared previously seeded audit entries',
+      );
+    }
   }
 
   const removed = await prisma.application.deleteMany({
@@ -209,16 +351,43 @@ async function main(): Promise<void> {
     // rather than three identical timestamps.
     const at = new Date(Date.now() - seed.daysAgo * 24 * 60 * 60 * 1000);
 
-    const application = await prisma.application.create({
-      data: {
-        candidateUserId: candidate.id,
-        roleId: role.id,
-        status: seed.status,
-        currentStage: seed.currentStage,
-        stageEnteredAt: at,
-        createdAt: at,
-      },
-      select: APPLICATION_SELECT,
+    // The application and its trace are written in ONE transaction, the same
+    // rule every request path will follow (audit FR-3.2): a seeded application
+    // with half a history is the exact state the feature exists to make
+    // impossible, and a seed that can produce it is a seed that misrepresents
+    // the invariant.
+    const application = await prisma.$transaction(async (tx) => {
+      const created = await tx.application.create({
+        data: {
+          candidateUserId: candidate.id,
+          roleId: role.id,
+          status: seed.status,
+          currentStage: seed.currentStage,
+          stageEnteredAt: at,
+          createdAt: at,
+        },
+        select: APPLICATION_SELECT,
+      });
+
+      const trace = SEED_AUDIT.find((entry) => entry.roleTitle === seed.roleTitle);
+
+      for (const entry of trace?.entries ?? []) {
+        // `recordAudit`, not a direct `tx.auditLog.create` - the seed is the one
+        // writer outside a request, but it is still not allowed its own second
+        // way of creating a row (FR-3.1, FR-7.3).
+        await recordAudit(
+          tx,
+          {
+            ...entry,
+            entityType: AuditEntityType.APPLICATION,
+            entityId: created.id,
+            actorUserId: auditActor.id,
+          },
+          logger,
+        );
+      }
+
+      return created;
     });
 
     logger.info(
@@ -245,6 +414,7 @@ try {
       accounts: SEED_ACCOUNTS.length,
       roles: SEED_ROLES.length,
       applications: SEED_APPLICATIONS.length,
+      auditEntries: SEED_AUDIT.reduce((count, trace) => count + trace.entries.length, 0),
     },
     'seed complete',
   );

@@ -65,7 +65,7 @@ It exists now. `GET /api/pipeline/summary` gains a seventh field, `interviews` �
 render a tile for the field.
 
 **Why it is being overridden:** the walkthrough's recruiter dashboard shows four tiles —
-*Open Jobs · Total Applicants · Interviews · Offers* — and the third was deferred only because of
+_Open Jobs · Total Applicants · Interviews · Offers_ — and the third was deferred only because of
 build order, never on merit.
 
 **What makes it safe:** one additional indexed `count` in the existing `$transaction`, served by
@@ -82,44 +82,44 @@ become seven). The frontend counterpart is revised in the same pass.
 
 ### Current state of `backend/`
 
-|                | Today, assuming audit and pipeline have shipped |
-| -------------- | ------ |
-| `Application` | `{ id, candidateUserId, roleId, status, currentStage, stageEnteredAt, … }` — one per candidate per role |
-| Stage rules | `modules/pipeline/pipeline.rules.ts` owns `STAGE_ORDER` and both transition maps |
-| Audit | `recordAudit(tx, entry, log)`; `INTERVIEW_CREATED`, `INTERVIEWER_ASSIGNED`, `INTERVIEWER_UNASSIGNED` are already declared in `AuditAction` (audit MIG-3) |
-| Users | `GET /api/users` returns interviewers only, recruiter-gated. **It has no frontend caller today** — this feature gives it one |
-| Role-aware reads | One precedent: `buildRoleWhere(query, actorRole)` in `roles.service.ts`, which forces `status: OPEN` into a non-recruiter's `where` for the page, the pager's `count` **and** the single read |
-| Interviews | **none.** No model, no endpoint, no assignment table |
-| `/my-interviews` (frontend) | A placeholder page that is also the interviewer's landing route |
+|                             | Today, assuming audit and pipeline have shipped                                                                                                                                               |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Application`               | `{ id, candidateUserId, roleId, status, currentStage, stageEnteredAt, … }` — one per candidate per role                                                                                       |
+| Stage rules                 | `modules/pipeline/pipeline.rules.ts` owns `STAGE_ORDER` and both transition maps                                                                                                              |
+| Audit                       | `recordAudit(tx, entry, log)`; `INTERVIEW_CREATED`, `INTERVIEWER_ASSIGNED`, `INTERVIEWER_UNASSIGNED` are already declared in `AuditAction` (audit MIG-3)                                      |
+| Users                       | `GET /api/users` returns interviewers only, recruiter-gated. **It has no frontend caller today** — this feature gives it one                                                                  |
+| Role-aware reads            | One precedent: `buildRoleWhere(query, actorRole)` in `roles.service.ts`, which forces `status: OPEN` into a non-recruiter's `where` for the page, the pager's `count` **and** the single read |
+| Interviews                  | **none.** No model, no endpoint, no assignment table                                                                                                                                          |
+| `/my-interviews` (frontend) | A placeholder page that is also the interviewer's landing route                                                                                                                               |
 
 ### Decisions settled during the interview
 
-| # | Question | Decision | Recorded in |
-|---|---|---|---|
-| D-1 | Is a round tied to an application or to a candidate? | **An application.** A person may be in flight for two roles; a round belongs to one of them | FR-1.2 |
-| D-2 | Who creates rounds? | **Recruiters only** | AZ-2 |
-| D-3 | Who assigns interviewers? | **Recruiters only.** An interviewer cannot add themselves to a round, which would defeat the whole scoping model | AZ-3 |
-| D-4 | Multiple interviewers per round? | **Yes** — the panel case the brief's §3.4 depends on. `InterviewAssignment` is a join table, not a column on `Interview` | FR-3.1 |
-| D-5 | Duplicate assignment? | **`@@unique([interviewId, interviewerId])`.** The second attempt is a `409` from `P2002`, never a preceding `findFirst` | FR-3.4, EC-01 |
-| D-6 | Can a non-interviewer be assigned? | **No.** `400 NOT_AN_INTERVIEWER`, resolved by a `findFirst({ where: { id, role: INTERVIEWER } })` — the constraint is in the lookup, not in an `if` after it | FR-3.3 |
-| D-7 | One interviews list endpoint or two? | **One**, role-aware, following the shipped `buildRoleWhere` precedent exactly. Two endpoints returning the same rows under different guards is two places for the rule to rot | FR-4, BE-3 |
-| D-8 | What does an interviewer see of the candidate on a round? | **`{ id, name }` and nothing else.** No email, no phone — and the select never names them, so there is nothing to strip | FR-5.3, SEC-1 |
-| D-9 | Unassigned interviewer requests a round by id? | **`404`**, from the same query that would have returned it. Not `403` — a `403` confirms the round exists | FR-4.6, ERR-2 |
-| D-10 | Unassignment: hard delete or soft? | **Hard delete.** The `AuditLog` row is the record that it happened; a soft-delete column would be a second, weaker record of the same fact | FR-3.6, MIG-5 |
-| D-11 | Can a round be rescheduled or cancelled? | **Cancelled, yes** — `status` is an enum with `CANCELLED`. **Rescheduling is out of scope**; there is no `PATCH` on an interview in this pass | Out of Scope |
-| D-12 | Must the application be `ACTIVE` to schedule a round? | **Yes.** `409 APPLICATION_NOT_ACTIVE`, reusing the code the pipeline feature added | FR-1.6 |
-| D-13 | Must `Interview.stage` match the application's current stage? | **No.** A recruiter may schedule a round ahead of the move. The stage on the round is what it is *for*, not an assertion about now | FR-1.4 |
+| #    | Question                                                      | Decision                                                                                                                                                                      | Recorded in   |
+| ---- | ------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------- |
+| D-1  | Is a round tied to an application or to a candidate?          | **An application.** A person may be in flight for two roles; a round belongs to one of them                                                                                   | FR-1.2        |
+| D-2  | Who creates rounds?                                           | **Recruiters only**                                                                                                                                                           | AZ-2          |
+| D-3  | Who assigns interviewers?                                     | **Recruiters only.** An interviewer cannot add themselves to a round, which would defeat the whole scoping model                                                              | AZ-3          |
+| D-4  | Multiple interviewers per round?                              | **Yes** — the panel case the brief's §3.4 depends on. `InterviewAssignment` is a join table, not a column on `Interview`                                                      | FR-3.1        |
+| D-5  | Duplicate assignment?                                         | **`@@unique([interviewId, interviewerId])`.** The second attempt is a `409` from `P2002`, never a preceding `findFirst`                                                       | FR-3.4, EC-01 |
+| D-6  | Can a non-interviewer be assigned?                            | **No.** `400 NOT_AN_INTERVIEWER`, resolved by a `findFirst({ where: { id, role: INTERVIEWER } })` — the constraint is in the lookup, not in an `if` after it                  | FR-3.3        |
+| D-7  | One interviews list endpoint or two?                          | **One**, role-aware, following the shipped `buildRoleWhere` precedent exactly. Two endpoints returning the same rows under different guards is two places for the rule to rot | FR-4, BE-3    |
+| D-8  | What does an interviewer see of the candidate on a round?     | **`{ id, name }` and nothing else.** No email, no phone — and the select never names them, so there is nothing to strip                                                       | FR-5.3, SEC-1 |
+| D-9  | Unassigned interviewer requests a round by id?                | **`404`**, from the same query that would have returned it. Not `403` — a `403` confirms the round exists                                                                     | FR-4.6, ERR-2 |
+| D-10 | Unassignment: hard delete or soft?                            | **Hard delete.** The `AuditLog` row is the record that it happened; a soft-delete column would be a second, weaker record of the same fact                                    | FR-3.6, MIG-5 |
+| D-11 | Can a round be rescheduled or cancelled?                      | **Cancelled, yes** — `status` is an enum with `CANCELLED`. **Rescheduling is out of scope**; there is no `PATCH` on an interview in this pass                                 | Out of Scope  |
+| D-12 | Must the application be `ACTIVE` to schedule a round?         | **Yes.** `409 APPLICATION_NOT_ACTIVE`, reusing the code the pipeline feature added                                                                                            | FR-1.6        |
+| D-13 | Must `Interview.stage` match the application's current stage? | **No.** A recruiter may schedule a round ahead of the move. The stage on the round is what it is _for_, not an assertion about now                                            | FR-1.4        |
 
 ---
 
 ## Users / Actors
 
-| Actor | May do, after this feature |
-|---|---|
-| Anonymous | Nothing. `401` everywhere |
-| Candidate | Nothing. `403` — including on rounds scheduled for their own application |
+| Actor       | May do, after this feature                                                          |
+| ----------- | ----------------------------------------------------------------------------------- |
+| Anonymous   | Nothing. `401` everywhere                                                           |
+| Candidate   | Nothing. `403` — including on rounds scheduled for their own application            |
 | Interviewer | List **their own** assigned rounds; read one **assigned** round by id. Nothing else |
-| Recruiter | Create rounds, list all rounds, read any round, assign and unassign interviewers |
+| Recruiter   | Create rounds, list all rounds, read any round, assign and unassign interviewers    |
 
 **Deliberate POC trade-offs, so they are not read as oversights:**
 
@@ -139,15 +139,15 @@ become seven). The frontend counterpart is revised in the same pass.
 
 ## User Stories
 
-| ID | Story |
-|---|---|
+| ID        | Story                                                                                                                                                               |
+| --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **US-01** | As a recruiter, I want to schedule a typed round against an application, so that "Technical, Sep 18" is a record rather than a calendar invite nobody else can see. |
-| **US-02** | As a recruiter, I want to put two interviewers on one round, so that a panel is representable. |
-| **US-03** | As a recruiter, I want a duplicate assignment refused, so that a double-click does not produce two rows and two feedback slots. |
-| **US-04** | As a recruiter, I want to remove an interviewer from a round, so that a reassignment is possible, and I want the removal recorded. |
-| **US-05** | As an interviewer, I want to open my own list and see exactly the rounds I am on, so that I do not have to be told what I am doing. |
-| **US-06** | As an interviewer, I want no way at all to reach a round I am not on, including by typing its id, so that the boundary is the system's and not my own discretion. |
-| **US-07** | As a security reviewer, I want the interviewer's round response to carry no candidate contact detail, and I want to confirm it was never fetched. |
+| **US-02** | As a recruiter, I want to put two interviewers on one round, so that a panel is representable.                                                                      |
+| **US-03** | As a recruiter, I want a duplicate assignment refused, so that a double-click does not produce two rows and two feedback slots.                                     |
+| **US-04** | As a recruiter, I want to remove an interviewer from a round, so that a reassignment is possible, and I want the removal recorded.                                  |
+| **US-05** | As an interviewer, I want to open my own list and see exactly the rounds I am on, so that I do not have to be told what I am doing.                                 |
+| **US-06** | As an interviewer, I want no way at all to reach a round I am not on, including by typing its id, so that the boundary is the system's and not my own discretion.   |
+| **US-07** | As a security reviewer, I want the interviewer's round response to carry no candidate contact detail, and I want to confirm it was never fetched.                   |
 
 ---
 
@@ -156,7 +156,7 @@ become seven). The frontend counterpart is revised in the same pass.
 ### FR-1 — Rounds
 
 - **FR-1.1** An `Interview` is one round: `{ id, applicationId, type, stage, scheduledAt, status,
-  createdByUserId, createdAt, updatedAt }`.
+createdByUserId, createdAt, updatedAt }`.
 - **FR-1.2** A round belongs to an **application**, not to a candidate (D-1). A person in flight for
   two roles has two application rows, and a round attaches to exactly one of them — which is also
   what makes the interviewer's authorization chain single-valued (FR-4.5).
@@ -182,7 +182,7 @@ become seven). The frontend counterpart is revised in the same pass.
   date.
 - **FR-1.8** Creation writes, in **one** transaction: the `Interview` row, then
   `recordAudit(tx, { action: 'INTERVIEW_CREATED', entityType: 'INTERVIEW', entityId,
-  metadata: { applicationId, type, stage, scheduledAt } })`.
+metadata: { applicationId, type, stage, scheduledAt } })`.
 - **FR-1.9** `GET /api/applications/:applicationId/interviews` lists an application's rounds.
   **Recruiter-only** — an interviewer reaching rounds by application id would bypass the assignment
   scoping entirely, so this route has no interviewer path at all.
@@ -202,7 +202,7 @@ become seven). The frontend counterpart is revised in the same pass.
 ### FR-3 — Assignment
 
 - **FR-3.1** `InterviewAssignment` is a join table: `{ id, interviewId, interviewerId,
-  assignedByUserId, createdAt }`. **Many interviewers per round** (D-4) — the panel case the brief's
+assignedByUserId, createdAt }`. **Many interviewers per round** (D-4) — the panel case the brief's
   concurrent-feedback requirement depends on.
 - **FR-3.2** `POST /api/interviews/:interviewId/assignments` with `{ interviewerId }`.
   Recruiter-only (D-3).
@@ -256,19 +256,21 @@ become seven). The frontend counterpart is revised in the same pass.
   rots.
 - **FR-4.4** Optional filters: `status`, `applicationId`, `roleId`. Paginated on the shipped
   `{ page, pageSize, total, totalPages }` envelope, ordered `[{ scheduledAt: 'desc' },
-  { id: 'desc' }]`.
+{ id: 'desc' }]`.
 - **FR-4.5** `GET /api/interviews/:interviewId` resolves the round with the **same** scoped `where`:
 
   ```ts
   prisma.interview.findFirst({
     where: { id: interviewId, ...buildInterviewWhere({}, actorRole, actorId) },
-    select: actorRole === UserRole.RECRUITER ? RECRUITER_INTERVIEW_SELECT : INTERVIEWER_INTERVIEW_SELECT,
+    select:
+      actorRole === UserRole.RECRUITER ? RECRUITER_INTERVIEW_SELECT : INTERVIEWER_INTERVIEW_SELECT,
   });
   ```
 
   **The authorization condition is inside the database query.** An unassigned interviewer's request
   returns no row, so the restricted data is never retrieved into application memory — the exact
   failure mode the brief §4 asks to be designed out.
+
 - **FR-4.6** No row → `404 NOT_FOUND` (D-9). **Not `403`.** A `403` would confirm the round exists,
   turning the endpoint into an enumeration oracle; `404` makes "not yours" and "not there"
   indistinguishable.
@@ -413,20 +415,20 @@ must be true.
       "currentStage": "INTERVIEW",
       "status": "ACTIVE",
       "role": { "id": 3, "title": "Senior Backend Engineer" },
-      "candidate": { "id": 21, "name": "John Smith" }
+      "candidate": { "id": 21, "name": "John Smith" },
     },
-    "assignments": []
-  }
+    "assignments": [],
+  },
 }
 ```
 
-| Status | `code` | When |
-|---|---|---|
-| `201` | — | Created |
-| `400` | `VALIDATION_ERROR` | `type`/`stage` not in their enum, `scheduledAt` not a datetime, bad `applicationId` |
-| `401` / `403` | | Anonymous / not a recruiter |
-| `404` | `NOT_FOUND` | No such application |
-| `409` | `APPLICATION_NOT_ACTIVE` | Application is `HIRED` or `REJECTED` |
+| Status        | `code`                   | When                                                                                |
+| ------------- | ------------------------ | ----------------------------------------------------------------------------------- |
+| `201`         | —                        | Created                                                                             |
+| `400`         | `VALIDATION_ERROR`       | `type`/`stage` not in their enum, `scheduledAt` not a datetime, bad `applicationId` |
+| `401` / `403` |                          | Anonymous / not a recruiter                                                         |
+| `404`         | `NOT_FOUND`              | No such application                                                                 |
+| `409`         | `APPLICATION_NOT_ACTIVE` | Application is `HIRED` or `REJECTED`                                                |
 
 ### `GET /api/applications/:applicationId/interviews` — Bearer · `RECRUITER`
 
@@ -458,10 +460,10 @@ Query: `status` · `applicationId` · `roleId` · `page` · `pageSize` (1–100,
       "scheduledAt": "2026-09-24T09:30:00.000Z",
       "status": "SCHEDULED",
       "role": { "id": 3, "title": "Senior Backend Engineer" },
-      "candidate": { "id": 21, "name": "John Smith" }
-    }
+      "candidate": { "id": 21, "name": "John Smith" },
+    },
   ],
-  "pagination": { "page": 1, "pageSize": 20, "total": 1, "totalPages": 1 }
+  "pagination": { "page": 1, "pageSize": 20, "total": 1, "totalPages": 1 },
 }
 ```
 
@@ -480,15 +482,15 @@ Query: `status` · `applicationId` · `roleId` · `page` · `pageSize` (1–100,
         "currentStage": "INTERVIEW",
         "status": "ACTIVE",
         "role": { "id": 3, "title": "Senior Backend Engineer" },
-        "candidate": { "id": 21, "name": "John Smith" }
+        "candidate": { "id": 21, "name": "John Smith" },
       },
       "assignments": [
         { "id": 14, "interviewer": { "id": 4, "name": "Ivan Interviewer" } },
-        { "id": 15, "interviewer": { "id": 5, "name": "Ingrid Interviewer" } }
-      ]
-    }
+        { "id": 15, "interviewer": { "id": 5, "name": "Ingrid Interviewer" } },
+      ],
+    },
   ],
-  "pagination": { "page": 1, "pageSize": 20, "total": 1, "totalPages": 1 }
+  "pagination": { "page": 1, "pageSize": 20, "total": 1, "totalPages": 1 },
 }
 ```
 
@@ -504,13 +506,13 @@ Errors: `400 VALIDATION_ERROR` · `401 UNAUTHENTICATED` · `403 FORBIDDEN` (cand
 { "code": "NOT_FOUND", "message": "Resource not found" }
 ```
 
-| Status | `code` | When |
-|---|---|---|
-| `200` | — | Found, and the caller is permitted |
-| `400` | `VALIDATION_ERROR` | `interviewId` not a positive integer |
-| `401` | `UNAUTHENTICATED` | No token |
-| `403` | `FORBIDDEN` | Candidate |
-| `404` | `NOT_FOUND` | No such round **or** the interviewer is not assigned — indistinguishable |
+| Status | `code`             | When                                                                     |
+| ------ | ------------------ | ------------------------------------------------------------------------ |
+| `200`  | —                  | Found, and the caller is permitted                                       |
+| `400`  | `VALIDATION_ERROR` | `interviewId` not a positive integer                                     |
+| `401`  | `UNAUTHENTICATED`  | No token                                                                 |
+| `403`  | `FORBIDDEN`        | Candidate                                                                |
+| `404`  | `NOT_FOUND`        | No such round **or** the interviewer is not assigned — indistinguishable |
 
 ### `POST /api/interviews/:interviewId/assignments` — Bearer · `RECRUITER`
 
@@ -521,17 +523,24 @@ Errors: `400 VALIDATION_ERROR` · `401 UNAUTHENTICATED` · `403 FORBIDDEN` (cand
 
 ```jsonc
 // 201 Created
-{ "assignment": { "id": 15, "interviewId": 7, "interviewer": { "id": 5, "name": "Ingrid Interviewer" }, "createdAt": "2026-09-19T12:04:02.771Z" } }
+{
+  "assignment": {
+    "id": 15,
+    "interviewId": 7,
+    "interviewer": { "id": 5, "name": "Ingrid Interviewer" },
+    "createdAt": "2026-09-19T12:04:02.771Z",
+  },
+}
 ```
 
-| Status | `code` | When |
-|---|---|---|
-| `201` | — | Assigned |
-| `400` | `VALIDATION_ERROR` | `interviewerId` missing or not a positive integer |
-| `400` | `NOT_AN_INTERVIEWER` | The user does not exist, or is not an `INTERVIEWER` (FR-3.3) |
-| `401` / `403` | | Anonymous / not a recruiter |
-| `404` | `NOT_FOUND` | No such interview |
-| `409` | `ALREADY_ASSIGNED` | That interviewer is already on that round (`P2002`) |
+| Status        | `code`               | When                                                         |
+| ------------- | -------------------- | ------------------------------------------------------------ |
+| `201`         | —                    | Assigned                                                     |
+| `400`         | `VALIDATION_ERROR`   | `interviewerId` missing or not a positive integer            |
+| `400`         | `NOT_AN_INTERVIEWER` | The user does not exist, or is not an `INTERVIEWER` (FR-3.3) |
+| `401` / `403` |                      | Anonymous / not a recruiter                                  |
+| `404`         | `NOT_FOUND`          | No such interview                                            |
+| `409`         | `ALREADY_ASSIGNED`   | That interviewer is already on that round (`P2002`)          |
 
 ### `DELETE /api/interviews/:interviewId/assignments/:userId` — Bearer · `RECRUITER`
 
@@ -695,15 +704,15 @@ model User {
 
 ### Endpoint × role matrix
 
-| Endpoint | Anonymous | Candidate | Interviewer | Recruiter |
-|---|---|---|---|---|
-| `POST /api/applications/:id/interviews` | `401` | `403` | **`403`** | ✅ |
-| `GET /api/applications/:id/interviews` | `401` | `403` | **`403`** | ✅ |
-| `PATCH /api/interviews/:id` | `401` | `403` | **`403`** | ✅ |
-| `GET /api/interviews` | `401` | `403` | ✅ **assigned only** | ✅ all |
-| `GET /api/interviews/:id` | `401` | `403` | ✅ **assigned only, else `404`** | ✅ all |
-| `POST /api/interviews/:id/assignments` | `401` | `403` | **`403`** | ✅ |
-| `DELETE /api/interviews/:id/assignments/:userId` | `401` | `403` | **`403`** | ✅ |
+| Endpoint                                         | Anonymous | Candidate | Interviewer                      | Recruiter |
+| ------------------------------------------------ | --------- | --------- | -------------------------------- | --------- |
+| `POST /api/applications/:id/interviews`          | `401`     | `403`     | **`403`**                        | ✅        |
+| `GET /api/applications/:id/interviews`           | `401`     | `403`     | **`403`**                        | ✅        |
+| `PATCH /api/interviews/:id`                      | `401`     | `403`     | **`403`**                        | ✅        |
+| `GET /api/interviews`                            | `401`     | `403`     | ✅ **assigned only**             | ✅ all    |
+| `GET /api/interviews/:id`                        | `401`     | `403`     | ✅ **assigned only, else `404`** | ✅ all    |
+| `POST /api/interviews/:id/assignments`           | `401`     | `403`     | **`403`**                        | ✅        |
+| `DELETE /api/interviews/:id/assignments/:userId` | `401`     | `403`     | **`403`**                        | ✅        |
 
 ### Non-negotiable rules
 
@@ -738,18 +747,18 @@ model User {
 
 ## Validation
 
-| Endpoint | Field | Rule | Failure |
-|---|---|---|---|
-| all | `interviewId` / `applicationId` (param) | `z.coerce.number().int().positive()` | `400` `details.<param>` |
-| `DELETE …/:userId` | `userId` (param) | `z.coerce.number().int().positive()` | `400` `details.userId` |
-| `POST …/interviews` | `type` | `z.enum(InterviewType)`, required | `400` `details.type` |
-| `POST …/interviews` | `stage` | `z.enum(PipelineStage)`, required | `400` `details.stage` |
-| `POST …/interviews` | `scheduledAt` | `z.coerce.date()`, required | `400` `details.scheduledAt` |
-| `PATCH /api/interviews/:id` | `status` | `z.enum(['COMPLETED', 'CANCELLED'])`, required | `400` `details.status` |
-| `POST …/assignments` | `interviewerId` | `z.coerce.number().int().positive()`, required | `400` `details.interviewerId` |
-| `GET /api/interviews` | `status` | `z.enum(InterviewStatus)`, optional | `400` `details.status` |
-| `GET /api/interviews` | `applicationId`, `roleId` | `z.coerce.number().int().positive()`, optional | `400` |
-| `GET /api/interviews` | `page` / `pageSize` | `min(1).default(1)` / `min(1).max(100).default(20)` | `400` |
+| Endpoint                    | Field                                   | Rule                                                | Failure                       |
+| --------------------------- | --------------------------------------- | --------------------------------------------------- | ----------------------------- |
+| all                         | `interviewId` / `applicationId` (param) | `z.coerce.number().int().positive()`                | `400` `details.<param>`       |
+| `DELETE …/:userId`          | `userId` (param)                        | `z.coerce.number().int().positive()`                | `400` `details.userId`        |
+| `POST …/interviews`         | `type`                                  | `z.enum(InterviewType)`, required                   | `400` `details.type`          |
+| `POST …/interviews`         | `stage`                                 | `z.enum(PipelineStage)`, required                   | `400` `details.stage`         |
+| `POST …/interviews`         | `scheduledAt`                           | `z.coerce.date()`, required                         | `400` `details.scheduledAt`   |
+| `PATCH /api/interviews/:id` | `status`                                | `z.enum(['COMPLETED', 'CANCELLED'])`, required      | `400` `details.status`        |
+| `POST …/assignments`        | `interviewerId`                         | `z.coerce.number().int().positive()`, required      | `400` `details.interviewerId` |
+| `GET /api/interviews`       | `status`                                | `z.enum(InterviewStatus)`, optional                 | `400` `details.status`        |
+| `GET /api/interviews`       | `applicationId`, `roleId`               | `z.coerce.number().int().positive()`, optional      | `400`                         |
+| `GET /api/interviews`       | `page` / `pageSize`                     | `min(1).default(1)` / `min(1).max(100).default(20)` | `400`                         |
 
 - **VAL-1** **A round type or stage outside its enum is rejected before business logic**, satisfying
   brief §6. `{"type":"COFFEE_CHAT"}` never reaches Prisma.
@@ -772,23 +781,23 @@ model User {
 
 ## Error Handling
 
-| `code` | Status | Raised when | New? |
-|---|---|---|---|
-| `VALIDATION_ERROR` | `400` | Any Validation-table rule fails | no |
-| `NOT_AN_INTERVIEWER` | `400` | Assignment target does not exist or is not an `INTERVIEWER` | **yes** |
-| `UNAUTHENTICATED` | `401` | No/invalid/expired token | no |
-| `FORBIDDEN` | `403` | Candidate anywhere; interviewer on a recruiter-only route | no |
-| `NOT_FOUND` | `404` | No such application/interview/assignment — **or** an interviewer's scoped read matched nothing | no |
-| `ALREADY_ASSIGNED` | `409` | `P2002` on `(interviewId, interviewerId)` | **yes** |
-| `APPLICATION_NOT_ACTIVE` | `409` | Scheduling against a terminal application | no — added by pipeline |
-| `INVALID_STAGE_TRANSITION` | `409` | `PATCH` on an already-terminal round | no — added by pipeline |
-| `INTERNAL_ERROR` | `500` | Anything unhandled | no |
+| `code`                     | Status | Raised when                                                                                    | New?                   |
+| -------------------------- | ------ | ---------------------------------------------------------------------------------------------- | ---------------------- |
+| `VALIDATION_ERROR`         | `400`  | Any Validation-table rule fails                                                                | no                     |
+| `NOT_AN_INTERVIEWER`       | `400`  | Assignment target does not exist or is not an `INTERVIEWER`                                    | **yes**                |
+| `UNAUTHENTICATED`          | `401`  | No/invalid/expired token                                                                       | no                     |
+| `FORBIDDEN`                | `403`  | Candidate anywhere; interviewer on a recruiter-only route                                      | no                     |
+| `NOT_FOUND`                | `404`  | No such application/interview/assignment — **or** an interviewer's scoped read matched nothing | no                     |
+| `ALREADY_ASSIGNED`         | `409`  | `P2002` on `(interviewId, interviewerId)`                                                      | **yes**                |
+| `APPLICATION_NOT_ACTIVE`   | `409`  | Scheduling against a terminal application                                                      | no — added by pipeline |
+| `INVALID_STAGE_TRANSITION` | `409`  | `PATCH` on an already-terminal round                                                           | no — added by pipeline |
+| `INTERNAL_ERROR`           | `500`  | Anything unhandled                                                                             | no                     |
 
 - **ERR-1** An interviewer's by-id read of a round they are not assigned to is `404 NOT_FOUND`,
   **byte-identical** to the response for a round that does not exist (FR-4.6, AZ-5). No header, no
   timing difference the service introduces, and no distinguishing message.
-- **ERR-2** `403` is reserved for *wrong role for this route*. It is never used for *right role,
-  wrong row* — that case is always `404`. Mixing them would turn every scoped endpoint into an
+- **ERR-2** `403` is reserved for _wrong role for this route_. It is never used for _right role,
+  wrong row_ — that case is always `404`. Mixing them would turn every scoped endpoint into an
   existence oracle.
 - **ERR-3** `ALREADY_ASSIGNED` comes from catching `P2002` **outside** the transaction callback,
   matching the shipped handling of `ALREADY_APPLIED` in `applications.service`. No `findFirst`
@@ -804,28 +813,28 @@ model User {
 
 ## Edge Cases
 
-| ID | Case | Behaviour |
-|---|---|---|
-| **EC-01** | The same interviewer is assigned to one round **twice, concurrently** | Exactly one `201`; the other is `409 ALREADY_ASSIGNED` from `P2002`. `psql` shows **one** row. No check-then-write is involved (D-5, MIG-3) |
-| **EC-02** | Two **different** interviewers are assigned to one round concurrently | Both `201`. Different unique-key tuples, nothing to contend on. This is the panel the brief's §3.4 needs |
-| **EC-03** | A recruiter is passed as `interviewerId` | `400 NOT_AN_INTERVIEWER`, from a `where` that matched no row (FR-3.3). The recruiter's user row is never loaded |
-| **EC-04** | A nonexistent user id is passed as `interviewerId` | `400 NOT_AN_INTERVIEWER` — the same response as EC-03, so the endpoint does not reveal whether the id exists (VAL-6) |
-| **EC-05** | An interviewer requests a round they are not assigned to, **by id** | `404`. The row is never fetched: the assignment predicate is in the `where` (FR-4.5, AZ-4). **This is the brief's sharpest check** |
-| **EC-06** | An interviewer passes `?applicationId=` for an application they have no round on | `200` with `interviews: []`. Their scope predicate ANDs with the filter; a filter can narrow but never widen (FR-4.2) |
-| **EC-07** | An interviewer is unassigned while holding a page of results | Their **next** request excludes the round; the stale page in their browser does not grant access to anything (FR-3.10, AZ-8) |
-| **EC-08** | An assignment is deleted twice | First `204`, second `404` — not an idempotent `204` (FR-3.8) |
-| **EC-09** | A round is scheduled for a stage the application has not reached | `201`. `Interview.stage` is intent, not an assertion about now (D-13, FR-1.4) |
-| **EC-10** | A round is scheduled with a past `scheduledAt` | `201`. Backfilling a round that happened is normal (FR-1.7, VAL-3) |
-| **EC-11** | A round is scheduled against a `REJECTED` application | `409 APPLICATION_NOT_ACTIVE` (D-12, FR-1.6) |
-| **EC-12** | An application is moved to `REJECTED` **after** a round was scheduled | The round remains and keeps its assignments. Cancelling it is a separate recruiter action (FR-2.3) |
-| **EC-13** | A cancelled round | Still appears in the assigned interviewer's list, carrying `status: "CANCELLED"` (FR-2.4). A cancellation must be visible, not silent |
-| **EC-14** | `PATCH` on an already-`CANCELLED` round | `409 INVALID_STAGE_TRANSITION` (FR-2.2) |
-| **EC-15** | An interviewer with no assignments calls `GET /api/interviews` | `200`, `interviews: []`, `total: 0`, `totalPages: 0`. Never `404`, never `403` |
-| **EC-16** | An interviewer sends `?page=999` | `200` with an empty array and accurate pagination, matching the shipped roles behaviour |
-| **EC-17** | A candidate calls any endpoint here | `403`, including for rounds on their own application (AZ-9) |
-| **EC-18** | An interviewer tries `POST /api/interviews/:id/assignments` naming themselves | `403` at the route, before the body is read (AZ-3, VAL-4). **This is the escalation the whole model rests on closing** |
-| **EC-19** | An application is deleted | Its rounds cascade, and their assignments cascade with them (MIG-6). `Application` is itself `Restrict`-protected from role deletion, so this is not reachable over HTTP today |
-| **EC-20** | `recordAudit` throws during assignment | The transaction aborts; no assignment row, `500` to the client (ERR-6) |
+| ID        | Case                                                                             | Behaviour                                                                                                                                                                      |
+| --------- | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **EC-01** | The same interviewer is assigned to one round **twice, concurrently**            | Exactly one `201`; the other is `409 ALREADY_ASSIGNED` from `P2002`. `psql` shows **one** row. No check-then-write is involved (D-5, MIG-3)                                    |
+| **EC-02** | Two **different** interviewers are assigned to one round concurrently            | Both `201`. Different unique-key tuples, nothing to contend on. This is the panel the brief's §3.4 needs                                                                       |
+| **EC-03** | A recruiter is passed as `interviewerId`                                         | `400 NOT_AN_INTERVIEWER`, from a `where` that matched no row (FR-3.3). The recruiter's user row is never loaded                                                                |
+| **EC-04** | A nonexistent user id is passed as `interviewerId`                               | `400 NOT_AN_INTERVIEWER` — the same response as EC-03, so the endpoint does not reveal whether the id exists (VAL-6)                                                           |
+| **EC-05** | An interviewer requests a round they are not assigned to, **by id**              | `404`. The row is never fetched: the assignment predicate is in the `where` (FR-4.5, AZ-4). **This is the brief's sharpest check**                                             |
+| **EC-06** | An interviewer passes `?applicationId=` for an application they have no round on | `200` with `interviews: []`. Their scope predicate ANDs with the filter; a filter can narrow but never widen (FR-4.2)                                                          |
+| **EC-07** | An interviewer is unassigned while holding a page of results                     | Their **next** request excludes the round; the stale page in their browser does not grant access to anything (FR-3.10, AZ-8)                                                   |
+| **EC-08** | An assignment is deleted twice                                                   | First `204`, second `404` — not an idempotent `204` (FR-3.8)                                                                                                                   |
+| **EC-09** | A round is scheduled for a stage the application has not reached                 | `201`. `Interview.stage` is intent, not an assertion about now (D-13, FR-1.4)                                                                                                  |
+| **EC-10** | A round is scheduled with a past `scheduledAt`                                   | `201`. Backfilling a round that happened is normal (FR-1.7, VAL-3)                                                                                                             |
+| **EC-11** | A round is scheduled against a `REJECTED` application                            | `409 APPLICATION_NOT_ACTIVE` (D-12, FR-1.6)                                                                                                                                    |
+| **EC-12** | An application is moved to `REJECTED` **after** a round was scheduled            | The round remains and keeps its assignments. Cancelling it is a separate recruiter action (FR-2.3)                                                                             |
+| **EC-13** | A cancelled round                                                                | Still appears in the assigned interviewer's list, carrying `status: "CANCELLED"` (FR-2.4). A cancellation must be visible, not silent                                          |
+| **EC-14** | `PATCH` on an already-`CANCELLED` round                                          | `409 INVALID_STAGE_TRANSITION` (FR-2.2)                                                                                                                                        |
+| **EC-15** | An interviewer with no assignments calls `GET /api/interviews`                   | `200`, `interviews: []`, `total: 0`, `totalPages: 0`. Never `404`, never `403`                                                                                                 |
+| **EC-16** | An interviewer sends `?page=999`                                                 | `200` with an empty array and accurate pagination, matching the shipped roles behaviour                                                                                        |
+| **EC-17** | A candidate calls any endpoint here                                              | `403`, including for rounds on their own application (AZ-9)                                                                                                                    |
+| **EC-18** | An interviewer tries `POST /api/interviews/:id/assignments` naming themselves    | `403` at the route, before the body is read (AZ-3, VAL-4). **This is the escalation the whole model rests on closing**                                                         |
+| **EC-19** | An application is deleted                                                        | Its rounds cascade, and their assignments cascade with them (MIG-6). `Application` is itself `Restrict`-protected from role deletion, so this is not reachable over HTTP today |
+| **EC-20** | `recordAudit` throws during assignment                                           | The transaction aborts; no assignment row, `500` to the client (ERR-6)                                                                                                         |
 
 ---
 
@@ -859,7 +868,7 @@ model User {
 - **SEC-9** **Known accepted gaps.** (a) Any recruiter can assign any interviewer to any round —
   there is no per-role ownership, because there is no hiring-manager actor. (b) An interviewer
   assigned to a round learns the candidate's **name**, which is itself personal data; the brief
-  restricts *contact details* specifically, and a name is required for the interview to happen at
+  restricts _contact details_ specifically, and a name is required for the interview to happen at
   all. (c) There is no rate limit on the by-id read, so an authenticated interviewer can probe the
   id space as fast as the server answers `404` — the responses are indistinguishable, but the
   timing is not formally constant. (d) Unassignment does not revoke feedback already submitted;
@@ -947,7 +956,7 @@ seeded interviewers', `$C` a candidate's. `$APP` is a seeded `ACTIVE` applicatio
 
 - **AC-B14** — **Given** `$IV` with no assignments, **when** **two identical** assignment requests
   for `$I1` are **fired concurrently**, **then** exactly one returns `201`, the other `409
-  ALREADY_ASSIGNED`, and `psql` shows **exactly one** row (EC-01, MIG-3).
+ALREADY_ASSIGNED`, and `psql` shows **exactly one** row (EC-01, MIG-3).
 - **AC-B15** — **Given** `$IV`, **when** assignments for `$I1` and `$I2` are **fired concurrently**,
   **then** **both** return `201` and `psql` shows two rows — the panel case (EC-02).
 
@@ -961,13 +970,13 @@ seeded interviewers', `$C` a candidate's. `$APP` is a seeded `ACTIVE` applicatio
   (contract invariant 6).
 - **AC-B18** — **Given** `$I2`, **when** `GET /api/interviews/$IV_SOLO` is called — **the round's id
   supplied directly** — **then** the response is **`404 NOT_FOUND`**, with a body byte-identical to
-  `GET /api/interviews/999999`. *This is the brief's §6 check: an interviewer requesting a round
-  outside their assignment, directly by ID, refused at the point of the query* (FR-4.5, AZ-5,
+  `GET /api/interviews/999999`. _This is the brief's §6 check: an interviewer requesting a round
+  outside their assignment, directly by ID, refused at the point of the query_ (FR-4.5, AZ-5,
   ERR-1, EC-05).
 - **AC-B19** — **Given** the same request, **when** the server log is read, **then** an
   `interview.scoped_read_miss` line is present and the response was **not** `403` (SEC-4, SEC-7).
 - **AC-B20** — **Given** `$I2`, **when** `GET /api/interviews?applicationId=<the application behind
-  $IV_SOLO>` is called, **then** the response is `200` with `interviews: []` — the filter narrowed
+$IV_SOLO>` is called, **then** the response is `200` with `interviews: []` — the filter narrowed
   within their scope and could not widen it (EC-06, FR-4.2).
 - **AC-B21** — **Given** `$I1` assigned to `$IV_SOLO`, **when** the assignment is deleted by `$R`
   and `$I1` immediately re-requests `GET /api/interviews/$IV_SOLO`, **then** the response is `404`
@@ -1004,8 +1013,8 @@ seeded interviewers', `$C` a candidate's. `$APP` is a seeded `ACTIVE` applicatio
 - **AC-B30** — **Given** no token, **when** any endpoint here is called, **then** the response is
   `401` (AZ-1).
 - **AC-B31** — **Given** `$I1`, **when** `POST /api/interviews/$IV/assignments` is sent naming
-  **themselves**, **then** the response is `403` and `psql` shows no new row. *This is the
-  escalation the whole scoping model rests on closing* (AZ-3, EC-18, SEC-3).
+  **themselves**, **then** the response is `403` and `psql` shows no new row. _This is the
+  escalation the whole scoping model rests on closing_ (AZ-3, EC-18, SEC-3).
 - **AC-B32** — **Given** `$I1`, **when** `POST /api/applications/$APP/interviews` is called, **then**
   the response is `403` (AZ-2).
 - **AC-B33** — **Given** `$I1`, **when** `GET /api/applications/$APP/interviews` is called, **then**
@@ -1052,18 +1061,18 @@ seeded interviewers', `$C` a candidate's. `$APP` is a seeded `ACTIVE` applicatio
 
 ## Out of Scope
 
-| Excluded | Why |
-|---|---|
-| Rescheduling a round (`scheduledAt` edit) | D-11. A reschedule needs a notification story and a record of the previous time; cancel-and-recreate says the same thing with rows that already exist |
-| Calendar integration, availability, conflict detection | The brief models rounds, not scheduling. `scheduledAt` is a timestamp a recruiter types |
-| Notifying an interviewer of an assignment | No notification channel exists in this POC, and inventing one would be a feature the requirements do not ask for |
-| An interviewer seeing their panel colleagues | Deliberate (FR-5.3, SEC-5). The feedback feature discloses colleagues' submissions where the brief asks for it |
-| An interviewer seeing a candidate's other rounds | Their scope is the round, not the person's process |
-| A candidate seeing their interview schedule | The walkthrough gives candidates Jobs and My Applications only |
-| Round duration, location, meeting links | Not in the requirements; each would be a field with no reader |
-| Bulk assignment | Multiplies the concurrency surface for a convenience nobody asked for |
-| Soft-deleting assignments | D-10. The audit row is the record; two records of one fact eventually disagree |
-| Deleting a round | No requirement asks for it, and `CANCELLED` preserves the history that a round was planned |
+| Excluded                                               | Why                                                                                                                                                   |
+| ------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Rescheduling a round (`scheduledAt` edit)              | D-11. A reschedule needs a notification story and a record of the previous time; cancel-and-recreate says the same thing with rows that already exist |
+| Calendar integration, availability, conflict detection | The brief models rounds, not scheduling. `scheduledAt` is a timestamp a recruiter types                                                               |
+| Notifying an interviewer of an assignment              | No notification channel exists in this POC, and inventing one would be a feature the requirements do not ask for                                      |
+| An interviewer seeing their panel colleagues           | Deliberate (FR-5.3, SEC-5). The feedback feature discloses colleagues' submissions where the brief asks for it                                        |
+| An interviewer seeing a candidate's other rounds       | Their scope is the round, not the person's process                                                                                                    |
+| A candidate seeing their interview schedule            | The walkthrough gives candidates Jobs and My Applications only                                                                                        |
+| Round duration, location, meeting links                | Not in the requirements; each would be a field with no reader                                                                                         |
+| Bulk assignment                                        | Multiplies the concurrency surface for a convenience nobody asked for                                                                                 |
+| Soft-deleting assignments                              | D-10. The audit row is the record; two records of one fact eventually disagree                                                                        |
+| Deleting a round                                       | No requirement asks for it, and `CANCELLED` preserves the history that a round was planned                                                            |
 
 ---
 
@@ -1090,26 +1099,26 @@ the Revision section above. The frontend counterpart is revised in the same pass
 
 **New files**
 
-| Path | Purpose |
-|---|---|
-| `src/modules/interviews/interviews.repository.ts` | `buildInterviewWhere` + the scoped reads (BE-3) |
-| `src/modules/interviews/interviews.service.ts` | Create, status change, assign, unassign, list, get |
-| `src/modules/interviews/interviews.controller.ts` | HTTP concerns only |
-| `src/modules/interviews/interviews.routes.ts` | Two exported routers (BE-2) |
-| `src/modules/interviews/interviews.schema.ts` | Body, param and query schemas |
-| `src/modules/interviews/interview.select.ts` | `RECRUITER_INTERVIEW_SELECT`, `INTERVIEWER_INTERVIEW_SELECT` |
+| Path                                              | Purpose                                                      |
+| ------------------------------------------------- | ------------------------------------------------------------ |
+| `src/modules/interviews/interviews.repository.ts` | `buildInterviewWhere` + the scoped reads (BE-3)              |
+| `src/modules/interviews/interviews.service.ts`    | Create, status change, assign, unassign, list, get           |
+| `src/modules/interviews/interviews.controller.ts` | HTTP concerns only                                           |
+| `src/modules/interviews/interviews.routes.ts`     | Two exported routers (BE-2)                                  |
+| `src/modules/interviews/interviews.schema.ts`     | Body, param and query schemas                                |
+| `src/modules/interviews/interview.select.ts`      | `RECRUITER_INTERVIEW_SELECT`, `INTERVIEWER_INTERVIEW_SELECT` |
 
 **Modified existing files**
 
-| Path | Change |
-|---|---|
-| [`prisma/schema.prisma`](../../../prisma/schema.prisma) | Two enums, `Interview`, `InterviewAssignment`, back-relations on `Application` and `User` |
-| [`src/lib/errors.ts`](../../../src/lib/errors.ts) | `NOT_AN_INTERVIEWER`, `ALREADY_ASSIGNED` + subclasses |
-| [`src/app.ts`](../../../src/app.ts) | Mount `interviewsRouter` at `/api/interviews` |
-| [`src/modules/applications/applications.routes.ts`](../../../src/modules/applications/applications.routes.ts) | Mount the two application-nested round routes (BE-2) |
-| `src/modules/pipeline/pipeline.service.ts` | Summary gains the `interviews` count (FR-6.1) |
-| [`prisma/seed.ts`](../../../prisma/seed.ts) | Two rounds, three assignments, matching audit rows (FR-7.3) |
-| [`CLAUDE.md`](../../../CLAUDE.md) | Feature table row; the `InterviewRound` domain bullet now points here |
+| Path                                                                                                          | Change                                                                                    |
+| ------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| [`prisma/schema.prisma`](../../../prisma/schema.prisma)                                                       | Two enums, `Interview`, `InterviewAssignment`, back-relations on `Application` and `User` |
+| [`src/lib/errors.ts`](../../../src/lib/errors.ts)                                                             | `NOT_AN_INTERVIEWER`, `ALREADY_ASSIGNED` + subclasses                                     |
+| [`src/app.ts`](../../../src/app.ts)                                                                           | Mount `interviewsRouter` at `/api/interviews`                                             |
+| [`src/modules/applications/applications.routes.ts`](../../../src/modules/applications/applications.routes.ts) | Mount the two application-nested round routes (BE-2)                                      |
+| `src/modules/pipeline/pipeline.service.ts`                                                                    | Summary gains the `interviews` count (FR-6.1)                                             |
+| [`prisma/seed.ts`](../../../prisma/seed.ts)                                                                   | Two rounds, three assignments, matching audit rows (FR-7.3)                               |
+| [`CLAUDE.md`](../../../CLAUDE.md)                                                                             | Feature table row; the `InterviewRound` domain bullet now points here                     |
 
 **External services:** none.
 

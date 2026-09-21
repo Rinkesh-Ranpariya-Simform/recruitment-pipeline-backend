@@ -19,11 +19,11 @@
 3. Settle the brief's §3.4 concurrency question with a **documented, database-enforced policy**:
    one row per interviewer per round, so a panel's submissions all persist and a double-submit is
    refused rather than silently merged or lost.
-4. Fix the brief's opening complaint — *"interviewers can't see prior feedback before their round"* —
+4. Fix the brief's opening complaint — _"interviewers can't see prior feedback before their round"_ —
    by letting an **assigned** interviewer read the round's feedback, through the same scoped query.
 5. Ensure a feedback response **carries no candidate contact detail**, closing the leak path the
-   brief names by name: *"including through a feedback-submission endpoint that happens to also
-   carry candidate data."*
+   brief names by name: _"including through a feedback-submission endpoint that happens to also
+   carry candidate data."_
 
 Success means: two interviewers on one panel hit Submit at the same instant, both get `201`, both
 rows are in the table, and neither has overwritten the other — while a third interviewer who is not
@@ -62,46 +62,46 @@ anything is an `InterviewAssignment` row, and this spec resolves it inside the q
 
 ### Current state of `backend/`
 
-|                | Today, assuming audit, pipeline and interviews have shipped |
-| -------------- | ------ |
-| `Interview` | `{ id, applicationId, type, stage, scheduledAt, status, … }` |
-| `InterviewAssignment` | `{ id, interviewId, interviewerId, assignedByUserId, createdAt }`, `@@unique([interviewId, interviewerId])`, `@@index([interviewerId, createdAt])` |
-| Scoped reads | `buildInterviewWhere(query, actorRole, actorId)` pushes `{ assignments: { some: { interviewerId } } }` into an interviewer's `where` |
-| Precedent for this exact shape | `applications.service.createApplication` resolves its parent with `tx.role.findFirst({ where: { id, status: OPEN }, select: { id: true } })` **inside** the transaction — the eligibility rule and the lookup are one statement |
-| Precedent for conflict handling | `P2002` on `Application`'s `@@unique([candidateUserId, roleId])` → `409 ALREADY_APPLIED`, caught **outside** the transaction callback |
-| Feedback | **none.** No model, no endpoint |
+|                                 | Today, assuming audit, pipeline and interviews have shipped                                                                                                                                                                     |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Interview`                     | `{ id, applicationId, type, stage, scheduledAt, status, … }`                                                                                                                                                                    |
+| `InterviewAssignment`           | `{ id, interviewId, interviewerId, assignedByUserId, createdAt }`, `@@unique([interviewId, interviewerId])`, `@@index([interviewerId, createdAt])`                                                                              |
+| Scoped reads                    | `buildInterviewWhere(query, actorRole, actorId)` pushes `{ assignments: { some: { interviewerId } } }` into an interviewer's `where`                                                                                            |
+| Precedent for this exact shape  | `applications.service.createApplication` resolves its parent with `tx.role.findFirst({ where: { id, status: OPEN }, select: { id: true } })` **inside** the transaction — the eligibility rule and the lookup are one statement |
+| Precedent for conflict handling | `P2002` on `Application`'s `@@unique([candidateUserId, roleId])` → `409 ALREADY_APPLIED`, caught **outside** the transaction callback                                                                                           |
+| Feedback                        | **none.** No model, no endpoint                                                                                                                                                                                                 |
 
 The two precedents above are not analogies — this feature is built by composing them.
 
 ### Decisions settled during the interview
 
-| # | Question | Decision | Recorded in |
-|---|---|---|---|
-| D-1 | **The §3.4 policy** | **Both kept, one row per interviewer per round.** `@@unique([interviewId, interviewerId])`. Two different interviewers firing together → two `201`s. The same interviewer twice → `201` + `409`, never a lost update | FR-3, MIG-3, EC-01 |
-| D-2 | Why not append-only? | A round would accumulate several submissions from one person with no defined current answer. A recruiter reading "4/5 and 2/5 from Ivan" cannot act on it | FR-3.2 |
-| D-3 | Why not last-write-wins? | Under two concurrent submissions from one person, an upsert silently discards one. §3.4 asks the outcome to be *documented and to hold*; "one of them vanished" is not an outcome anyone chose | FR-3.3 |
-| D-4 | Is feedback editable? | **Yes — `PATCH`.** Not in the original endpoint list, but the `Feedback` model carries `updatedAt` and D-1 makes a second `POST` a `409`. Without an edit path, `updatedAt` is a column nothing writes, which this repo treats as a lie in the schema | FR-4, and flagged in Out of Scope for easy removal |
-| D-5 | Who may edit? | **The author only**, and only their own row. A recruiter may not edit an interviewer's assessment — that would make the record worthless | AZ-5 |
-| D-6 | Is there a deadline on editing? | **No.** A time window is a policy nobody asked for, and the audit trail records every edit | FR-4.5 |
-| D-7 | What is `rating`? | **An integer 1–5.** Bounded, so it aggregates; validated by zod at the boundary and by a `CHECK` constraint in the migration | FR-2.3, MIG-4 |
-| D-8 | Who may read feedback? | **Recruiters (any round) and interviewers assigned to that round.** The brief's opening paragraph names "interviewers can't see prior feedback before their round" as the problem being fixed | FR-5, AZ-3 |
-| D-9 | Can an interviewer read feedback before submitting their own? | **Yes.** Fixing the stated problem is the point. The bias risk is named as an accepted gap rather than half-mitigated with a rule nobody asked for | FR-5.4, SEC-7 |
-| D-10 | Unassigned interviewer submits or reads? | **`404`**, from the same query that would have returned the round. Not `403` | FR-1.4, ERR-1 |
-| D-11 | Must the round be `COMPLETED` first? | **No.** Requiring it would mean an interviewer cannot file notes until a recruiter updates a status — a coupling that produces lost feedback, not discipline | FR-2.6 |
-| D-12 | Can feedback be submitted on a `CANCELLED` round? | **No.** `409 INTERVIEW_CANCELLED`. A cancelled round did not happen | FR-2.7 |
-| D-13 | Does unassignment delete feedback? | **No.** The assessment happened. `Feedback` has no foreign key to `InterviewAssignment` for exactly this reason | FR-6.4, MIG-6 |
-| D-14 | Is there a `DELETE`? | **No.** Retracting an assessment without a trace is the opposite of what §6 asks for. An interviewer who changes their mind edits, and the edit is audited | FR-6.1 |
+| #    | Question                                                      | Decision                                                                                                                                                                                                                                              | Recorded in                                        |
+| ---- | ------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
+| D-1  | **The §3.4 policy**                                           | **Both kept, one row per interviewer per round.** `@@unique([interviewId, interviewerId])`. Two different interviewers firing together → two `201`s. The same interviewer twice → `201` + `409`, never a lost update                                  | FR-3, MIG-3, EC-01                                 |
+| D-2  | Why not append-only?                                          | A round would accumulate several submissions from one person with no defined current answer. A recruiter reading "4/5 and 2/5 from Ivan" cannot act on it                                                                                             | FR-3.2                                             |
+| D-3  | Why not last-write-wins?                                      | Under two concurrent submissions from one person, an upsert silently discards one. §3.4 asks the outcome to be _documented and to hold_; "one of them vanished" is not an outcome anyone chose                                                        | FR-3.3                                             |
+| D-4  | Is feedback editable?                                         | **Yes — `PATCH`.** Not in the original endpoint list, but the `Feedback` model carries `updatedAt` and D-1 makes a second `POST` a `409`. Without an edit path, `updatedAt` is a column nothing writes, which this repo treats as a lie in the schema | FR-4, and flagged in Out of Scope for easy removal |
+| D-5  | Who may edit?                                                 | **The author only**, and only their own row. A recruiter may not edit an interviewer's assessment — that would make the record worthless                                                                                                              | AZ-5                                               |
+| D-6  | Is there a deadline on editing?                               | **No.** A time window is a policy nobody asked for, and the audit trail records every edit                                                                                                                                                            | FR-4.5                                             |
+| D-7  | What is `rating`?                                             | **An integer 1–5.** Bounded, so it aggregates; validated by zod at the boundary and by a `CHECK` constraint in the migration                                                                                                                          | FR-2.3, MIG-4                                      |
+| D-8  | Who may read feedback?                                        | **Recruiters (any round) and interviewers assigned to that round.** The brief's opening paragraph names "interviewers can't see prior feedback before their round" as the problem being fixed                                                         | FR-5, AZ-3                                         |
+| D-9  | Can an interviewer read feedback before submitting their own? | **Yes.** Fixing the stated problem is the point. The bias risk is named as an accepted gap rather than half-mitigated with a rule nobody asked for                                                                                                    | FR-5.4, SEC-7                                      |
+| D-10 | Unassigned interviewer submits or reads?                      | **`404`**, from the same query that would have returned the round. Not `403`                                                                                                                                                                          | FR-1.4, ERR-1                                      |
+| D-11 | Must the round be `COMPLETED` first?                          | **No.** Requiring it would mean an interviewer cannot file notes until a recruiter updates a status — a coupling that produces lost feedback, not discipline                                                                                          | FR-2.6                                             |
+| D-12 | Can feedback be submitted on a `CANCELLED` round?             | **No.** `409 INTERVIEW_CANCELLED`. A cancelled round did not happen                                                                                                                                                                                   | FR-2.7                                             |
+| D-13 | Does unassignment delete feedback?                            | **No.** The assessment happened. `Feedback` has no foreign key to `InterviewAssignment` for exactly this reason                                                                                                                                       | FR-6.4, MIG-6                                      |
+| D-14 | Is there a `DELETE`?                                          | **No.** Retracting an assessment without a trace is the opposite of what §6 asks for. An interviewer who changes their mind edits, and the edit is audited                                                                                            | FR-6.1                                             |
 
 ---
 
 ## Users / Actors
 
-| Actor | May do, after this feature |
-|---|---|
-| Anonymous | Nothing. `401` |
-| Candidate | Nothing. `403` — including on feedback about themselves |
+| Actor       | May do, after this feature                                                                                                      |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| Anonymous   | Nothing. `401`                                                                                                                  |
+| Candidate   | Nothing. `403` — including on feedback about themselves                                                                         |
 | Interviewer | Submit feedback on a round **they are assigned to**; edit **their own**; read that round's feedback. Nothing on any other round |
-| Recruiter | Read feedback on any round. **Cannot submit and cannot edit** |
+| Recruiter   | Read feedback on any round. **Cannot submit and cannot edit**                                                                   |
 
 **Deliberate POC trade-offs, so they are not read as oversights:**
 
@@ -120,14 +120,14 @@ The two precedents above are not analogies — this feature is built by composin
 
 ## User Stories
 
-| ID | Story |
-|---|---|
-| **US-01** | As an interviewer, I want to submit a rating and notes for my round, so that my assessment is on the record rather than in a Slack thread. |
-| **US-02** | As an interviewer, I want to read what my fellow panellists wrote, so that I am not the third person to ask the same question. |
-| **US-03** | As an interviewer, I want to correct a rating I mis-clicked, so that the record is right — and I accept that the correction is visible. |
-| **US-04** | As an interviewer on a panel, I want my colleague's simultaneous submission not to overwrite mine, so that a panel produces two assessments and not one. |
-| **US-05** | As a recruiter, I want every panellist's feedback on a round in one place, so that I can decide with all of it in front of me. |
-| **US-06** | As a hiring manager, I want every submission and every edit recorded with an actor and a time, so that "how was this candidate assessed" has an answer. |
+| ID        | Story                                                                                                                                                     |
+| --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **US-01** | As an interviewer, I want to submit a rating and notes for my round, so that my assessment is on the record rather than in a Slack thread.                |
+| **US-02** | As an interviewer, I want to read what my fellow panellists wrote, so that I am not the third person to ask the same question.                            |
+| **US-03** | As an interviewer, I want to correct a rating I mis-clicked, so that the record is right — and I accept that the correction is visible.                   |
+| **US-04** | As an interviewer on a panel, I want my colleague's simultaneous submission not to overwrite mine, so that a panel produces two assessments and not one.  |
+| **US-05** | As a recruiter, I want every panellist's feedback on a round in one place, so that I can decide with all of it in front of me.                            |
+| **US-06** | As a hiring manager, I want every submission and every edit recorded with an actor and a time, so that "how was this candidate assessed" has an answer.   |
 | **US-07** | As a security reviewer, I want to confirm the feedback endpoints never return a candidate's contact details, since §3.6 names this endpoint specifically. |
 
 ---
@@ -154,10 +154,11 @@ The two precedents above are not analogies — this feature is built by composin
 
   **The eligibility rule and the lookup are one statement.** There is no window between checking and
   using, and no unauthorized row is ever loaded into application memory.
+
 - **FR-1.3** **`feedback.interviewerId === currentUser.id` is never used as an authorization check**,
   anywhere in this module. `interviewerId` is a value the service is about to write, so comparing it
   to the caller compares a value to itself and authorizes nothing. The comparison appears **only**
-  in `PATCH`, where it answers a different question — *is this row mine to edit* — and even there it
+  in `PATCH`, where it answers a different question — _is this row mine to edit_ — and even there it
   is expressed as a `where` clause (FR-4.2), not an `if`.
 - **FR-1.4** A round that does not exist, and a round the caller is not assigned to, both answer
   **`404 NOT_FOUND`** with byte-identical bodies (D-10). A `403` would confirm the round exists,
@@ -170,7 +171,7 @@ The two precedents above are not analogies — this feature is built by composin
 - **FR-2.1** `POST /api/interviews/:interviewId/feedback` with `{ rating, notes }`. Interviewer-only
   at the route; assignment-scoped in the query.
 - **FR-2.2** A `Feedback` row is `{ id, interviewId, interviewerId, rating, notes, createdAt,
-  updatedAt }`.
+updatedAt }`.
 - **FR-2.3** `rating` is an **integer 1–5** (D-7), enforced by zod at the boundary and by a database
   `CHECK` constraint (MIG-4). Bounded so that a recruiter can compare rounds; integer so that
   "3.5 out of 5" is not a thing anyone has to interpret.
@@ -186,7 +187,7 @@ The two precedents above are not analogies — this feature is built by composin
 - **FR-2.8** A successful submission, in **one** transaction: the scoped round lookup, the
   `Feedback` insert, then
   `recordAudit(tx, { action: 'FEEDBACK_SUBMITTED', entityType: 'FEEDBACK', entityId,
-  metadata: { interviewId, rating } })`. **`notes` is not in the metadata** — the audit feed is
+metadata: { interviewId, rating } })`. **`notes` is not in the metadata** — the audit feed is
   recruiter-readable and the notes belong on the feedback record, where the read rules already live
   (audit FR-4.4).
 - **FR-2.9** Responds `201` with the created row and its author expanded to `{ id, name }`.
@@ -230,6 +231,7 @@ The two precedents above are not analogies — this feature is built by composin
 
   Ownership is in the `where`. `count === 0` means either no feedback exists or it is not theirs —
   both `404`, and the two are indistinguishable, as they should be.
+
 - **FR-4.3** A recruiter calling `PATCH` is `403` at the route (AZ-5). An assessment a recruiter can
   rewrite is not an assessment.
 - **FR-4.4** An edit writes
@@ -252,7 +254,7 @@ The two precedents above are not analogies — this feature is built by composin
   a miss is `404`. One rule, one expression, two verbs.
 - **FR-5.4** An assigned interviewer sees **all** feedback on the round, including their
   colleagues', including before submitting their own (D-9). This is the brief's opening complaint
-  being fixed: *"Interviewers can't see prior feedback before their round."*
+  being fixed: _"Interviewers can't see prior feedback before their round."_
 - **FR-5.5** Each row expands its author to `{ id, name }`. An interviewer learns who wrote what —
   which is the point of reading a panel's notes, and is the disclosure the interviews feature
   deliberately withheld from a round payload (interviews FR-5.3) so that it happens here, once,
@@ -302,7 +304,7 @@ The obligations this backend places on the Next.js client. The rest of the front
   must render the feedback form for interviewers only, and render a recruiter's view as read-only.
 - **XFE-2** An unassigned interviewer gets **`404`, not `403`**, on both verbs and on the read
   (FR-1.4). The client renders its not-found view; there is no `403` to catch here.
-- **XFE-3** `409 FEEDBACK_ALREADY_SUBMITTED` means *you have already filed feedback on this round*.
+- **XFE-3** `409 FEEDBACK_ALREADY_SUBMITTED` means _you have already filed feedback on this round_.
   **Its remedy is `PATCH`.** The client should load the existing row and switch the form to edit
   mode rather than showing a dead end.
 - **XFE-4** `409 INTERVIEW_CANCELLED` means the round was cancelled. The client should not offer a
@@ -369,7 +371,7 @@ log field table — is `plan.md § Backend Changes`.** This section states only 
 // request
 {
   "rating": 4,
-  "notes": "Strong backend fundamentals. Good understanding of PostgreSQL indexing; less confident on concurrency."
+  "notes": "Strong backend fundamentals. Good understanding of PostgreSQL indexing; less confident on concurrency.",
 }
 ```
 
@@ -383,8 +385,8 @@ log field table — is `plan.md § Backend Changes`.** This section states only 
     "notes": "Strong backend fundamentals. Good understanding of PostgreSQL indexing; less confident on concurrency.",
     "createdAt": "2026-09-24T11:02:14.331Z",
     "updatedAt": "2026-09-24T11:02:14.331Z",
-    "interviewer": { "id": 4, "name": "Ivan Interviewer" }
-  }
+    "interviewer": { "id": 4, "name": "Ivan Interviewer" },
+  },
 }
 ```
 
@@ -392,7 +394,7 @@ log field table — is `plan.md § Backend Changes`.** This section states only 
 // 409 Conflict — the same interviewer, twice
 {
   "code": "FEEDBACK_ALREADY_SUBMITTED",
-  "message": "You have already submitted feedback for this round. Edit it instead."
+  "message": "You have already submitted feedback for this round. Edit it instead.",
 }
 ```
 
@@ -401,15 +403,15 @@ log field table — is `plan.md § Backend Changes`.** This section states only 
 { "code": "NOT_FOUND", "message": "Resource not found" }
 ```
 
-| Status | `code` | When |
-|---|---|---|
-| `201` | — | Submitted |
-| `400` | `VALIDATION_ERROR` | `rating` absent/non-integer/outside 1–5; `notes` absent/empty/over 5000; bad `interviewId` |
-| `401` | `UNAUTHENTICATED` | No token |
-| `403` | `FORBIDDEN` | Recruiter or candidate |
-| `404` | `NOT_FOUND` | No such round **or** the caller is not assigned — indistinguishable |
-| `409` | `FEEDBACK_ALREADY_SUBMITTED` | `P2002` on `(interviewId, interviewerId)` |
-| `409` | `INTERVIEW_CANCELLED` | The round's status is `CANCELLED` |
+| Status | `code`                       | When                                                                                       |
+| ------ | ---------------------------- | ------------------------------------------------------------------------------------------ |
+| `201`  | —                            | Submitted                                                                                  |
+| `400`  | `VALIDATION_ERROR`           | `rating` absent/non-integer/outside 1–5; `notes` absent/empty/over 5000; bad `interviewId` |
+| `401`  | `UNAUTHENTICATED`            | No token                                                                                   |
+| `403`  | `FORBIDDEN`                  | Recruiter or candidate                                                                     |
+| `404`  | `NOT_FOUND`                  | No such round **or** the caller is not assigned — indistinguishable                        |
+| `409`  | `FEEDBACK_ALREADY_SUBMITTED` | `P2002` on `(interviewId, interviewerId)`                                                  |
+| `409`  | `INTERVIEW_CANCELLED`        | The round's status is `CANCELLED`                                                          |
 
 ### `PATCH /api/interviews/:interviewId/feedback` — Bearer · `INTERVIEWER` (author)
 
@@ -420,12 +422,12 @@ log field table — is `plan.md § Backend Changes`.** This section states only 
 
 `200 { "feedback": { … } }` with `updatedAt` advanced.
 
-| Status | `code` | When |
-|---|---|---|
-| `200` | — | Updated |
-| `400` | `VALIDATION_ERROR` | Both fields absent (`details._`), or either invalid |
-| `401` / `403` | | Anonymous / recruiter or candidate |
-| `404` | `NOT_FOUND` | No feedback by this caller on this round — including because they are not assigned (FR-4.2) |
+| Status        | `code`             | When                                                                                        |
+| ------------- | ------------------ | ------------------------------------------------------------------------------------------- |
+| `200`         | —                  | Updated                                                                                     |
+| `400`         | `VALIDATION_ERROR` | Both fields absent (`details._`), or either invalid                                         |
+| `401` / `403` |                    | Anonymous / recruiter or candidate                                                          |
+| `404`         | `NOT_FOUND`        | No feedback by this caller on this round — including because they are not assigned (FR-4.2) |
 
 ### `GET /api/interviews/:interviewId/feedback` — Bearer · `INTERVIEWER` (assigned) or `RECRUITER`
 
@@ -440,7 +442,7 @@ log field table — is `plan.md § Backend Changes`.** This section states only 
       "notes": "Excellent system design instincts.",
       "createdAt": "2026-09-24T11:04:50.117Z",
       "updatedAt": "2026-09-24T11:04:50.117Z",
-      "interviewer": { "id": 5, "name": "Ingrid Interviewer" }
+      "interviewer": { "id": 5, "name": "Ingrid Interviewer" },
     },
     {
       "id": 31,
@@ -449,19 +451,19 @@ log field table — is `plan.md § Backend Changes`.** This section states only 
       "notes": "Strong backend fundamentals…",
       "createdAt": "2026-09-24T11:02:14.331Z",
       "updatedAt": "2026-09-24T11:02:14.331Z",
-      "interviewer": { "id": 4, "name": "Ivan Interviewer" }
-    }
-  ]
+      "interviewer": { "id": 4, "name": "Ivan Interviewer" },
+    },
+  ],
 }
 ```
 
-| Status | `code` | When |
-|---|---|---|
-| `200` | — | Success, including `feedback: []` |
-| `400` | `VALIDATION_ERROR` | Bad `interviewId` |
-| `401` | `UNAUTHENTICATED` | No token |
-| `403` | `FORBIDDEN` | Candidate |
-| `404` | `NOT_FOUND` | No such round, **or** an interviewer who is not assigned |
+| Status | `code`             | When                                                     |
+| ------ | ------------------ | -------------------------------------------------------- |
+| `200`  | —                  | Success, including `feedback: []`                        |
+| `400`  | `VALIDATION_ERROR` | Bad `interviewId`                                        |
+| `401`  | `UNAUTHENTICATED`  | No token                                                 |
+| `403`  | `FORBIDDEN`        | Candidate                                                |
+| `404`  | `NOT_FOUND`        | No such round, **or** an interviewer who is not assigned |
 
 ### Contract invariants — what must appear in **zero** responses
 
@@ -474,7 +476,7 @@ log field table — is `plan.md § Backend Changes`.** This section states only 
 5. No `assignments` array, and no `assignedByUserId`.
 6. No route deletes feedback. `DELETE` on either path answers `404` from the shipped `notFound`
    handler (FR-6.1).
-7. No `403` is ever returned for *right role, wrong round*. That case is always `404` (FR-1.4).
+7. No `403` is ever returned for _right role, wrong round_. That case is always `404` (FR-1.4).
 
 ---
 
@@ -555,7 +557,7 @@ model User {
   Prisma requires both sides of a relation to exist, so the pair ships together, here.
 - **MIG-3** `@@unique([interviewId, interviewerId])` **is the §3.4 policy.** It is a database
   constraint, not a service check, and that distinction is the whole of the brief's requirement that
-  the chosen outcome *"actually holds under two near-simultaneous submissions"*. A `findFirst`
+  the chosen outcome _"actually holds under two near-simultaneous submissions"_. A `findFirst`
   before a `create` does not hold: two overlapping requests both read "no feedback yet" and both
   insert. Postgres cannot be raced this way.
 - **MIG-4** A raw `CHECK ("rating" >= 1 AND "rating" <= 5)` is added by hand in the generated
@@ -568,7 +570,7 @@ model User {
   `interview` is `Cascade` — feedback on a deleted round is meaningless.
 - **MIG-6** **`Feedback` has no foreign key to `InterviewAssignment`** (D-13). This is deliberate:
   unassigning an interviewer must not cascade away their assessment, and a foreign key would make
-  that cascade the natural implementation. The assignment authorizes the *write*, at write time;
+  that cascade the natural implementation. The assignment authorizes the _write_, at write time;
   it does not own the row afterwards.
 - **MIG-7** Row growth: at most one row per (round, interviewer). At 40 000 rounds with two
   panellists each, ~80 000 rows — bounded by the assignment table and fully indexed for both access
@@ -580,11 +582,11 @@ model User {
 
 ### Endpoint × role matrix
 
-| Endpoint | Anonymous | Candidate | Interviewer (assigned) | Interviewer (not assigned) | Recruiter |
-|---|---|---|---|---|---|
-| `POST /api/interviews/:id/feedback` | `401` | `403` | ✅ | **`404`** | **`403`** |
-| `PATCH /api/interviews/:id/feedback` | `401` | `403` | ✅ own row | **`404`** | **`403`** |
-| `GET /api/interviews/:id/feedback` | `401` | `403` | ✅ | **`404`** | ✅ any round |
+| Endpoint                             | Anonymous | Candidate | Interviewer (assigned) | Interviewer (not assigned) | Recruiter    |
+| ------------------------------------ | --------- | --------- | ---------------------- | -------------------------- | ------------ |
+| `POST /api/interviews/:id/feedback`  | `401`     | `403`     | ✅                     | **`404`**                  | **`403`**    |
+| `PATCH /api/interviews/:id/feedback` | `401`     | `403`     | ✅ own row             | **`404`**                  | **`403`**    |
+| `GET /api/interviews/:id/feedback`   | `401`     | `403`     | ✅                     | **`404`**                  | ✅ any round |
 
 ### Non-negotiable rules
 
@@ -617,14 +619,14 @@ model User {
 
 ## Validation
 
-| Endpoint | Field | Rule | Failure |
-|---|---|---|---|
-| all | `interviewId` (param) | `z.coerce.number().int().positive()` | `400` `details.interviewId` |
-| `POST` | `rating` | `z.number().int().min(1).max(5)`, **required** | `400` `details.rating` |
-| `POST` | `notes` | `z.string().trim().min(1).max(5000)`, **required** | `400` `details.notes` |
-| `PATCH` | `rating` | same, optional | `400` `details.rating` |
-| `PATCH` | `notes` | same, optional | `400` `details.notes` |
-| `PATCH` | — | `.refine(keys.length > 0, 'Provide at least one of rating, notes')` | `400` `details._` |
+| Endpoint | Field                 | Rule                                                                | Failure                     |
+| -------- | --------------------- | ------------------------------------------------------------------- | --------------------------- |
+| all      | `interviewId` (param) | `z.coerce.number().int().positive()`                                | `400` `details.interviewId` |
+| `POST`   | `rating`              | `z.number().int().min(1).max(5)`, **required**                      | `400` `details.rating`      |
+| `POST`   | `notes`               | `z.string().trim().min(1).max(5000)`, **required**                  | `400` `details.notes`       |
+| `PATCH`  | `rating`              | same, optional                                                      | `400` `details.rating`      |
+| `PATCH`  | `notes`               | same, optional                                                      | `400` `details.notes`       |
+| `PATCH`  | —                     | `.refine(keys.length > 0, 'Provide at least one of rating, notes')` | `400` `details._`           |
 
 - **VAL-1** `rating` is `z.number().int()`, **not** `z.coerce.number()`. A body of
   `{"rating":"4"}` is a `400`. Coercion is right for query strings and path params, which are always
@@ -643,30 +645,30 @@ model User {
   malformed body gets `403`, not a `400` that would teach them a contract they may not use.
 - **VAL-7** **Validation runs before the assignment lookup.** A malformed body from an unassigned
   interviewer is `400`, not `404`. This is a deliberate ordering: the body shape is not a secret,
-  and the brief requires bad input to be rejected *before* business logic (§6). The round's
+  and the brief requires bad input to be rejected _before_ business logic (§6). The round's
   existence is still not revealed, because the `400` is identical whether the round exists or not.
 
 ---
 
 ## Error Handling
 
-| `code` | Status | Raised when | New? |
-|---|---|---|---|
-| `VALIDATION_ERROR` | `400` | Any Validation-table rule fails | no |
-| `UNAUTHENTICATED` | `401` | No/invalid/expired token | no |
-| `FORBIDDEN` | `403` | Candidate anywhere; recruiter on `POST`/`PATCH` | no |
-| `NOT_FOUND` | `404` | No such round, caller not assigned, or no feedback of theirs to edit | no |
-| `FEEDBACK_ALREADY_SUBMITTED` | `409` | `P2002` on `(interviewId, interviewerId)` | **yes** |
-| `INTERVIEW_CANCELLED` | `409` | Submitting against a `CANCELLED` round | **yes** |
-| `INTERNAL_ERROR` | `500` | Anything unhandled | no |
+| `code`                       | Status | Raised when                                                          | New?    |
+| ---------------------------- | ------ | -------------------------------------------------------------------- | ------- |
+| `VALIDATION_ERROR`           | `400`  | Any Validation-table rule fails                                      | no      |
+| `UNAUTHENTICATED`            | `401`  | No/invalid/expired token                                             | no      |
+| `FORBIDDEN`                  | `403`  | Candidate anywhere; recruiter on `POST`/`PATCH`                      | no      |
+| `NOT_FOUND`                  | `404`  | No such round, caller not assigned, or no feedback of theirs to edit | no      |
+| `FEEDBACK_ALREADY_SUBMITTED` | `409`  | `P2002` on `(interviewId, interviewerId)`                            | **yes** |
+| `INTERVIEW_CANCELLED`        | `409`  | Submitting against a `CANCELLED` round                               | **yes** |
+| `INTERNAL_ERROR`             | `500`  | Anything unhandled                                                   | no      |
 
 - **ERR-1** An unassigned interviewer's request — on any verb — is `404 NOT_FOUND`, **byte-identical**
   to the response for a round that does not exist (FR-1.4, AZ-7). No header, no message difference,
   nothing that distinguishes them.
-- **ERR-2** `403` means *wrong role for this route*; `404` means *right role, wrong round*. The two
+- **ERR-2** `403` means _wrong role for this route_; `404` means _right role, wrong round_. The two
   are never mixed, because mixing them turns the endpoint into an existence oracle.
-- **ERR-3** `FEEDBACK_ALREADY_SUBMITTED` carries a message that names the remedy — *"Edit it
-  instead."* — because the remedy is a different verb on the same path and a client that does not
+- **ERR-3** `FEEDBACK_ALREADY_SUBMITTED` carries a message that names the remedy — _"Edit it
+  instead."_ — because the remedy is a different verb on the same path and a client that does not
   know that will show a dead end (FR-3.5, XFE-3).
 - **ERR-4** `FEEDBACK_ALREADY_SUBMITTED` is produced by catching `P2002` **outside** the transaction
   callback, matching `applications.service`. **No `findFirst` precedes the insert** (BE-5).
@@ -680,29 +682,29 @@ model User {
 
 ## Edge Cases
 
-| ID | Case | Behaviour |
-|---|---|---|
-| **EC-01** | **Two different interviewers on one panel submit concurrently** | **Both `201`.** Different unique-key tuples, nothing to contend on. `psql` shows two rows. *This is the brief's §3.4 case, and the documented outcome is "both are kept"* (FR-3.2, D-1) |
-| **EC-02** | **The same interviewer submits twice concurrently** | Exactly one `201`, one `409 FEEDBACK_ALREADY_SUBMITTED` from `P2002`. `psql` shows **one** row, and it is whichever body won — never a merge, never a silent overwrite (FR-3.3) |
-| **EC-03** | **Three panellists submit at once, while a recruiter fires a stage override on the same application** | Three `201`s and one stage result. The feedback rows touch `Feedback`; the override touches `Application` under its own guarded `updateMany` (pipeline FR-6.2). They do not interact, and the end state is three assessments plus whichever stage write won its own race. *This is the brief's §8 harder variant* (FR-3.6) |
-| **EC-04** | Two concurrent `PATCH`es from one interviewer | Both `200`; the later commit wins the column values. `updateMany` holds a row lock, so there is no torn write — one of the two bodies is the final state, entirely (FR-4.2) |
-| **EC-05** | **An unassigned interviewer POSTs feedback with a valid body** | `404`. The round is never loaded: the assignment predicate is in the `where` (FR-1.2). `psql` shows no row (AZ-2) |
-| **EC-06** | An unassigned interviewer GETs a round's feedback | `404`, identical to a round that does not exist (ERR-1) |
-| **EC-07** | An interviewer PATCHes feedback that is not theirs | `404`. `updateMany`'s `where` includes `interviewerId: actorId`, so `count === 0` (FR-4.2, AZ-6) |
-| **EC-08** | An interviewer PATCHes before submitting anything | `404` — the same response as EC-07, so "you wrote nothing" and "that is not yours" are indistinguishable (FR-4.2) |
-| **EC-09** | A recruiter POSTs feedback | `403` at the route, before the body is read (AZ-5) |
-| **EC-10** | Feedback on a `CANCELLED` round | `409 INTERVIEW_CANCELLED` (D-12, FR-2.7). The status is read by the same lookup that authorizes, so no extra query |
-| **EC-11** | Feedback on a `SCHEDULED` round, before it happens | `201`. Requiring `COMPLETED` first would couple an interviewer's notes to a recruiter's status update (D-11, FR-2.6) |
-| **EC-12** | An interviewer is unassigned **after** submitting | Their row remains and stays visible to recruiters and the remaining panel; **the author loses read access** on their next request. Asymmetric, deliberate, named (FR-6.4, AZ-9) |
-| **EC-13** | An interviewer reads the round before writing their own | `200` with their colleagues' entries. *This is the brief's opening complaint being fixed* (FR-5.4, D-9) |
-| **EC-14** | A round with no feedback, read by an assigned interviewer | `200` with `feedback: []`. Never `404` — the round is visible to them (FR-5.8) |
-| **EC-15** | `rating: 0` or `rating: 6` | `400` from zod; the `CHECK` constraint never sees it (VAL-2) |
-| **EC-16** | A seed or `psql` writes `rating: 99` | Postgres rejects it — the `CHECK` constraint is the second line of defence that zod cannot provide (MIG-4) |
-| **EC-17** | `notes: "   "` | `400` — trimmed to empty, fails `min(1)` (VAL-3) |
-| **EC-18** | `DELETE /api/interviews/:id/feedback` | `404` from the shipped `notFound` handler. There is no delete (FR-6.1, contract invariant 6) |
-| **EC-19** | A round is cancelled after feedback exists | The feedback remains and is readable. Cancelling a round does not unmake the assessment already written for it (FR-2.7 governs new submissions only) |
-| **EC-20** | `recordAudit` throws during a submission | The transaction aborts: no feedback row, `500` to the client, and the retry is a fresh attempt rather than a duplicate (ERR-7) |
-| **EC-21** | A recruiter reads feedback on a round with no assignments at all | `200` with `feedback: []`. A recruiter's read is not scoped by assignment (AZ-3) |
+| ID        | Case                                                                                                  | Behaviour                                                                                                                                                                                                                                                                                                                  |
+| --------- | ----------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **EC-01** | **Two different interviewers on one panel submit concurrently**                                       | **Both `201`.** Different unique-key tuples, nothing to contend on. `psql` shows two rows. _This is the brief's §3.4 case, and the documented outcome is "both are kept"_ (FR-3.2, D-1)                                                                                                                                    |
+| **EC-02** | **The same interviewer submits twice concurrently**                                                   | Exactly one `201`, one `409 FEEDBACK_ALREADY_SUBMITTED` from `P2002`. `psql` shows **one** row, and it is whichever body won — never a merge, never a silent overwrite (FR-3.3)                                                                                                                                            |
+| **EC-03** | **Three panellists submit at once, while a recruiter fires a stage override on the same application** | Three `201`s and one stage result. The feedback rows touch `Feedback`; the override touches `Application` under its own guarded `updateMany` (pipeline FR-6.2). They do not interact, and the end state is three assessments plus whichever stage write won its own race. _This is the brief's §8 harder variant_ (FR-3.6) |
+| **EC-04** | Two concurrent `PATCH`es from one interviewer                                                         | Both `200`; the later commit wins the column values. `updateMany` holds a row lock, so there is no torn write — one of the two bodies is the final state, entirely (FR-4.2)                                                                                                                                                |
+| **EC-05** | **An unassigned interviewer POSTs feedback with a valid body**                                        | `404`. The round is never loaded: the assignment predicate is in the `where` (FR-1.2). `psql` shows no row (AZ-2)                                                                                                                                                                                                          |
+| **EC-06** | An unassigned interviewer GETs a round's feedback                                                     | `404`, identical to a round that does not exist (ERR-1)                                                                                                                                                                                                                                                                    |
+| **EC-07** | An interviewer PATCHes feedback that is not theirs                                                    | `404`. `updateMany`'s `where` includes `interviewerId: actorId`, so `count === 0` (FR-4.2, AZ-6)                                                                                                                                                                                                                           |
+| **EC-08** | An interviewer PATCHes before submitting anything                                                     | `404` — the same response as EC-07, so "you wrote nothing" and "that is not yours" are indistinguishable (FR-4.2)                                                                                                                                                                                                          |
+| **EC-09** | A recruiter POSTs feedback                                                                            | `403` at the route, before the body is read (AZ-5)                                                                                                                                                                                                                                                                         |
+| **EC-10** | Feedback on a `CANCELLED` round                                                                       | `409 INTERVIEW_CANCELLED` (D-12, FR-2.7). The status is read by the same lookup that authorizes, so no extra query                                                                                                                                                                                                         |
+| **EC-11** | Feedback on a `SCHEDULED` round, before it happens                                                    | `201`. Requiring `COMPLETED` first would couple an interviewer's notes to a recruiter's status update (D-11, FR-2.6)                                                                                                                                                                                                       |
+| **EC-12** | An interviewer is unassigned **after** submitting                                                     | Their row remains and stays visible to recruiters and the remaining panel; **the author loses read access** on their next request. Asymmetric, deliberate, named (FR-6.4, AZ-9)                                                                                                                                            |
+| **EC-13** | An interviewer reads the round before writing their own                                               | `200` with their colleagues' entries. _This is the brief's opening complaint being fixed_ (FR-5.4, D-9)                                                                                                                                                                                                                    |
+| **EC-14** | A round with no feedback, read by an assigned interviewer                                             | `200` with `feedback: []`. Never `404` — the round is visible to them (FR-5.8)                                                                                                                                                                                                                                             |
+| **EC-15** | `rating: 0` or `rating: 6`                                                                            | `400` from zod; the `CHECK` constraint never sees it (VAL-2)                                                                                                                                                                                                                                                               |
+| **EC-16** | A seed or `psql` writes `rating: 99`                                                                  | Postgres rejects it — the `CHECK` constraint is the second line of defence that zod cannot provide (MIG-4)                                                                                                                                                                                                                 |
+| **EC-17** | `notes: "   "`                                                                                        | `400` — trimmed to empty, fails `min(1)` (VAL-3)                                                                                                                                                                                                                                                                           |
+| **EC-18** | `DELETE /api/interviews/:id/feedback`                                                                 | `404` from the shipped `notFound` handler. There is no delete (FR-6.1, contract invariant 6)                                                                                                                                                                                                                               |
+| **EC-19** | A round is cancelled after feedback exists                                                            | The feedback remains and is readable. Cancelling a round does not unmake the assessment already written for it (FR-2.7 governs new submissions only)                                                                                                                                                                       |
+| **EC-20** | `recordAudit` throws during a submission                                                              | The transaction aborts: no feedback row, `500` to the client, and the retry is a fresh attempt rather than a duplicate (ERR-7)                                                                                                                                                                                             |
+| **EC-21** | A recruiter reads feedback on a round with no assignments at all                                      | `200` with `feedback: []`. A recruiter's read is not scoped by assignment (AZ-3)                                                                                                                                                                                                                                           |
 
 ---
 
@@ -804,8 +806,8 @@ is a round **only `$I1`** is assigned to (interviews FR-7.3).
 
 - **AC-B11** — **Given** `$IV` with both `$I1` and `$I2` assigned and no feedback, **when** **both**
   submit **concurrently** (`curl … & curl … & wait`), **then** **both** return `201` and `psql`
-  shows **exactly two** rows with distinct ids and distinct `interviewerId`s. *This is the brief's
-  §3.4 case, and the outcome is the documented one: both are kept* (EC-01, FR-3.2, D-1).
+  shows **exactly two** rows with distinct ids and distinct `interviewerId`s. _This is the brief's
+  §3.4 case, and the outcome is the documented one: both are kept_ (EC-01, FR-3.2, D-1).
 - **AC-B12** — **Given** `$IV` with `$I1` assigned and no feedback, **when** **two identical**
   submissions from `$I1` are **fired concurrently**, **then** exactly one returns `201`, the other
   `409 FEEDBACK_ALREADY_SUBMITTED`, and `psql` shows **exactly one** row (EC-02, FR-3.3).
@@ -816,8 +818,8 @@ is a round **only `$I1`** is assigned to (interviews FR-7.3).
   **and** a recruiter fires `POST /api/applications/:id/stage-override` for the same candidate, all
   **concurrently**, **then** all three feedback rows persist, the override either succeeds or is
   `409 STAGE_CONFLICT`, and `psql` shows a consistent state: three feedback rows, and the
-  application at exactly one stage with one matching `StageHistory` row. *This is the brief's §8
-  harder variant* (EC-03, FR-3.6).
+  application at exactly one stage with one matching `StageHistory` row. _This is the brief's §8
+  harder variant_ (EC-03, FR-3.6).
 - **AC-B15** — **Given** the repository, **when**
   `grep -rn "feedback.findFirst\|feedback.findUnique" src/modules/feedback/feedback.service.ts` is
   run, **then** no match precedes a `feedback.create` — the duplicate check is the index, not a read
@@ -828,7 +830,7 @@ is a round **only `$I1`** is assigned to (interviews FR-7.3).
 - **AC-B16** — **Given** `$I2` **not** assigned to `$IV_SOLO`, **when**
   `POST /api/interviews/$IV_SOLO/feedback` is sent with a **valid** body, **then** the response is
   **`404 NOT_FOUND`**, byte-identical to `POST /api/interviews/999999/feedback`, and `psql` shows
-  **no** new row. *An interviewer cannot file feedback against another round by manipulating an id*
+  **no** new row. _An interviewer cannot file feedback against another round by manipulating an id_
   (FR-1.2, EC-05, AZ-2).
 - **AC-B17** — **Given** the same request, **when** the server log is read, **then** a
   `feedback.scoped_write_miss` line is present and the response was **not** `403` (SEC-4, FR-7.1).
@@ -850,7 +852,7 @@ is a round **only `$I1`** is assigned to (interviews FR-7.3).
 
 - **AC-B23** — **Given** `$IV` with feedback from `$I1`, **when** `$I2` (assigned, having written
   nothing) calls `GET /api/interviews/$IV/feedback`, **then** the response is `200` and `$I1`'s
-  entry is present with `interviewer.name`. *This is the brief's opening complaint being fixed*
+  entry is present with `interviewer.name`. _This is the brief's opening complaint being fixed_
   (FR-5.4, FR-5.5, EC-13, D-9).
 - **AC-B24** — **Given** `$R`, **when** the same call is made for any round, **then** the response
   is `200` without any assignment requirement (AZ-3).
@@ -880,8 +882,8 @@ is a round **only `$I1`** is assigned to (interviews FR-7.3).
 
 - **AC-B33** — **Given** `$I1`, **when** `POST /api/interviews/$IV/feedback` succeeds and the
   **entire** `201` body is searched, **then** the strings `"email"`, `"phone"`, `"candidate"` and
-  `"candidateUserId"` appear **zero** times. *§3.6 names the feedback-submission endpoint
-  specifically* (contract invariants 1–3, SEC-1).
+  `"candidateUserId"` appear **zero** times. _§3.6 names the feedback-submission endpoint
+  specifically_ (contract invariants 1–3, SEC-1).
 - **AC-B34** — **Given** `$I1`, **when** `GET /api/interviews/$IV/feedback` returns a two-entry
   panel and the whole body is searched, **then** the same four strings appear **zero** times
   (contract invariants 1–3).
@@ -926,19 +928,19 @@ is a round **only `$I1`** is assigned to (interviews FR-7.3).
 
 ## Out of Scope
 
-| Excluded | Why |
-|---|---|
-| **`PATCH` itself, if you want it gone** | It is in scope here by D-4, and it was not in the original endpoint list. It exists because `updatedAt` plus a `409`-on-repeat policy otherwise leaves a column nothing writes. Removing it means removing `updatedAt`, `FEEDBACK_UPDATED`, FR-4 and AC-B27…AC-B30 together — it is deliberately isolated so that is a clean cut |
-| `DELETE` | D-14. Retracting an assessment without a trace is the opposite of what §6 asks for |
-| Structured competency scores (per-skill ratings) | The brief asks for *"a rating plus notes"*. A rubric is a product decision nobody has made |
-| A hire/no-hire recommendation field | Same reason. A rating already carries the signal, and a second opinion field invites disagreement between the two |
-| Aggregating ratings into a decision or auto-advancing a stage | FR-6.3. Feedback informs a recruiter; it does not move a candidate |
-| Candidate access to feedback about themselves | A legal and product decision this POC does not make |
-| Blind feedback (hidden until you submit your own) | Would undo the brief's opening complaint. The bias risk is named in SEC-7 instead |
-| Editing deadlines | D-6. A time window is a policy nobody asked for |
-| Attachments, code samples, recordings | No storage layer exists in this POC |
-| Notifying a recruiter that feedback arrived | No notification channel exists |
-| A cross-round feedback list per interviewer | `@@index([interviewerId])` supports it; no requirement asks for it, and an endpoint with no reader is how a surface grows |
+| Excluded                                                      | Why                                                                                                                                                                                                                                                                                                                              |
+| ------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **`PATCH` itself, if you want it gone**                       | It is in scope here by D-4, and it was not in the original endpoint list. It exists because `updatedAt` plus a `409`-on-repeat policy otherwise leaves a column nothing writes. Removing it means removing `updatedAt`, `FEEDBACK_UPDATED`, FR-4 and AC-B27…AC-B30 together — it is deliberately isolated so that is a clean cut |
+| `DELETE`                                                      | D-14. Retracting an assessment without a trace is the opposite of what §6 asks for                                                                                                                                                                                                                                               |
+| Structured competency scores (per-skill ratings)              | The brief asks for _"a rating plus notes"_. A rubric is a product decision nobody has made                                                                                                                                                                                                                                       |
+| A hire/no-hire recommendation field                           | Same reason. A rating already carries the signal, and a second opinion field invites disagreement between the two                                                                                                                                                                                                                |
+| Aggregating ratings into a decision or auto-advancing a stage | FR-6.3. Feedback informs a recruiter; it does not move a candidate                                                                                                                                                                                                                                                               |
+| Candidate access to feedback about themselves                 | A legal and product decision this POC does not make                                                                                                                                                                                                                                                                              |
+| Blind feedback (hidden until you submit your own)             | Would undo the brief's opening complaint. The bias risk is named in SEC-7 instead                                                                                                                                                                                                                                                |
+| Editing deadlines                                             | D-6. A time window is a policy nobody asked for                                                                                                                                                                                                                                                                                  |
+| Attachments, code samples, recordings                         | No storage layer exists in this POC                                                                                                                                                                                                                                                                                              |
+| Notifying a recruiter that feedback arrived                   | No notification channel exists                                                                                                                                                                                                                                                                                                   |
+| A cross-round feedback list per interviewer                   | `@@index([interviewerId])` supports it; no requirement asks for it, and an endpoint with no reader is how a surface grows                                                                                                                                                                                                        |
 
 ---
 
@@ -959,26 +961,26 @@ the feedback this feature writes.
 
 **New files**
 
-| Path | Purpose |
-|---|---|
+| Path                                          | Purpose                                                 |
+| --------------------------------------------- | ------------------------------------------------------- |
 | `src/modules/feedback/feedback.repository.ts` | The scoped round resolver and the guarded update (BE-2) |
-| `src/modules/feedback/feedback.service.ts` | Submit, edit, list — one transaction each |
-| `src/modules/feedback/feedback.controller.ts` | HTTP concerns only |
-| `src/modules/feedback/feedback.routes.ts` | Three routes, attached to the interviews router (BE-3) |
-| `src/modules/feedback/feedback.schema.ts` | Body and param schemas |
-| `src/modules/feedback/feedback.select.ts` | `FEEDBACK_SELECT` — names no candidate relation (BE-6) |
+| `src/modules/feedback/feedback.service.ts`    | Submit, edit, list — one transaction each               |
+| `src/modules/feedback/feedback.controller.ts` | HTTP concerns only                                      |
+| `src/modules/feedback/feedback.routes.ts`     | Three routes, attached to the interviews router (BE-3)  |
+| `src/modules/feedback/feedback.schema.ts`     | Body and param schemas                                  |
+| `src/modules/feedback/feedback.select.ts`     | `FEEDBACK_SELECT` — names no candidate relation (BE-6)  |
 
 **Modified existing files**
 
-| Path | Change |
-|---|---|
-| [`prisma/schema.prisma`](../../../prisma/schema.prisma) | `Feedback`, its unique index, the `Interview` and `User` back-relations |
-| the generated migration SQL | One appended `CHECK ("rating" >= 1 AND "rating" <= 5)` (MIG-4) — appended, never rewritten |
-| [`src/lib/errors.ts`](../../../src/lib/errors.ts) | `FEEDBACK_ALREADY_SUBMITTED`, `INTERVIEW_CANCELLED` + subclasses |
-| [`src/lib/logger.ts`](../../../src/lib/logger.ts) | `redact` gains `notes`, `*.notes` (FR-7.2) |
-| `src/modules/interviews/interviews.routes.ts` | Mount `feedbackRouter` under `/:interviewId/feedback` |
-| [`prisma/seed.ts`](../../../prisma/seed.ts) | One feedback row from `interviewer1`, leaving `interviewer2` without one (FR-7.3) |
-| [`CLAUDE.md`](../../../CLAUDE.md) | Feature table row; the concurrent-feedback bullet now states the decided policy and points here |
+| Path                                                    | Change                                                                                          |
+| ------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| [`prisma/schema.prisma`](../../../prisma/schema.prisma) | `Feedback`, its unique index, the `Interview` and `User` back-relations                         |
+| the generated migration SQL                             | One appended `CHECK ("rating" >= 1 AND "rating" <= 5)` (MIG-4) — appended, never rewritten      |
+| [`src/lib/errors.ts`](../../../src/lib/errors.ts)       | `FEEDBACK_ALREADY_SUBMITTED`, `INTERVIEW_CANCELLED` + subclasses                                |
+| [`src/lib/logger.ts`](../../../src/lib/logger.ts)       | `redact` gains `notes`, `*.notes` (FR-7.2)                                                      |
+| `src/modules/interviews/interviews.routes.ts`           | Mount `feedbackRouter` under `/:interviewId/feedback`                                           |
+| [`prisma/seed.ts`](../../../prisma/seed.ts)             | One feedback row from `interviewer1`, leaving `interviewer2` without one (FR-7.3)               |
+| [`CLAUDE.md`](../../../CLAUDE.md)                       | Feature table row; the concurrent-feedback bullet now states the decided policy and points here |
 
 **External services:** none.
 

@@ -50,6 +50,36 @@ enum RoleStatus {
   CLOSED
 }
 
+/// NEW (audit FR-4.1). Every state-changing action this API performs, as a row.
+///
+/// Nine values, all declared in one migration even though eight are first
+/// written by a later feature (D-10, MIG-3). Adding a value later is an enum
+/// migration against a table that is by then large; adding all nine now costs
+/// nothing. An enum value no code writes is normally a lie in the schema —
+/// this is the documented exception, and it is closed by feature 8.
+enum AuditAction {
+  CANDIDATE_STAGE_CHANGED
+  STAGE_OVERRIDE_CREATED
+  APPLICATION_OUTCOME_SET
+  INTERVIEW_CREATED
+  INTERVIEWER_ASSIGNED
+  INTERVIEWER_UNASSIGNED
+  FEEDBACK_SUBMITTED
+  FEEDBACK_UPDATED
+  CANDIDATE_CONTACT_UPDATED
+}
+
+/// NEW (audit FR-4.2). What `AuditLog.entityId` points at. An enum, not a
+/// string, for the same reason `RoleStatus` is one: a typo in a free-text
+/// discriminator produces a row no filter will ever return, and nothing fails
+/// loudly (MIG-2).
+enum AuditEntityType {
+  APPLICATION
+  INTERVIEW
+  FEEDBACK
+  CANDIDATE
+}
+
 model User {
   id           Int      @id @default(autoincrement())
   name         String
@@ -61,6 +91,11 @@ model User {
 
   refreshTokens RefreshToken[]
   applications  Application[]
+
+  /// Back-relation only; no column is added to `User` (audit FR-1.3).
+  /// `Restrict` on the far side means a user who has performed any audited
+  /// action can no longer be deleted — see `AuditLog.actor` (MIG-4).
+  auditLogs AuditLog[]
 }
 
 model RefreshToken {
@@ -157,4 +192,45 @@ model Application {
   // its second column is `roleId`, not `createdAt`.
   @@index([candidateUserId, createdAt]) // GET /api/applications — filter and sort in one index
   @@index([roleId, currentStage]) // the pipeline aggregate, and the FK check behind Restrict
+}
+
+/// NEW (audit FR-1). Append-only: one row per state-changing action performed
+/// through this API. No `updatedAt`, because no code path updates a row
+/// (FR-6.1) — and no `deletedAt`, because none deletes one either.
+model AuditLog {
+  id          Int             @id @default(autoincrement())
+  actorUserId Int
+  action      AuditAction
+  entityType  AuditEntityType
+
+  /// Deliberately NOT a foreign key (FR-1.5). It addresses four different
+  /// tables depending on `entityType`, so no single FK expresses it — and a
+  /// trace a cascade can delete is worse than one without referential
+  /// integrity. The consequence is stated in SEC-4, not hidden: this may name
+  /// a row that no longer exists.
+  entityId Int
+
+  /// Never null; an action with nothing to record writes `{}` (FR-4.3). The
+  /// shape per action is FR-4.1, enforced at the call site by a discriminated
+  /// union rather than by the column (FR-3.3). Carries no email, phone, name
+  /// or feedback `notes` (FR-4.4) — the one free-text value permitted anywhere
+  /// in it is an override's `reason` (FR-4.5).
+  metadata Json
+
+  /// The database's `now()`, never a client-supplied timestamp (FR-1.6).
+  createdAt DateTime @default(now())
+
+  /// `Restrict`, not `Cascade`. `User` cascades to `RefreshToken` and
+  /// `Application`; it must not cascade here. Deleting a recruiter would
+  /// otherwise erase the record of every decision they made, which is precisely
+  /// the record the brief asks for (MIG-4). There is no user-deletion endpoint,
+  /// so nothing breaks today; a future one must anonymise rather than delete.
+  actor User @relation(fields: [actorUserId], references: [id], onDelete: Restrict)
+
+  // All four added now rather than after a slow query is observed — `AuditLog`
+  // is the fastest-growing table in the schema (MIG-5, MIG-6).
+  @@index([entityType, entityId, createdAt]) // the "life of this application" read — FR-5.2
+  @@index([actorUserId, createdAt]) // "everything this recruiter did"
+  @@index([action, createdAt]) // "every override this month" — US-04
+  @@index([createdAt]) // the unfiltered feed's ORDER BY
 }

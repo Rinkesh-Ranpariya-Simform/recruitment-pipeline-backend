@@ -14,7 +14,7 @@
 
 ## Goal
 
-Give the API the **open requisition** — the thing candidates are considered *against* — so that every later
+Give the API the **open requisition** — the thing candidates are considered _against_ — so that every later
 model in this POC has something real to hang off.
 
 This backend must:
@@ -35,16 +35,16 @@ first, and `RECRUITER`-only mutation is proven by a request, not by the absence 
 
 ## Revision — reads became recruiter-only
 
-**What changed:** `GET /api/roles` and `GET /api/roles/:roleId` moved from *any authenticated user* to
+**What changed:** `GET /api/roles` and `GET /api/roles/:roleId` moved from _any authenticated user_ to
 `RECRUITER`-only. All four endpoints now carry `requireRole(UserRole.RECRUITER)`.
 
 **Why:** the original AZ-1 argued that a role carries no restricted data, so there was nothing to protect an
 interviewer from. That is true of a single requisition and false of the endpoint: `GET /api/roles` is the
 whole hiring picture — every req open and closed, with a filter and a pager over it — and that is a
-recruiter's working surface, not a fact an interviewer needs. The need the old rule was written for (*"which
-req is my round on?"*) is narrower than the endpoint that was serving it, and is properly served by an
+recruiter's working surface, not a fact an interviewer needs. The need the old rule was written for (_"which
+req is my round on?"_) is narrower than the endpoint that was serving it, and is properly served by an
 **assignment-scoped** query on the rounds feature — the same shape the POC's sharpest requirement already
-demands for candidates ([../../../CLAUDE.md](../../../CLAUDE.md) § *Authorization & data exposure*). Serving a
+demands for candidates ([../../../CLAUDE.md](../../../CLAUDE.md) § _Authorization & data exposure_). Serving a
 narrow need from a broad endpoint is the habit that requirement exists to break.
 
 **What it costs:** nothing yet. No interviewer-facing view exists to lose the data, because rounds do not
@@ -98,10 +98,10 @@ note exists so this spec does not silently contradict a drafted one.
 The [candidate spec](../candidate/spec.md) proposes two changes to this feature:
 
 1. **`GET /api/roles` and `GET /api/roles/:roleId` drop `requireRole(UserRole.RECRUITER)`**, so a candidate
-   can browse open positions. This reverses *Revision — reads became recruiter-only* above. The three write
+   can browse open positions. This reverses _Revision — reads became recruiter-only_ above. The three write
    endpoints are untouched. What replaces the guard is a **query-level** rule: a non-recruiter's `where`
    carries `status: OPEN` and their `select` is `PUBLIC_ROLE_SELECT`, so a `CLOSED` requisition is never
-   fetched and answers `404` — see that spec's *Revision to the roles feature* for the full argument and its
+   fetched and answers `404` — see that spec's _Revision to the roles feature_ for the full argument and its
    named cost.
 2. **FR-6.10 is answered.** `Application` is the first model to take a foreign key to `Role`, and it takes
    `onDelete: Restrict`. `DELETE /api/roles/:roleId` on a `CLOSED` role with applications answers a **new**
@@ -121,27 +121,27 @@ The POC brief opens on the problem this feature is the first half of:
 > nobody — not even the hiring manager — can easily tell where a role is stuck or how long a candidate has
 > been sitting at a given stage.
 
-and §4 requires the schema to represent, at minimum, *"roles, candidates and which role(s) they're being
-considered for"*. [../../../CLAUDE.md](../../../CLAUDE.md) states it as **"Role — an open req"**, first in the
+and §4 requires the schema to represent, at minimum, _"roles, candidates and which role(s) they're being
+considered for"_. [../../../CLAUDE.md](../../../CLAUDE.md) states it as **"Role — an open req"**, first in the
 list of models to build out.
 
-Nothing else in the POC can be built first. A candidate is a candidate *for a role*; an interview round is a
-round *on a role*; the pipeline view is *counts per stage per role*. This is the smallest model that unblocks
+Nothing else in the POC can be built first. A candidate is a candidate _for a role_; an interview round is a
+round _on a role_; the pipeline view is _counts per stage per role_. This is the smallest model that unblocks
 all three, and it is deliberately small: it holds no candidates, no stages and no aggregates, because each of
 those is its own feature.
 
 ### Current state of `backend/`
 
-|                | Today                                                                                                                                        |
-| -------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| Stack          | Express 5.2, TypeScript ESM, Prisma 7.10, PostgreSQL, `tsx` for dev                                                                          |
+|                | Today                                                                                                                                         |
+| -------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| Stack          | Express 5.2, TypeScript ESM, Prisma 7.10, PostgreSQL, `tsx` for dev                                                                           |
 | Structure      | The layering the auth feature introduced — `config/`, `lib/`, `middleware/`, `modules/<feature>/{routes,controller,service,schema}.ts`        |
 | Schema         | [`prisma/schema.prisma`](../../../prisma/schema.prisma) — `Role` **enum** (`INTERVIEWER`/`RECRUITER`), `User`, `RefreshToken`. Two migrations |
 | Identity       | `requireAuth` establishes `req.user = { id, role }`; `requireRole(...)` gates by it. Both shipped and verified                                |
 | Validation     | `validate(schema)` parses **`req.body` only** — there is no param or query-string validation anywhere yet                                     |
 | Error contract | `AppError` subclasses + a single error middleware producing `{ code, message, details? }`                                                     |
 | Logging        | `pino` with a per-request `requestId`; auth events are structured, and there is no audit **table**                                            |
-| Tests          | **none**, and none planned — verification is manual `curl` + `psql`                                                                          |
+| Tests          | **none**, and none planned — verification is manual `curl` + `psql`                                                                           |
 
 So this feature is the **first domain model in the POC**, the first module with a full CRUD-shaped surface,
 and the first route with a path parameter — which is why it has to introduce param and query validation.
@@ -152,8 +152,8 @@ and the first route with a path parameter — which is why it has to introduce p
 
 | Meaning               | Today           | Used by                                                           |
 | --------------------- | --------------- | ----------------------------------------------------------------- |
-| *Who you are*         | `enum Role`     | `User.role`, `requireRole`, the JWT `role` claim, `req.user.role`  |
-| *An open requisition* | (doesn't exist) | This feature, and every feature after it                           |
+| _Who you are_         | `enum Role`     | `User.role`, `requireRole`, the JWT `role` claim, `req.user.role` |
+| _An open requisition_ | (doesn't exist) | This feature, and every feature after it                          |
 
 **Prisma models and enums share one namespace**, so `model Role` and `enum Role` cannot coexist — this is a
 hard schema error, not a style preference. One of them must be renamed, and the choice is load-bearing for
@@ -162,7 +162,7 @@ every file written from here on.
 **Decision: the enum is renamed `UserRole`; the new model takes the name `Role`.**
 
 - The domain language of the brief, of `CLAUDE.md`, of the API path (`/api/roles`) and of the frontend feature
-  folder is all **"role = open req"**. Renaming the *model* to `JobRole` or `Requisition` would leave every one
+  folder is all **"role = open req"**. Renaming the _model_ to `JobRole` or `Requisition` would leave every one
   of those saying `role` while the code said something else, on every feature from now on.
 - `UserRole` is simply the more accurate name for the enum. It reads correctly at every call site:
   `requireRole(UserRole.RECRUITER)` is "require the caller's user-role to be recruiter".
@@ -179,8 +179,8 @@ Settled, not open:
 
 - **Five endpoints.** The brief lists four; `DELETE /api/roles/:roleId` was added afterwards and is
   restricted to `CLOSED` roles — see FR-6.6 and [Revision 2](#revision-2--delete-exists-restricted-to-closed-roles).
-- **Every endpoint is `RECRUITER`-only — reads as well as writes.** The brief says *"only recruiters should
-  be able to modify roles"* and is silent on reads; this spec originally read that silence as permission and
+- **Every endpoint is `RECRUITER`-only — reads as well as writes.** The brief says _"only recruiters should
+  be able to modify roles"_ and is silent on reads; this spec originally read that silence as permission and
   left reads open to any authenticated user. **Revised after implementation** (see [Revision](#revision--reads-became-recruiter-only)):
   requisition management is a recruiter surface, and an interviewer is given no door into it. What an
   interviewer legitimately needs — the title of the req their round is on — reaches them through their own
@@ -206,10 +206,10 @@ Settled, not open:
 
 ## Users / Actors
 
-| Actor                           | Authenticated? | Can do against this feature                                                                                                      |
-| ------------------------------- | -------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| **Anonymous caller**            | No             | Nothing. All four endpoints return `401 UNAUTHENTICATED`.                                                                        |
-| **Interviewer** (`INTERVIEWER`) | Yes            | **Nothing.** All four endpoints return `403 FORBIDDEN` — reads included (AZ-1).                                                  |
+| Actor                           | Authenticated? | Can do against this feature                                                                                                       |
+| ------------------------------- | -------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| **Anonymous caller**            | No             | Nothing. All four endpoints return `401 UNAUTHENTICATED`.                                                                         |
+| **Interviewer** (`INTERVIEWER`) | Yes            | **Nothing.** All four endpoints return `403 FORBIDDEN` — reads included (AZ-1).                                                   |
 | **Recruiter** (`RECRUITER`)     | Yes            | Everything: list, read, create, amend, open and close. **Every recruiter can amend every role** — there is no per-role ownership. |
 | **Operator / developer**        | N/A            | Seeds demo roles with `npm run db:seed`, and may call any endpoint with a seeded recruiter's token.                               |
 
@@ -234,7 +234,7 @@ reopen it if it comes back, without deleting the history attached to it.
 
 **US-05** — As an **interviewer**, I want the requisition surface to be none of my business, so that the only
 hiring data I am handed is the rounds I am actually assigned to. Every call to `/api/roles` refuses me, and
-the client never offers me the page. *(Revised: this story previously asked for read access.)*
+the client never offers me the page. _(Revised: this story previously asked for read access.)_
 
 **US-06** — As a **developer**, I want a seeded set of roles so that the pipeline and candidate features have
 something to attach to on a fresh database.
@@ -254,7 +254,7 @@ not by the UI not offering a button.
   free-text column, per [../../../CLAUDE.md](../../../CLAUDE.md).
 - **FR-1.3** `title` is **not** unique. Two teams hiring the same title is ordinary; the `id` is the identity.
 - **FR-1.4** `description` is required and non-empty. A requisition with no description is the exact failure
-  the brief opens on — *"candidate progress lives in one recruiter's head"* — so it is not optional.
+  the brief opens on — _"candidate progress lives in one recruiter's head"_ — so it is not optional.
 - **FR-1.5** `createdAt` and `updatedAt` are database-managed. Neither is ever accepted from a request body.
 
 ### FR-2 — Listing roles (`GET /api/roles`)
@@ -334,7 +334,7 @@ not by the UI not offering a button.
 - **FR-6.5** Closing a role has **no cascading effect** in this feature — there is nothing yet to cascade to.
   What closing means for candidates already in flight is decided by the candidate-access feature, which must state
   it explicitly rather than inherit silence from here.
-- **FR-6.10** **Deleting** has no cascading effect *yet*, for the same reason: `Role` has no inbound foreign
+- **FR-6.10** **Deleting** has no cascading effect _yet_, for the same reason: `Role` has no inbound foreign
   key today (MIG-6). **The feature that adds the first one owns this decision and must state it** — whether a
   role with candidates against it becomes undeletable, or the delete cascades. Silence here is not permission
   to let Postgres decide by default.
@@ -351,7 +351,7 @@ not by the UI not offering a button.
     "description": "Owns the pipeline service…",
     "status": "OPEN",
     "createdAt": "2026-09-15T10:00:00.000Z",
-    "updatedAt": "2026-09-15T10:00:00.000Z"
+    "updatedAt": "2026-09-15T10:00:00.000Z",
   }
   ```
 
@@ -512,10 +512,10 @@ Query parameters, all optional:
       "description": "Owns the candidate-facing surfaces…",
       "status": "OPEN",
       "createdAt": "2026-09-15T10:05:00.000Z",
-      "updatedAt": "2026-09-15T10:05:00.000Z"
-    }
+      "updatedAt": "2026-09-15T10:05:00.000Z",
+    },
   ],
-  "pagination": { "page": 1, "pageSize": 20, "total": 3, "totalPages": 1 }
+  "pagination": { "page": 1, "pageSize": 20, "total": 3, "totalPages": 1 },
 }
 ```
 
@@ -532,8 +532,8 @@ Errors: `400 VALIDATION_ERROR` · `401 UNAUTHENTICATED` · `403 FORBIDDEN` · `5
     "description": "…",
     "status": "OPEN",
     "createdAt": "…",
-    "updatedAt": "…"
-  }
+    "updatedAt": "…",
+  },
 }
 ```
 
@@ -555,8 +555,8 @@ Errors: `400 VALIDATION_ERROR` (`:roleId` not a positive integer) · `401` · `4
     "description": "Owns the pipeline service…",
     "status": "OPEN",
     "createdAt": "…",
-    "updatedAt": "…"
-  }
+    "updatedAt": "…",
+  },
 }
 ```
 
@@ -580,8 +580,8 @@ Errors: `400 VALIDATION_ERROR` · `401` · `403 FORBIDDEN` · `500`
     "description": "…",
     "status": "CLOSED",
     "createdAt": "…",
-    "updatedAt": "2026-09-15T12:00:00.000Z"
-  }
+    "updatedAt": "2026-09-15T12:00:00.000Z",
+  },
 }
 ```
 
@@ -607,7 +607,7 @@ Refused, because the role is still `OPEN` (FR-6.7) — **the role is not modifie
 // HTTP/1.1 409 Conflict
 {
   "code": "ROLE_NOT_CLOSED",
-  "message": "Close the role before deleting it"
+  "message": "Close the role before deleting it",
 }
 ```
 
@@ -663,7 +663,7 @@ Additive, plus one rename. On top of `20260914151935_add_auth`.
 - **MIG-5** Both indexes are added **now**, not after a slow query is observed — the brief expects the query
   plan to be defensible at 200 roles (§8).
 - **MIG-6** **`Role` has no foreign key**, so it participates in no cascade and nothing can be orphaned by
-  the delete FR-6.6 introduces. *(Revised: this rule previously read "no row in it is ever deleted".)* **No
+  the delete FR-6.6 introduces. _(Revised: this rule previously read "no row in it is ever deleted".)_ **No
   migration is needed for delete** — a hard delete is a `DELETE` statement, and adding no column is precisely
   why it was chosen over a `deletedAt`. The first inbound foreign key changes this, and its own spec owns the
   `onDelete` decision (FR-6.10).
@@ -674,21 +674,21 @@ Additive, plus one rename. On top of `20260914151935_add_auth`.
 
 ### Authorization matrix
 
-| Endpoint                    | Anonymous                    | INTERVIEWER | RECRUITER |
-| --------------------------- | ---------------------------- | ----------- | --------- |
-| `GET /api/roles`            | ❌ 401                       | ❌ **403**  | ✅        |
-| `GET /api/roles/:roleId`    | ❌ 401                       | ❌ **403**  | ✅        |
-| `POST /api/roles`           | ❌ 401                       | ❌ **403**  | ✅        |
-| `PATCH /api/roles/:roleId`  | ❌ 401                       | ❌ **403**  | ✅        |
-| `DELETE /api/roles/:roleId` | ❌ 401                       | ❌ **403**  | ✅ — `CLOSED` roles only (FR-6.7) |
+| Endpoint                    | Anonymous | INTERVIEWER | RECRUITER                         |
+| --------------------------- | --------- | ----------- | --------------------------------- |
+| `GET /api/roles`            | ❌ 401    | ❌ **403**  | ✅                                |
+| `GET /api/roles/:roleId`    | ❌ 401    | ❌ **403**  | ✅                                |
+| `POST /api/roles`           | ❌ 401    | ❌ **403**  | ✅                                |
+| `PATCH /api/roles/:roleId`  | ❌ 401    | ❌ **403**  | ✅                                |
+| `DELETE /api/roles/:roleId` | ❌ 401    | ❌ **403**  | ✅ — `CLOSED` roles only (FR-6.7) |
 
 ### Non-negotiable rules
 
-- **AZ-1** **Reads are `RECRUITER`-only, and that is a decision, not an over-correction.** *(Revised — this
-  rule previously opened reads to both `UserRole`s.)* The requisition list is a recruiter's working surface:
+- **AZ-1** **Reads are `RECRUITER`-only, and that is a decision, not an over-correction.** _(Revised — this
+  rule previously opened reads to both `UserRole`s.)_ The requisition list is a recruiter's working surface:
   it shows every req the company has open and closed, which is more of the hiring picture than an interviewer
   is given anywhere else in this POC. An interviewer's legitimate need is narrower than the endpoint — they
-  need the title of the req behind *their* round, which the rounds feature will serve from an
+  need the title of the req behind _their_ round, which the rounds feature will serve from an
   assignment-scoped query, the same shape the POC's hard case (a candidate an interviewer is not assigned to)
   demands. Handing them an unscoped list instead is the wrong shape for the need, so it is not handed over.
 - **AZ-2** `requireRole(UserRole.RECRUITER)` runs on **every** route in this module, on **every** request —
@@ -696,12 +696,12 @@ Additive, plus one rename. On top of `20260914151935_add_auth`.
   not to route an interviewer to `/roles` at all, are not part of this.
 - **AZ-3** The acting user's role comes from the verified JWT claim resolved by `requireAuth` — never from a
   body, a query parameter, or a client-supplied header.
-- **AZ-4** `401` means *"we don't know who you are"*; `403` means *"we know, and you may not"*. An
+- **AZ-4** `401` means _"we don't know who you are"_; `403` means _"we know, and you may not"_. An
   unauthenticated write is `401`, not `403` (EC-10).
 - **AZ-5** No per-role ownership: any recruiter may amend **or delete** any role. Recorded as a decision
   (SEC-5) so that a later "only the creating recruiter may close it" rule is a deliberate addition rather than
   a bug report. **There is no field on a role that names a person**, so ownership cannot be inferred from the
-  data either — which is exactly why the delete's only guard is the role's *status* and not its creator.
+  data either — which is exactly why the delete's only guard is the role's _status_ and not its creator.
 - **AZ-6** **The CLOSED-only rule is a server rule, enforced on every request** (FR-6.7). The client not
   rendering a Delete button on an open role is an affordance, in the same sense and with the same standing as
   its decision not to render a "New role" button for an interviewer (SEC-1). A `DELETE` on an open role
@@ -713,14 +713,14 @@ Additive, plus one rename. On top of `20260914151935_add_auth`.
 
 Authoritative. The frontend mirrors these for responsiveness only.
 
-| Field         | Where                               | Rule                                      |
-| ------------- | ----------------------------------- | ----------------------------------------- |
-| `title`       | create (required), patch (optional) | trimmed, 1–120 chars after trimming        |
-| `description` | create (required), patch (optional) | trimmed, 1–5000 chars after trimming       |
-| `status`      | patch only                          | `OPEN` \| `CLOSED`                         |
-| `roleId`      | path parameter                      | coerced integer, ≥ 1                       |
-| `status`      | query parameter                     | optional, `OPEN` \| `CLOSED`               |
-| `page`        | query parameter                     | optional, coerced integer, ≥ 1, default 1  |
+| Field         | Where                               | Rule                                         |
+| ------------- | ----------------------------------- | -------------------------------------------- |
+| `title`       | create (required), patch (optional) | trimmed, 1–120 chars after trimming          |
+| `description` | create (required), patch (optional) | trimmed, 1–5000 chars after trimming         |
+| `status`      | patch only                          | `OPEN` \| `CLOSED`                           |
+| `roleId`      | path parameter                      | coerced integer, ≥ 1                         |
+| `status`      | query parameter                     | optional, `OPEN` \| `CLOSED`                 |
+| `page`        | query parameter                     | optional, coerced integer, ≥ 1, default 1    |
 | `pageSize`    | query parameter                     | optional, coerced integer, 1–100, default 20 |
 
 - **VAL-1** Trimming happens **inside the schema** via `.trim()`, so every downstream consumer receives the
@@ -746,11 +746,11 @@ No new error codes. This feature reuses the catalogue the auth feature establish
 
 | HTTP | `code`             | `message`                                 | Raised when                                                                      |
 | ---- | ------------------ | ----------------------------------------- | -------------------------------------------------------------------------------- |
-| 400  | `VALIDATION_ERROR` | "Invalid request body"                    | zod rejects a body, a path parameter, or a query parameter                        |
-| 401  | `UNAUTHENTICATED`  | "Authentication required"                 | Missing / malformed / expired access token                                        |
-| 403  | `FORBIDDEN`        | "You do not have access to this resource" | Authenticated `INTERVIEWER` calling **any** of the five endpoints                 |
+| 400  | `VALIDATION_ERROR` | "Invalid request body"                    | zod rejects a body, a path parameter, or a query parameter                       |
+| 401  | `UNAUTHENTICATED`  | "Authentication required"                 | Missing / malformed / expired access token                                       |
+| 403  | `FORBIDDEN`        | "You do not have access to this resource" | Authenticated `INTERVIEWER` calling **any** of the five endpoints                |
 | 404  | `NOT_FOUND`        | "Resource not found"                      | No role with that id                                                             |
-| 409  | `ROLE_NOT_CLOSED`  | "Close the role before deleting it"       | `DELETE` on a role whose status is `OPEN` (FR-6.7). The role is **not** modified  |
+| 409  | `ROLE_NOT_CLOSED`  | "Close the role before deleting it"       | `DELETE` on a role whose status is `OPEN` (FR-6.7). The role is **not** modified |
 | 500  | `INTERNAL_ERROR`   | "Something went wrong"                    | Anything unhandled                                                               |
 
 ### Rules
@@ -765,7 +765,7 @@ No new error codes. This feature reuses the catalogue the auth feature establish
   keys** say which parameter was wrong; the message does not need to, and keeping one message for one code
   keeps the catalogue honest.
 - **ERR-4** A `403` says nothing about whether the role exists. An interviewer patching role `999` gets `403`,
-  not `404`, and so does an interviewer *reading* it — authorization is settled before existence is looked up
+  not `404`, and so does an interviewer _reading_ it — authorization is settled before existence is looked up
   (BE-3, EC-11). An interviewer therefore cannot use this API to probe which requisition ids exist.
 - **ERR-5** On `DELETE`, **existence is decided before status**: an unknown id is `404`, never a `409` about a
   status it does not have (FR-6.9, EC-14). The ordering is not cosmetic — a `409` for a role that was already
@@ -778,28 +778,28 @@ No new error codes. This feature reuses the catalogue the auth feature establish
 
 ## Edge Cases
 
-| #     | Case                                                         | Required behaviour                                                                                                                                                                                                                                                  |
-| ----- | ------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| EC-01 | `GET /api/roles/abc`                                         | `400 VALIDATION_ERROR` with `details.roleId`. No query runs. Never a `500` from a failed `parseInt`.                                                                                                                                                                 |
-| EC-02 | `GET /api/roles?status=PENDING`                              | `400` with `details.status`. The parameter is **not** silently ignored, and the list is not returned unfiltered.                                                                                                                                                     |
-| EC-03 | `GET /api/roles?page=0` or `?pageSize=101`                   | `400` with the offending key in `details`. No clamping (VAL-5).                                                                                                                                                                                                      |
-| EC-04 | `GET /api/roles?page=99` with 3 roles                        | `200`, `roles: []`, `pagination.total: 3`, `totalPages: 1`. Truthful, not an error (FR-2.6).                                                                                                                                                                         |
-| EC-05 | `PATCH` with `{}` or `{ "nonsense": 1 }`                     | `400` — unknown keys are stripped first, leaving an empty patch, which VAL-4 rejects.                                                                                                                                                                                |
-| EC-06 | `POST` with `{ …, "status": "CLOSED" }`                      | `201` with `status: "OPEN"`. The key is stripped, not honoured and not an error (FR-4.3).                                                                                                                                                                            |
-| EC-07 | `PATCH` setting `status: "CLOSED"` on an already-closed role | `200`, `updatedAt` bumps, `role.updated` logged, **no `role.status_changed`** (FR-6.3).                                                                                                                                                                              |
-| EC-08 | `DELETE /api/roles/1` by a recruiter, role is `CLOSED`       | `204 No Content`, empty body, and the row is **gone** from the table. `role.deleted` is logged with the actor (FR-6.6, FR-6.8, FR-8.5). *(Revised — this case previously required a `404`.)*                                                                         |
-| EC-14 | `DELETE` on a role that is `OPEN`                            | `409 ROLE_NOT_CLOSED`, and the row is **unchanged** — still present, still `OPEN`, `updatedAt` not bumped. The endpoint never closes a role on the caller's behalf (FR-6.7).                                                                                         |
-| EC-14b | `DELETE /api/roles/9999` by a recruiter                     | `404 NOT_FOUND`, never `409`. Existence is decided before status (FR-6.9, ERR-5).                                                                                                                                                                                   |
-| EC-14c | `DELETE` twice on the same closed role                      | First `204`, second `404`. The delete is **not** idempotent in its status code, and that is correct: the second call names a role that does not exist.                                                                                                               |
-| EC-14d | A `PATCH` reopening a role races a `DELETE` of it           | Exactly one wins, and neither corrupts the other. The status read and the delete share one transaction, so the delete either sees `CLOSED` and removes the row, or sees `OPEN` and `409`s (R-14). There is no window in which an open role is deleted.               |
-| EC-09 | Two recruiters `PATCH` the same role at the same instant     | Both succeed. Disjoint fields both survive; the same field is last-write-wins, and `updatedAt` plus the two log lines make the order reconstructable. **Accepted and documented** — a requisition edit is not the brief's concurrency case (§3.4), which is feedback. |
-| EC-10 | Anonymous `POST /api/roles`                                  | `401`, never `403`. The API does not confirm that the endpoint would have been recruiter-only (AZ-4).                                                                                                                                                                |
-| EC-11 | Interviewer `PATCH`es a role id that does not exist          | `403`, not `404` — authorization is decided before existence is (ERR-4).                                                                                                                                                                                             |
-| EC-12 | `title` of `"   "` (whitespace only)                         | `400` — the rule applies after trimming (VAL-2).                                                                                                                                                                                                                     |
-| EC-13 | A 5001-character description                                 | `400` with `details.description`. Not truncated.                                                                                                                                                                                                                     |
-| EC-14 | A valid access token issued **before** the enum rename       | Still authenticates. The claim value is the unchanged string `"RECRUITER"` — only the TypeScript and Postgres type names moved (MIG-2).                                                                                                                              |
-| EC-15 | Interviewer `GET /api/roles` or `GET /api/roles/:id`         | `403 FORBIDDEN` in the standard error shape, with **no role data in the body** — not a `200` with an empty list, which would imply there is nothing to see rather than nothing they may see (AZ-1).                                                                                                              |
-| EC-16 | Interviewer `GET /api/roles?status=PENDING`                  | `403`, not `400`. Authorization precedes parsing (BE-3), so the API does not tell an unauthorized caller that their query string was also wrong.                                                                                                                                                              |
+| #      | Case                                                         | Required behaviour                                                                                                                                                                                                                                                    |
+| ------ | ------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| EC-01  | `GET /api/roles/abc`                                         | `400 VALIDATION_ERROR` with `details.roleId`. No query runs. Never a `500` from a failed `parseInt`.                                                                                                                                                                  |
+| EC-02  | `GET /api/roles?status=PENDING`                              | `400` with `details.status`. The parameter is **not** silently ignored, and the list is not returned unfiltered.                                                                                                                                                      |
+| EC-03  | `GET /api/roles?page=0` or `?pageSize=101`                   | `400` with the offending key in `details`. No clamping (VAL-5).                                                                                                                                                                                                       |
+| EC-04  | `GET /api/roles?page=99` with 3 roles                        | `200`, `roles: []`, `pagination.total: 3`, `totalPages: 1`. Truthful, not an error (FR-2.6).                                                                                                                                                                          |
+| EC-05  | `PATCH` with `{}` or `{ "nonsense": 1 }`                     | `400` — unknown keys are stripped first, leaving an empty patch, which VAL-4 rejects.                                                                                                                                                                                 |
+| EC-06  | `POST` with `{ …, "status": "CLOSED" }`                      | `201` with `status: "OPEN"`. The key is stripped, not honoured and not an error (FR-4.3).                                                                                                                                                                             |
+| EC-07  | `PATCH` setting `status: "CLOSED"` on an already-closed role | `200`, `updatedAt` bumps, `role.updated` logged, **no `role.status_changed`** (FR-6.3).                                                                                                                                                                               |
+| EC-08  | `DELETE /api/roles/1` by a recruiter, role is `CLOSED`       | `204 No Content`, empty body, and the row is **gone** from the table. `role.deleted` is logged with the actor (FR-6.6, FR-6.8, FR-8.5). _(Revised — this case previously required a `404`.)_                                                                          |
+| EC-14  | `DELETE` on a role that is `OPEN`                            | `409 ROLE_NOT_CLOSED`, and the row is **unchanged** — still present, still `OPEN`, `updatedAt` not bumped. The endpoint never closes a role on the caller's behalf (FR-6.7).                                                                                          |
+| EC-14b | `DELETE /api/roles/9999` by a recruiter                      | `404 NOT_FOUND`, never `409`. Existence is decided before status (FR-6.9, ERR-5).                                                                                                                                                                                     |
+| EC-14c | `DELETE` twice on the same closed role                       | First `204`, second `404`. The delete is **not** idempotent in its status code, and that is correct: the second call names a role that does not exist.                                                                                                                |
+| EC-14d | A `PATCH` reopening a role races a `DELETE` of it            | Exactly one wins, and neither corrupts the other. The status read and the delete share one transaction, so the delete either sees `CLOSED` and removes the row, or sees `OPEN` and `409`s (R-14). There is no window in which an open role is deleted.                |
+| EC-09  | Two recruiters `PATCH` the same role at the same instant     | Both succeed. Disjoint fields both survive; the same field is last-write-wins, and `updatedAt` plus the two log lines make the order reconstructable. **Accepted and documented** — a requisition edit is not the brief's concurrency case (§3.4), which is feedback. |
+| EC-10  | Anonymous `POST /api/roles`                                  | `401`, never `403`. The API does not confirm that the endpoint would have been recruiter-only (AZ-4).                                                                                                                                                                 |
+| EC-11  | Interviewer `PATCH`es a role id that does not exist          | `403`, not `404` — authorization is decided before existence is (ERR-4).                                                                                                                                                                                              |
+| EC-12  | `title` of `"   "` (whitespace only)                         | `400` — the rule applies after trimming (VAL-2).                                                                                                                                                                                                                      |
+| EC-13  | A 5001-character description                                 | `400` with `details.description`. Not truncated.                                                                                                                                                                                                                      |
+| EC-14  | A valid access token issued **before** the enum rename       | Still authenticates. The claim value is the unchanged string `"RECRUITER"` — only the TypeScript and Postgres type names moved (MIG-2).                                                                                                                               |
+| EC-15  | Interviewer `GET /api/roles` or `GET /api/roles/:id`         | `403 FORBIDDEN` in the standard error shape, with **no role data in the body** — not a `200` with an empty list, which would imply there is nothing to see rather than nothing they may see (AZ-1).                                                                   |
+| EC-16  | Interviewer `GET /api/roles?status=PENDING`                  | `403`, not `400`. Authorization precedes parsing (BE-3), so the API does not tell an unauthorized caller that their query string was also wrong.                                                                                                                      |
 
 ---
 
@@ -825,8 +825,8 @@ No new error codes. This feature reuses the catalogue the auth feature establish
   - **Last-write-wins on concurrent edits** (EC-09). There is no `If-Match` / version check, so a recruiter
     can silently overwrite another's edit to the same field within the same second.
   - **No rate limiting**, inherited from the auth feature's documented gap.
-  - **Delete is permanent and unrecoverable.** *(Revised — this bullet previously read "No soft-delete or
-    restore", as a consequence of there being no delete at all.)* There is no `deletedAt`, no archive and no
+  - **Delete is permanent and unrecoverable.** _(Revised — this bullet previously read "No soft-delete or
+    restore", as a consequence of there being no delete at all.)_ There is no `deletedAt`, no archive and no
     undo: a deleted role is gone, and the `role.deleted` log line is the only record it existed (FR-8.5). The
     CLOSED-only guard (FR-6.7) and the client's confirmation dialog are what stand between a recruiter and
     that outcome — deliberately, because a restore path costs every read in every future feature a filter.
@@ -872,8 +872,8 @@ both seeded.
   `{ page: 1, pageSize: 20, total: 3, totalPages: 1 }`.
 - **AC-B02** — **Given** the same data, **when** an **interviewer** calls `GET /api/roles` **and**
   `GET /api/roles/:id` with a real id, **then** **both** return `403 FORBIDDEN` in the standard error shape
-  and **neither body contains a role, a `roles` array or a `pagination` object** (AZ-1, EC-15). *Revised: this
-  criterion previously required a `200` identical to AC-B01.*
+  and **neither body contains a role, a `roles` array or a `pagination` object** (AZ-1, EC-15). _Revised: this
+  criterion previously required a `200` identical to AC-B01._
 - **AC-B03** — **Given** two open and one closed role, **when** `GET /api/roles?status=OPEN` is called,
   **then** exactly the two open roles are returned and `pagination.total` is `2` — not `3`.
 - **AC-B04** — **Given** three roles, **when** `GET /api/roles?pageSize=2&page=2` is called, **then** one role
@@ -911,8 +911,8 @@ both seeded.
 ### Authorization
 
 - **AC-B16** — **Given** an **interviewer's** token, **when** `POST /api/roles` is called with a perfectly
-  valid body, **then** the response is `403 FORBIDDEN` and **no row is created**. *This is the criterion that
-  proves the brief's "only recruiters should be able to modify roles".*
+  valid body, **then** the response is `403 FORBIDDEN` and **no row is created**. _This is the criterion that
+  proves the brief's "only recruiters should be able to modify roles"._
 - **AC-B17** — **Given** an **interviewer's** token, **when** `PATCH /api/roles/:id` is called with
   `{ status: "CLOSED" }`, **then** the response is `403` and the role's `status` is unchanged in the database.
 - **AC-B18** — **Given** an interviewer's token, **when** `PATCH /api/roles/9999` is called, **then** the
@@ -923,8 +923,8 @@ both seeded.
   every one returns `401 UNAUTHENTICATED` — not `403`, and not `404`.
 - **AC-B20** — **Given** an **interviewer's** token and a role that exists, **when** `DELETE /api/roles/:id` is
   called, **then** the response is `403 FORBIDDEN` and **the row still exists** — the refusal happens before
-  existence or status is looked up (AZ-6, ERR-4). *(Revised — this criterion previously required a `404`,
-  because the route was unregistered.)*
+  existence or status is looked up (AZ-6, ERR-4). _(Revised — this criterion previously required a `404`,
+  because the route was unregistered.)_
 
 ### Amending
 
@@ -933,8 +933,8 @@ both seeded.
   than `createdAt`.
 - **AC-B22** — **Given** a recruiter's token, **when** `PATCH` is called with `{ title: "", description: "" }`,
   **then** the response is `400` and `details` contains **both** `title` and `description` with non-empty
-  message arrays. *This is the criterion that catches the `validate()` defect in BE-5 — an empty `details: {}`
-  fails it.*
+  message arrays. _This is the criterion that catches the `validate()` defect in BE-5 — an empty `details: {}`
+  fails it._
 - **AC-B23** — **Given** a recruiter's token, **when** `PATCH` is called with an empty body `{}`, **then** the
   response is `400` (EC-05).
 - **AC-B24** — **Given** an open role, **when** a recruiter `PATCH`es `{ status: "CLOSED" }` twice, **then**
@@ -988,22 +988,22 @@ both seeded.
 
 Explicitly excluded. Each is a deliberate decision, not an omission.
 
-| Excluded                                                                       | Note                                                                                                                                                                                                                                                                            |
-| ------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Excluded                                                                       | Note                                                                                                                                                                                                                                                                                                                                                                                                          |
+| ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Hiring manager — the field, the relation and the concept**                   | **A deliberate deviation from the brief's suggested model.** `hiringManagerId` is not in the schema, not in any request, and not in any response. `HIRING_MANAGER` is not a `UserRole` (the auth spec excluded it), so the column would reference a person with no role, grant nothing, and have no reader. It arrives with the `UserRole` and the views that need it — together, in one spec, or not at all. |
-| **`HIRING_MANAGER` as a `UserRole`**                                           | Still excluded from the enum. Adding it is an enum migration plus its own spec, and is what the brief's §2 stretch actor needs before any of the above is worth building.                                                                                                        |
-| **Hiring-manager-scoped views** ("my open roles", ageing for my reqs)          | The brief's §2 stretch. Needs both the `UserRole` and the relation above.                                                                                                                                                                                                       |
-| ~~**`DELETE /api/roles/:roleId`**~~ — **now in scope**                         | **No longer excluded.** Added in [Revision 2](#revision-2--delete-exists-restricted-to-closed-roles): a hard delete, restricted to `CLOSED` roles (FR-6.6, FR-6.7).                                                                                                             |
-| **Soft delete / archive / restore** (`deletedAt`, an undo, a trash view)       | Considered and rejected with the delete itself. A nullable `deletedAt` puts a filter on every read in this module and every future join to it — wrong by omission rather than by error — to buy a restore path nobody asked for. `role.deleted` in the log is the audit record (FR-8.5, SEC-5). |
-| **Bulk delete**                                                                | Covered by the bulk-operations row below, and worse: one mistaken request would remove many requisitions at once.                                                                                                                                                              |
-| **Search and sort**                                                            | No `?q=`, no `?sortBy=`. Newest-first only. At 200 roles with a status filter this is usable; a search needs an index decision that deserves its own change.                                                                                                                     |
-| **Optimistic concurrency** (`If-Match` / a version column)                     | Last-write-wins, documented (EC-09). The brief's concurrency requirement is about feedback on a round, not requisition edits.                                                                                                                                                    |
-| **Candidates, stages, rounds, feedback, overrides**                            | Every one is its own feature. This ships the requisition and nothing hanging off it.                                                                                                                                                                                            |
-| **Pipeline counts and ageing on a role**                                       | The aggregate endpoints the brief requires (§3.5) belong to the pipeline feature; they will read this model, not extend it.                                                                                                                                                     |
-| **An audit table**                                                             | Role changes are structured log events (FR-8). The queryable audit trail is designed with the stage/override feature that first needs to read it back.                                                                                                                          |
-| **Role templates, departments, locations, headcount, salary bands, seniority** | Not in the brief's model and not needed by any later feature here.                                                                                                                                                                                                              |
-| **Bulk operations**                                                            | No bulk close, no bulk create.                                                                                                                                                                                                                                                  |
-| **Automated tests of any kind**                                                | Every criterion above is verified manually. A test runner and suite remain a deliberate later decision — no test dependency, config or file is added.                                                                                                                           |
+| **`HIRING_MANAGER` as a `UserRole`**                                           | Still excluded from the enum. Adding it is an enum migration plus its own spec, and is what the brief's §2 stretch actor needs before any of the above is worth building.                                                                                                                                                                                                                                     |
+| **Hiring-manager-scoped views** ("my open roles", ageing for my reqs)          | The brief's §2 stretch. Needs both the `UserRole` and the relation above.                                                                                                                                                                                                                                                                                                                                     |
+| ~~**`DELETE /api/roles/:roleId`**~~ — **now in scope**                         | **No longer excluded.** Added in [Revision 2](#revision-2--delete-exists-restricted-to-closed-roles): a hard delete, restricted to `CLOSED` roles (FR-6.6, FR-6.7).                                                                                                                                                                                                                                           |
+| **Soft delete / archive / restore** (`deletedAt`, an undo, a trash view)       | Considered and rejected with the delete itself. A nullable `deletedAt` puts a filter on every read in this module and every future join to it — wrong by omission rather than by error — to buy a restore path nobody asked for. `role.deleted` in the log is the audit record (FR-8.5, SEC-5).                                                                                                               |
+| **Bulk delete**                                                                | Covered by the bulk-operations row below, and worse: one mistaken request would remove many requisitions at once.                                                                                                                                                                                                                                                                                             |
+| **Search and sort**                                                            | No `?q=`, no `?sortBy=`. Newest-first only. At 200 roles with a status filter this is usable; a search needs an index decision that deserves its own change.                                                                                                                                                                                                                                                  |
+| **Optimistic concurrency** (`If-Match` / a version column)                     | Last-write-wins, documented (EC-09). The brief's concurrency requirement is about feedback on a round, not requisition edits.                                                                                                                                                                                                                                                                                 |
+| **Candidates, stages, rounds, feedback, overrides**                            | Every one is its own feature. This ships the requisition and nothing hanging off it.                                                                                                                                                                                                                                                                                                                          |
+| **Pipeline counts and ageing on a role**                                       | The aggregate endpoints the brief requires (§3.5) belong to the pipeline feature; they will read this model, not extend it.                                                                                                                                                                                                                                                                                   |
+| **An audit table**                                                             | Role changes are structured log events (FR-8). The queryable audit trail is designed with the stage/override feature that first needs to read it back.                                                                                                                                                                                                                                                        |
+| **Role templates, departments, locations, headcount, salary bands, seniority** | Not in the brief's model and not needed by any later feature here.                                                                                                                                                                                                                                                                                                                                            |
+| **Bulk operations**                                                            | No bulk close, no bulk create.                                                                                                                                                                                                                                                                                                                                                                                |
+| **Automated tests of any kind**                                                | Every criterion above is verified manually. A test runner and suite remain a deliberate later decision — no test dependency, config or file is added.                                                                                                                                                                                                                                                         |
 
 ---
 
@@ -1018,7 +1018,7 @@ here has an anonymous path.
 ### Blocks
 
 **Candidates, interview rounds, feedback, stage overrides, and the pipeline/ageing views.** A candidate is a
-candidate *for a role*; a round is a round *on a role*; the pipeline view is *counts per stage per role*. None
+candidate _for a role_; a round is a round _on a role_; the pipeline view is _counts per stage per role_. None
 can be modelled before `Role` exists.
 
 ### New npm dependencies
