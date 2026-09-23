@@ -69,6 +69,21 @@ enum InterviewStatus {
   CANCELLED
 }
 
+/// NEW (applications FR-3.1). What a recruiter decided AT one round.
+///
+/// Deliberately NOT merged into `InterviewStatus`, which answers a different
+/// question: `COMPLETED` says the round happened, `SELECTED` says the candidate
+/// passed it. A round can be completed with either verdict, and a single enum
+/// would make "completed, verdict not yet entered" unrepresentable.
+///
+/// Two values, not three: "no decision yet" is the NULL column, not a
+/// `PENDING` member. An enum value that means "this column is empty" is a
+/// second way to spell NULL, and the two drift.
+enum InterviewOutcome {
+  SELECTED
+  REJECTED
+}
+
 /// NEW (audit FR-4.1). Every state-changing action this API performs, as a row.
 ///
 /// Nine values, all declared in one migration even though eight are first
@@ -86,6 +101,13 @@ enum AuditAction {
   FEEDBACK_SUBMITTED
   FEEDBACK_UPDATED
   CANDIDATE_CONTACT_UPDATED
+  /// NEW (applications MIG-1). A recruiter recording "selected" or "rejected"
+  /// at one round. Distinct from `CANDIDATE_STAGE_CHANGED` and
+  /// `APPLICATION_OUTCOME_SET`, which a decision may ALSO write in the same
+  /// transaction: this row says which round produced the move, and those two
+  /// say what the move was. Collapsing them would make "why did this candidate
+  /// advance?" unanswerable from the feed.
+  INTERVIEW_DECISION_RECORDED
 }
 
 /// NEW (audit FR-4.2). What `AuditLog.entityId` points at. An enum, not a
@@ -135,6 +157,7 @@ model User {
   /// `auditLogs`: who created a round and who staffed it are historical facts
   /// and must not be erasable (MIG-6).
   interviewsCreated    Interview[]           @relation("InterviewCreator")
+  interviewsDecided    Interview[]           @relation("InterviewDecider")
   interviewAssignments InterviewAssignment[] @relation("InterviewAssignee")
   assignmentsMade      InterviewAssignment[] @relation("InterviewAssigner")
 
@@ -384,12 +407,35 @@ model Interview {
   /// May be in the past (FR-1.7). Backfilling a round that already happened is
   /// normal; refusing it would push recruiters to lie about the date. There is
   /// no `.min(new Date())` in the schema either (VAL-3).
-  scheduledAt DateTime
+  ///
+  /// NULLABLE as of the applications feature (MIG-1, FR-2.3). A recruiter
+  /// starts a phone screen from the applications table with one click, before
+  /// any date exists; `PATCH /api/interviews/:id` fills it in later. The
+  /// alternative was defaulting to `now()`, which puts a time in the column
+  /// that nothing downstream can tell apart from a real one.
+  scheduledAt DateTime?
 
   /// No default: the service writes SCHEDULED explicitly, so the rule lives
   /// where a reader will find it. Same reasoning as `Role.status` and
   /// `Application.status` (FR-1.5, MIG-2).
   status InterviewStatus
+
+  /// NEW (applications FR-3). What the recruiter decided AT this round, NULL
+  /// until they decide (FR-3.2).
+  ///
+  /// This is the column the stage timeline is built from: every node after
+  /// "Applied" is a round, labelled by `stage` + `type` and coloured by this
+  /// (FR-5.2). A second `INTERVIEW`-stage round therefore appears as its own
+  /// node even though `Application.currentStage` did not move for it — which
+  /// `StageHistory` alone could not express.
+  outcome InterviewOutcome?
+
+  /// When and by whom, and they move with `outcome` or not at all — a CHECK
+  /// constraint appended to this feature's migration enforces all three
+  /// together (MIG-1). Same discipline as `StageOverride.reason`: a verdict
+  /// with no actor behind it is not a record.
+  decidedAt       DateTime?
+  decidedByUserId Int?
 
   createdByUserId Int
   createdAt       DateTime @default(now())
@@ -397,6 +443,7 @@ model Interview {
 
   application Application           @relation(fields: [applicationId], references: [id], onDelete: Cascade)
   createdBy   User                  @relation("InterviewCreator", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  decidedBy   User?                 @relation("InterviewDecider", fields: [decidedByUserId], references: [id], onDelete: Restrict)
   assignments InterviewAssignment[]
 
   /// NEW (feedback MIG-2). The back-relation the interviews spec previewed and
@@ -407,6 +454,11 @@ model Interview {
   feedback Feedback[]
 
   @@index([applicationId, scheduledAt]) // an application's rounds — FR-1.9
+  /// NEW (applications MIG-1). The stage timeline's ORDER BY. The line above
+  /// cannot serve it: `scheduledAt` is now nullable, so ordering a timeline by
+  /// it would push every undated round to one end regardless of when it was
+  /// created. Creation order is the order a process actually happened in.
+  @@index([applicationId, createdAt])
   @@index([status, scheduledAt]) // the dashboard's SCHEDULED count — FR-6.1
   @@index([scheduledAt]) // the unfiltered recruiter list's ORDER BY
 }

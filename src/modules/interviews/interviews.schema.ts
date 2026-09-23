@@ -1,5 +1,10 @@
 import { z } from 'zod';
-import { InterviewStatus, InterviewType, PipelineStage } from '../../generated/prisma/enums.js';
+import {
+  InterviewOutcome,
+  InterviewStatus,
+  InterviewType,
+  PipelineStage,
+} from '../../generated/prisma/enums.js';
 
 /**
  * The validation boundary for all seven endpoints (Validation table).
@@ -80,9 +85,24 @@ export const assignmentParamsSchema = z.object({
 export const createInterviewSchema = z.object({
   type: z.enum(InterviewType, TYPE_MESSAGE),
   stage: z.enum(PipelineStage, STAGE_MESSAGE),
+  /**
+   * **OPTIONAL as of the applications feature** (applications FR-2.3).
+   *
+   * A recruiter starts a phone screen from the applications table with one
+   * click, before any date exists — the round is the decision to run it, and the
+   * date is a later fact. Omitting the key writes NULL; `PATCH
+   * /api/interviews/:id` fills it in.
+   *
+   * `.nullish()`, so `{"scheduledAt": null}` is accepted as well as the key
+   * being absent: a client clearing a date field and a client that never had one
+   * are the same intent, and refusing one of them would be a distinction nobody
+   * can act on. `{"scheduledAt": 0}` and `{"scheduledAt": ""}` are still 400s —
+   * `z.iso.datetime()` runs first, so nothing quietly becomes the epoch.
+   */
   scheduledAt: z.iso
     .datetime({ offset: true, message: 'Scheduled time must be an ISO 8601 datetime' })
-    .transform((value) => new Date(value)),
+    .transform((value) => new Date(value))
+    .nullish(),
 });
 
 /**
@@ -93,11 +113,58 @@ export const createInterviewSchema = z.object({
  * error states that more clearly than a conflict would (VAL-2, AC-B41,
  * mirroring pipeline VAL-4).
  */
-export const updateInterviewStatusSchema = z.object({
-  status: z.enum(
-    [InterviewStatus.COMPLETED, InterviewStatus.CANCELLED],
-    'Status must be one of COMPLETED, CANCELLED',
-  ),
+export const updateInterviewStatusSchema = z
+  .object({
+    status: z
+      .enum(
+        [InterviewStatus.COMPLETED, InterviewStatus.CANCELLED],
+        'Status must be one of COMPLETED, CANCELLED',
+      )
+      .optional(),
+    /**
+     * The date, set or changed after the fact (applications FR-2.4).
+     *
+     * This is the "edit date" control on a round's page, and it is the other
+     * half of creating a round without one. `null` clears it back to undated,
+     * which is what a recruiter who scheduled the wrong day and has not yet
+     * agreed a new one actually wants.
+     *
+     * Still no `.min(new Date())`, for the same reason as on create: backfilling
+     * a round that already happened is normal, and refusing it would push
+     * recruiters to lie about the date (VAL-3).
+     */
+    scheduledAt: z.iso
+      .datetime({ offset: true, message: 'Scheduled time must be an ISO 8601 datetime' })
+      .transform((value) => new Date(value))
+      .nullish(),
+  })
+  /**
+   * At least one of the two. `{}` is a `400`, not a `200` that changed nothing:
+   * an empty PATCH is a client bug, and answering it with the unmodified round
+   * hides the bug behind a success.
+   *
+   * `'scheduledAt' in value`, not `value.scheduledAt !== undefined` — the whole
+   * point of the nullish type is that `null` is a meaningful value here, and a
+   * truthiness test would reject the one request that clears a date.
+   */
+  .refine((value) => value.status !== undefined || 'scheduledAt' in value, {
+    message: 'Provide a status, a scheduled time, or both',
+    path: ['status'],
+  });
+
+/**
+ * A round's verdict (applications FR-3.2).
+ *
+ * **The enum is the two verdicts only**, and there is no `PENDING`: "not decided
+ * yet" is the absence of a decision, not a decision, and an endpoint that could
+ * write it would be a second way to spell the NULL column.
+ *
+ * There is no `decidedByUserId` field and no `decidedAt` field. Both are the
+ * server's — `req.user.id` and `new Date()` — which is what makes the record
+ * trustworthy, exactly as it is for a stage override (pipeline AZ-5).
+ */
+export const interviewDecisionSchema = z.object({
+  decision: z.enum(InterviewOutcome, 'Decision must be one of SELECTED, REJECTED'),
 });
 
 /**
@@ -157,5 +224,6 @@ export type ApplicationIdParam = z.infer<typeof applicationIdParamSchema>;
 export type AssignmentParams = z.infer<typeof assignmentParamsSchema>;
 export type CreateInterviewInput = z.infer<typeof createInterviewSchema>;
 export type UpdateInterviewStatusInput = z.infer<typeof updateInterviewStatusSchema>;
+export type InterviewDecisionInput = z.infer<typeof interviewDecisionSchema>;
 export type AssignInterviewerInput = z.infer<typeof assignInterviewerSchema>;
 export type ListInterviewsQuery = z.infer<typeof listInterviewsQuerySchema>;

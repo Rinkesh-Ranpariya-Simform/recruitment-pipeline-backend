@@ -12,6 +12,7 @@ import {
   assignInterviewerSchema,
   assignmentParamsSchema,
   createInterviewSchema,
+  interviewDecisionSchema,
   interviewIdParamSchema,
   listInterviewsQuerySchema,
   updateInterviewStatusSchema,
@@ -123,7 +124,18 @@ interviewsRouter.get(
   interviewsController.get,
 );
 
-/** Complete or cancel. There is no reschedule in this pass (D-11, FR-2.1). */
+/**
+ * Complete or cancel a round, **and/or set its date** (FR-2.1, applications
+ * FR-2.4).
+ *
+ * The date edit is new and it reverses D-11, which ruled rescheduling out of
+ * scope. It is back because a round can now be created without a date at all
+ * (applications FR-2.3) — "there is no reschedule" only made sense while every
+ * round had a date from the moment it existed. A round that starts undated needs
+ * a way to become dated, and that is the same `PATCH`.
+ *
+ * Both are still `SCHEDULED`-only, guarded in the update's own `where`.
+ */
 interviewsRouter.patch(
   '/:interviewId',
   requireAuth,
@@ -131,6 +143,29 @@ interviewsRouter.patch(
   validateParams(interviewIdParamSchema),
   validate(updateInterviewStatusSchema),
   interviewsController.updateStatus,
+);
+
+/**
+ * The verdict at one round — **the Select / Reject pair** (applications FR-3).
+ *
+ * `requireRole(RECRUITER)`, and that guard is load-bearing in the same way the
+ * assignment routes' is: this endpoint moves a candidate's stage and can close
+ * their application. **An interviewer must never reach it** — an interviewer who
+ * could advance or reject a candidate they are assessing is precisely the
+ * conflict of interest the separation exists to prevent (pipeline AZ-3), and
+ * they have their own surface for an opinion, which is feedback.
+ *
+ * It sits beside `PATCH /:interviewId` rather than inside it because a decision
+ * is not an edit: it is written once and refused a second time
+ * (`409 DECISION_ALREADY_RECORDED`), and it writes rows on two other tables.
+ */
+interviewsRouter.post(
+  '/:interviewId/decision',
+  requireAuth,
+  requireRole(UserRole.RECRUITER),
+  validateParams(interviewIdParamSchema),
+  validate(interviewDecisionSchema),
+  interviewsController.decide,
 );
 
 /**

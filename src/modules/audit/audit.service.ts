@@ -132,7 +132,39 @@ interface InterviewCreatedEntry extends AuditEntryBase {
     applicationId: number;
     type: string;
     stage: PipelineStage;
-    scheduledAt: string;
+    /**
+     * OPTIONAL as of the applications feature: a round started from the
+     * applications table has no date yet (applications FR-2.3). The key is
+     * omitted rather than written as `null`, so a reader can tell "no date was
+     * set" from "a date was set to nothing" - the latter is not a thing that
+     * happens.
+     */
+    scheduledAt?: string;
+  };
+}
+
+/**
+ * applications - a recruiter's verdict at one round (applications FR-3.5).
+ *
+ * `toStage` is present only when the decision ALSO moved the candidate, and
+ * `toStatus` only when it closed the application. Both are absent on a
+ * `SELECTED` verdict at a round whose stage the candidate is already in - a
+ * second `INTERVIEW` round, say - which is the case that makes the pair
+ * optional rather than a single required field.
+ *
+ * The move itself is still recorded by its own `CANDIDATE_STAGE_CHANGED` or
+ * `APPLICATION_OUTCOME_SET` row in the same transaction. This one names the
+ * round that caused it, which neither of those can.
+ */
+interface InterviewDecisionRecordedEntry extends AuditEntryBase {
+  action: typeof AuditAction.INTERVIEW_DECISION_RECORDED;
+  entityType: typeof AuditEntityType.INTERVIEW;
+  metadata: {
+    applicationId: number;
+    outcome: string;
+    stage: PipelineStage;
+    toStage?: PipelineStage;
+    toStatus?: string;
   };
 }
 
@@ -197,6 +229,7 @@ export type AuditEntry =
   | StageOverrideCreatedEntry
   | ApplicationOutcomeSetEntry
   | InterviewCreatedEntry
+  | InterviewDecisionRecordedEntry
   | InterviewerAssignedEntry
   | InterviewerUnassignedEntry
   | FeedbackSubmittedEntry

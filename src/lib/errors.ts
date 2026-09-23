@@ -25,6 +25,7 @@ export type ErrorCode =
   | 'STAGE_CONFLICT'
   | 'FEEDBACK_ALREADY_SUBMITTED'
   | 'INTERVIEW_CANCELLED'
+  | 'DECISION_ALREADY_RECORDED'
   | 'INTERNAL_ERROR';
 
 /** Field-keyed validation messages, keyed by request-body field name (VAL-5). */
@@ -316,5 +317,30 @@ export class InterviewCancelledError extends AppError {
   constructor() {
     super(409, 'INTERVIEW_CANCELLED', 'This interview was cancelled and cannot receive feedback');
     this.name = 'InterviewCancelledError';
+  }
+}
+
+/**
+ * 409 — a second verdict on a round that already has one (applications FR-3.6).
+ *
+ * A decision is **not** an editable field. It moved the candidate's stage or
+ * closed their application in the same transaction, and letting it be
+ * overwritten would leave a timeline claiming something the `StageHistory` and
+ * audit rows behind it contradict. Undoing one is an override, with a reason —
+ * which is the path the brief's §3.3 already provides.
+ *
+ * Raised from the `outcome: null` guard on the update itself, not from a
+ * preceding read (`recordDecision`): two recruiters clicking Select at the same
+ * instant both reach the statement, one matches zero rows, and that one is told
+ * this rather than silently winning.
+ */
+export class DecisionAlreadyRecordedError extends AppError {
+  constructor() {
+    super(
+      409,
+      'DECISION_ALREADY_RECORDED',
+      'A decision has already been recorded for this interview',
+    );
+    this.name = 'DecisionAlreadyRecordedError';
   }
 }

@@ -710,7 +710,14 @@ async function main(): Promise<void> {
               applicationId: created.id,
               type: interview.type,
               stage: interview.stage,
-              scheduledAt: interview.scheduledAt.toISOString(),
+              // `scheduledAt` is nullable as of the applications feature, and
+              // the audit key is omitted rather than written as `null` when
+              // there is no date — exactly as `createInterview` does it. Every
+              // seeded round has one, so this branch is never taken here; it is
+              // written out so the seed cannot drift from the service.
+              ...(interview.scheduledAt
+                ? { scheduledAt: interview.scheduledAt.toISOString() }
+                : {}),
             },
           },
           logger,

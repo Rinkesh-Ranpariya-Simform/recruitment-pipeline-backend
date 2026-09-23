@@ -4,18 +4,30 @@ import {
   ApplicationStatus,
   AuditAction,
   AuditEntityType,
+  InterviewOutcome,
   InterviewStatus,
   UserRole,
 } from '../../generated/prisma/enums.js';
 import {
   AlreadyAssignedError,
   ApplicationNotActiveError,
+  DecisionAlreadyRecordedError,
+  InterviewCancelledError,
   InvalidStageTransitionError,
   NotAnInterviewerError,
   NotFoundError,
+  StageConflictError,
 } from '../../lib/errors.js';
 import { prisma } from '../../lib/prisma.js';
 import { recordAudit } from '../audit/audit.service.js';
+// The stage graph and the two guarded writes come from the module that OWNS
+// them (applications FR-3.4). This is a real cross-module dependency and it is
+// the right one: re-deriving `canTransition` here would put a second copy of
+// the brief's §3.1 rule in the codebase, and two copies of a rule are two
+// rules. `pipeline.rules` imports nothing but the Prisma enums, so nothing
+// circular comes back with it.
+import { ALLOWED_STAGE_TRANSITIONS, canTransition } from '../pipeline/pipeline.rules.js';
+import { guardedOutcomeUpdate, guardedStageUpdate } from '../pipeline/pipeline.repository.js';
 import {
   ASSIGNMENT_SELECT,
   RECRUITER_INTERVIEW_SELECT,
@@ -30,6 +42,7 @@ import {
 } from './interviews.repository.js';
 import type {
   CreateInterviewInput,
+  InterviewDecisionInput,
   ListInterviewsQuery,
   UpdateInterviewStatusInput,
 } from './interviews.schema.js';
@@ -123,7 +136,11 @@ export async function createInterview(
         applicationId: application.id,
         type: input.type,
         stage: input.stage,
-        scheduledAt: input.scheduledAt,
+        // `?? null` rather than passing `undefined` through: Prisma treats an
+        // absent key and an explicit `null` identically on a create, but the
+        // column is nullable on purpose and writing the intent out stops a
+        // later reader assuming the field was forgotten (applications FR-2.3).
+        scheduledAt: input.scheduledAt ?? null,
         status: InterviewStatus.SCHEDULED,
         createdByUserId: actorUserId,
       },
@@ -143,7 +160,11 @@ export async function createInterview(
           stage: input.stage,
           // An ISO string, not a `Date`: `metadata` is a JSON column and the
           // audit union pins the serialised form so two callers cannot disagree.
-          scheduledAt: input.scheduledAt.toISOString(),
+          //
+          // The key is OMITTED on an undated round rather than written as
+          // `null`, so a reader of the feed can tell "no date was set" from "a
+          // date was set to nothing" — the latter is not a thing that happens.
+          ...(input.scheduledAt ? { scheduledAt: input.scheduledAt.toISOString() } : {}),
         },
       },
       log,
@@ -172,13 +193,18 @@ export async function createInterview(
  * ---------------------------------------------------------------------- */
 
 /**
- * `SCHEDULED → COMPLETED | CANCELLED`, and nothing else (FR-2.1, FR-2.2).
+ * A round's status, its date, or both (FR-2.1, FR-2.2, applications FR-2.4).
  *
- * **Neither terminal value may change again.** A second `PATCH` is `409
+ * **Neither terminal status may change again.** A second status `PATCH` is `409
  * INVALID_STAGE_TRANSITION` — the code the pipeline feature added, reused rather
  * than duplicated: it is the same idea, a state machine refusing a move, and a
  * second code for it would give the client two branches where one suffices
  * (ERR-4, EC-14).
+ *
+ * **A date may only be set while a round is `SCHEDULED`**, through the same
+ * guard and for the same reason. Moving the date of a round that already
+ * happened, or was cancelled, would rewrite a fact rather than plan one; the
+ * recruiter's path there is a new round.
  *
  * `status: SCHEDULED` is part of the `where` of the update itself, not checked
  * beforehand — so two concurrent `PATCH`es cannot both commit, and the loser
@@ -194,10 +220,18 @@ export async function updateInterviewStatus(
   actorUserId: number,
   log: Logger,
 ): Promise<RecruiterInterviewView> {
+  // `'scheduledAt' in input`, not a truthiness test: `null` is a meaningful
+  // value here — it clears the date back to undated — and `?? undefined` would
+  // silently turn "clear it" into "leave it alone" (VAL-3).
+  const changesDate = 'scheduledAt' in input;
+
   const interview = await prisma.$transaction(async (tx) => {
     const updated = await tx.interview.updateMany({
       where: { id: interviewId, status: InterviewStatus.SCHEDULED },
-      data: { status: input.status },
+      data: {
+        ...(input.status === undefined ? {} : { status: input.status }),
+        ...(changesDate ? { scheduledAt: input.scheduledAt ?? null } : {}),
+      },
     });
 
     if (updated.count === 0) {
@@ -214,7 +248,7 @@ export async function updateInterviewStatus(
       // round — the same contract as the pipeline's stage refusal, so a client
       // renders its remaining actions from one array either way (ERR-1, XFE-2).
       throw new InvalidStageTransitionError(
-        `This interview is already ${existing.status} and its status cannot change again`,
+        `This interview is already ${existing.status} and cannot be changed again`,
         { status: [`Not reachable from ${existing.status}`], allowed: [] },
       );
     }
@@ -227,12 +261,279 @@ export async function updateInterviewStatus(
 
   log.info(
     {
-      event: 'interview.status_changed',
+      event: 'interview.updated',
       actorId: actorUserId,
       interviewId,
-      to: input.status,
+      to: input.status ?? null,
+      // Whether a date moved, never which date it moved to: the log line is a
+      // fact about a process, and the round itself carries the value.
+      rescheduled: changesDate,
     },
-    'interview status changed',
+    'interview updated',
+  );
+
+  return interview;
+}
+
+/* -------------------------------------------------------------------------
+ * applications FR-3 — the verdict, and what it moves
+ * ---------------------------------------------------------------------- */
+
+/**
+ * Records "selected" or "rejected" AT one round, and applies what that means to
+ * the application — **in one transaction** (applications FR-3.3).
+ *
+ * This is the single write behind the Select / Reject pair at the top of a
+ * round's page, and it is one endpoint rather than three client calls for a
+ * reason worth stating: a client that PATCHed the round, then the stage, then
+ * the outcome could fail between any two of them and leave a candidate marked as
+ * having passed a round they were never advanced past. Here the whole thing
+ * commits or none of it does.
+ *
+ * What it does, in order:
+ *
+ * 1. **Closes the round** — `status: COMPLETED`, plus `outcome`, `decidedAt` and
+ *    `decidedByUserId` — guarded on `outcome: null`. The guard is the duplicate
+ *    check and the concurrency control at once: two recruiters clicking Select
+ *    at the same instant both reach the statement, one matches zero rows, and
+ *    that one is told `409 DECISION_ALREADY_RECORDED` rather than silently
+ *    winning.
+ * 2. **On `SELECTED`** — moves the application to the round's own stage, if it
+ *    is not already there. `canTransition` is imported from `pipeline.rules`,
+ *    **not re-derived here**: the stage graph has one definition, and a second
+ *    copy in this module is how the two come to disagree. A move the graph
+ *    refuses is `409 INVALID_STAGE_TRANSITION`, and the recruiter's path is then
+ *    a stage override with a reason — the brief's §3.1 "cannot skip a stage
+ *    without an explicit override" holding for this endpoint too.
+ * 3. **On `REJECTED`** — closes the application, leaving `currentStage` exactly
+ *    where it stopped (pipeline FR-3.5). "Rejected at Screen" and "rejected at
+ *    Offer" are different outcomes, and an outcome that reset the stage would
+ *    erase the difference.
+ * 4. **Writes the history and audit rows** for whichever of those happened, plus
+ *    one `INTERVIEW_DECISION_RECORDED` row naming the round. Three audit actions
+ *    rather than one, because they answer three different questions — collapsing
+ *    them would make *"which round advanced this candidate?"* unanswerable from
+ *    the feed.
+ *
+ * **A `SELECTED` verdict at a round whose stage the candidate is already in
+ * moves nothing, and that is correct rather than a gap.** A technical round
+ * followed by a system-design round is two rounds at one stage. The timeline
+ * shows both, because it is built from rounds; the stage does not move, because
+ * the stage does not move.
+ */
+export async function recordDecision(
+  interviewId: number,
+  input: InterviewDecisionInput,
+  actorUserId: number,
+  log: Logger,
+): Promise<RecruiterInterviewView> {
+  const decidedAt = new Date();
+
+  const { interview, movedToStage, closedWith } = await prisma.$transaction(async (tx) => {
+    const existing = await tx.interview.findUnique({
+      where: { id: interviewId },
+      select: {
+        id: true,
+        stage: true,
+        status: true,
+        outcome: true,
+        application: { select: { id: true, currentStage: true, status: true } },
+      },
+    });
+
+    if (existing === null) {
+      throw new NotFoundError();
+    }
+
+    if (existing.status === InterviewStatus.CANCELLED) {
+      // A cancelled round did not happen, so there is nothing to decide about
+      // it — the same reasoning that refuses feedback on one (feedback D-12).
+      throw new InterviewCancelledError();
+    }
+
+    if (existing.application.status !== ApplicationStatus.ACTIVE) {
+      throw new ApplicationNotActiveError();
+    }
+
+    const selected = input.decision === InterviewOutcome.SELECTED;
+    const fromStage = existing.application.currentStage;
+
+    // Whether this verdict moves the candidate, decided BEFORE anything is
+    // written. A round at the stage they are already in advances nobody.
+    const toStage = selected && fromStage !== existing.stage ? existing.stage : null;
+
+    if (toStage !== null && !canTransition(fromStage, toStage)) {
+      log.info(
+        {
+          event: 'interview.decision_refused',
+          interviewId,
+          fromStage,
+          toStage,
+          actorId: actorUserId,
+        },
+        'interview decision refused by the stage graph',
+      );
+
+      throw new InvalidStageTransitionError(
+        `A candidate at ${fromStage} cannot move to ${toStage} without an override`,
+        {
+          toStage: [`Not reachable from ${fromStage}`],
+          allowed: [...ALLOWED_STAGE_TRANSITIONS[fromStage]],
+        },
+      );
+    }
+
+    // The guard AND the write in one statement. `updateMany`, not `update`,
+    // deliberately: `update` requires a unique `where` and would therefore have
+    // to be preceded by a read-and-compare, which is the check-then-write this
+    // design exists to avoid.
+    const claimed = await tx.interview.updateMany({
+      where: { id: interviewId, status: InterviewStatus.SCHEDULED, outcome: null },
+      data: {
+        status: InterviewStatus.COMPLETED,
+        outcome: input.decision,
+        decidedAt,
+        decidedByUserId: actorUserId,
+      },
+    });
+
+    if (claimed.count === 0) {
+      // Someone decided this round between the read above and this statement.
+      // The throw aborts the transaction, so no stage move and no audit row
+      // survives a decision that did not happen.
+      throw new DecisionAlreadyRecordedError();
+    }
+
+    if (toStage !== null) {
+      const count = await guardedStageUpdate(
+        tx,
+        existing.application.id,
+        fromStage,
+        toStage,
+        decidedAt,
+      );
+
+      if (count === 0) {
+        // The application moved under us. Same reasoning as above: the whole
+        // transaction goes, including the decision written a moment ago.
+        throw new StageConflictError();
+      }
+
+      await tx.stageHistory.create({
+        data: {
+          applicationId: existing.application.id,
+          fromStage,
+          toStage,
+          fromStatus: ApplicationStatus.ACTIVE,
+          toStatus: ApplicationStatus.ACTIVE,
+          changedByUserId: actorUserId,
+          // Null: this transition did not use the override path (pipeline FR-5.4).
+          overrideId: null,
+        },
+        select: { id: true },
+      });
+
+      await recordAudit(
+        tx,
+        {
+          action: AuditAction.CANDIDATE_STAGE_CHANGED,
+          entityType: AuditEntityType.APPLICATION,
+          entityId: existing.application.id,
+          actorUserId,
+          metadata: { fromStage, toStage },
+        },
+        log,
+      );
+    }
+
+    if (!selected) {
+      const count = await guardedOutcomeUpdate(
+        tx,
+        existing.application.id,
+        ApplicationStatus.REJECTED,
+      );
+
+      if (count === 0) {
+        throw new StageConflictError();
+      }
+
+      await tx.stageHistory.create({
+        data: {
+          applicationId: existing.application.id,
+          // `currentStage` is untouched by an outcome, and both ends are
+          // recorded anyway: a history row that only fills in what moved cannot
+          // be read on its own (pipeline FR-5.2).
+          fromStage,
+          toStage: fromStage,
+          fromStatus: ApplicationStatus.ACTIVE,
+          toStatus: ApplicationStatus.REJECTED,
+          changedByUserId: actorUserId,
+          overrideId: null,
+        },
+        select: { id: true },
+      });
+
+      await recordAudit(
+        tx,
+        {
+          action: AuditAction.APPLICATION_OUTCOME_SET,
+          entityType: AuditEntityType.APPLICATION,
+          entityId: existing.application.id,
+          actorUserId,
+          // The same metadata shape `pipeline.setOutcome` writes, so the two
+          // paths to a rejection produce one readable row type in the feed.
+          // No `reason`: a rejection at a round is not an exception to the
+          // process and the endpoint asks for none.
+          metadata: {
+            fromStatus: ApplicationStatus.ACTIVE,
+            toStatus: ApplicationStatus.REJECTED,
+            atStage: fromStage,
+          },
+        },
+        log,
+      );
+    }
+
+    await recordAudit(
+      tx,
+      {
+        action: AuditAction.INTERVIEW_DECISION_RECORDED,
+        entityType: AuditEntityType.INTERVIEW,
+        entityId: interviewId,
+        actorUserId,
+        metadata: {
+          applicationId: existing.application.id,
+          outcome: input.decision,
+          stage: existing.stage,
+          ...(toStage === null ? {} : { toStage }),
+          ...(selected ? {} : { toStatus: ApplicationStatus.REJECTED }),
+        },
+      },
+      log,
+    );
+
+    return {
+      interview: await tx.interview.findUniqueOrThrow({
+        where: { id: interviewId },
+        select: RECRUITER_INTERVIEW_SELECT,
+      }),
+      movedToStage: toStage,
+      closedWith: selected ? null : ApplicationStatus.REJECTED,
+    };
+  });
+
+  // Ids and enum values only — never the candidate's name (pipeline FR-10.2).
+  log.info(
+    {
+      event: 'interview.decision_recorded',
+      actorId: actorUserId,
+      interviewId,
+      applicationId: interview.application.id,
+      outcome: input.decision,
+      movedToStage,
+      closedWith,
+    },
+    'interview decision recorded',
   );
 
   return interview;

@@ -7,6 +7,7 @@ import type {
   AssignInterviewerInput,
   AssignmentParams,
   CreateInterviewInput,
+  InterviewDecisionInput,
   InterviewIdParam,
   ListInterviewsQuery,
   UpdateInterviewStatusInput,
@@ -89,6 +90,10 @@ export async function listForApplication(req: Request, res: Response): Promise<v
 /**
  * 200 with the full round, not a diff, so the client doesn't have to merge its
  * own patch into cached state.
+ *
+ * Handles the status change AND the date edit, because they are one `PATCH` on
+ * one resource. Which of the two a request carries is the schema's business,
+ * not this handler's.
  */
 export async function updateStatus(req: Request, res: Response): Promise<void> {
   const { interviewId } = req.validatedParams as InterviewIdParam;
@@ -159,4 +164,28 @@ export async function unassign(req: Request, res: Response): Promise<void> {
   await interviewsService.unassignInterviewer(interviewId, userId, actorId(req), req.log);
 
   res.status(204).send();
+}
+
+/**
+ * A round's verdict, and whatever it moves (applications FR-3).
+ *
+ * `200` with the decided round — including the application's new
+ * `currentStage` and `status`, since a decision routinely changes both and the
+ * client would otherwise have to refetch to find out.
+ *
+ * `POST`, not `PATCH`: a decision creates a record that cannot be edited
+ * afterwards (`409 DECISION_ALREADY_RECORDED`), and `PATCH` would suggest
+ * otherwise.
+ */
+export async function decide(req: Request, res: Response): Promise<void> {
+  const { interviewId } = req.validatedParams as InterviewIdParam;
+
+  const interview = await interviewsService.recordDecision(
+    interviewId,
+    req.body as InterviewDecisionInput,
+    actorId(req),
+    req.log,
+  );
+
+  res.status(200).json({ interview });
 }

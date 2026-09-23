@@ -20,9 +20,10 @@ proves the spec wrong, the spec is corrected and re-approved — code and spec d
 | 3   | [candidate](features/candidate/spec.md)               | ✅ approved | ⬜ skipped                                     | ✅ implemented |
 | 4   | [audit](features/audit/spec.md)                       | ✅ approved | ⬜ skipped                                     | ✅ implemented |
 | 5   | [pipeline](features/pipeline/spec.md)                 | ✅ approved | ⬜ skipped                                     | ✅ implemented |
-| 6   | [interviews](features/interviews/spec.md)             | 🟡 draft    | ⬜ not started                                 | ⬜ not started |
-| 7   | [feedback](features/feedback/spec.md)                 | 🟡 draft    | ⬜ not started                                 | ⬜ not started |
+| 6   | [interviews](features/interviews/spec.md)             | ✅ approved | ⬜ skipped                                     | ✅ implemented |
+| 7   | [feedback](features/feedback/spec.md)                 | ✅ approved | ⬜ skipped                                     | ✅ implemented |
 | 8   | [candidate-access](features/candidate-access/spec.md) | 🟡 draft    | ⬜ not started                                 | ⬜ not started |
+| 9   | [applications](features/applications/spec.md)         | ✅ approved | ⬜ skipped                                     | ✅ implemented |
 
 Features 1–5 shipped. Features 6–8 are what remains: they are the half of the brief that carries its
 stated centre of gravity — _restricted data excluded at the query, not filtered after the fact_.
@@ -82,10 +83,17 @@ an imaginary schema and correcting it later, which is how a leak gets shipped.
 | interviews       | `Interview`, `InterviewAssignment`, `InterviewType`, `InterviewStatus` | `POST`/`GET /api/applications/:applicationId/interviews` · `GET /api/interviews` · `GET /api/interviews/:interviewId` · `POST /api/interviews/:interviewId/assignments` · `DELETE /api/interviews/:interviewId/assignments/:userId` |
 | feedback         | `Feedback`                                                             | `POST`/`GET`/`PATCH /api/interviews/:interviewId/feedback`                                                                                                                                                                          |
 | candidate-access | `CandidateProfile`                                                     | `GET /api/candidates` · `GET /api/candidates/:candidateId` · `PATCH /api/candidates/:candidateId`                                                                                                                                   |
+| applications     | `InterviewOutcome`, `Interview.outcome`/`decidedAt`/`decidedByUserId`  | `GET /api/applications` (recruiter projection) · `GET /api/applications/:applicationId` · `POST /api/interviews/:interviewId/decision`                                                                                              |
 
-Existing endpoints none of these features widen: `POST`/`GET /api/applications` stays candidate-scoped
-and unpaged; `GET /api/roles` keeps `buildRoleWhere`; `GET /api/users` keeps returning interviewers
-only.
+Endpoints none of features 4–8 widen: `GET /api/roles` keeps `buildRoleWhere`; `GET /api/users` keeps
+returning interviewers only.
+
+**`GET /api/applications` is the one exception, and feature 9 is the exception.** It was
+candidate-scoped and unpaged through features 4–8, as the line above used to say without
+qualification. The applications feature makes it role-aware — two projections behind one endpoint,
+chosen from the verified token before either query runs — because a recruiter had no way to see who
+had applied. **The candidate's half is unchanged**: still `where: { candidateUserId }`, still
+unpaged, still taking no filters. See [applications FR-1.6](features/applications/spec.md).
 
 ---
 
