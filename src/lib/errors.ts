@@ -18,6 +18,8 @@ export type ErrorCode =
   | 'ROLE_NOT_CLOSED'
   | 'ROLE_HAS_APPLICATIONS'
   | 'ALREADY_APPLIED'
+  | 'NOT_AN_INTERVIEWER'
+  | 'ALREADY_ASSIGNED'
   | 'INVALID_STAGE_TRANSITION'
   | 'APPLICATION_NOT_ACTIVE'
   | 'STAGE_CONFLICT'
@@ -219,5 +221,46 @@ export class StageConflictError extends AppError {
       'Someone else changed this application first — refresh and try again',
     );
     this.name = 'StageConflictError';
+  }
+}
+
+/**
+ * 400 — `POST /api/interviews/:id/assignments` naming a user who does not
+ * exist, or who exists but is not an `INTERVIEWER` (interviews FR-3.3, VAL-6).
+ *
+ * Produced by a `findFirst({ where: { id, role: INTERVIEWER } })` that matched
+ * no row — **the role requirement is in the `where`**, not in an `if` after
+ * fetching the user, so the service never holds a user row it had no right to
+ * read (EC-03).
+ *
+ * A **400 and not a 404**, even though a lookup missed: the recruiter supplied
+ * a value their own picker should have constrained, and that is a bad request
+ * rather than a missing resource. The two cases answer identically, so the
+ * endpoint does not reveal whether the id exists as some other role (EC-04).
+ */
+export class NotAnInterviewerError extends AppError {
+  constructor() {
+    super(400, 'NOT_AN_INTERVIEWER', 'That user is not an interviewer');
+    this.name = 'NotAnInterviewerError';
+  }
+}
+
+/**
+ * 409 — that interviewer is already on that round (interviews FR-3.4, D-5).
+ *
+ * Derived from the `InterviewAssignment_interviewId_interviewerId_key` unique
+ * violation the insert itself raises, NOT from a preceding `findFirst` — a
+ * check-then-insert loses to a second concurrent click and would let both
+ * commit. Same discipline as `AlreadyAppliedError` and `EmailTakenError`
+ * (ERR-3, EC-01).
+ *
+ * The remedy is "this person is already on the panel". A client should also
+ * disable already-assigned interviewers in its picker, but that is UX and this
+ * is the control (XFE-5).
+ */
+export class AlreadyAssignedError extends AppError {
+  constructor() {
+    super(409, 'ALREADY_ASSIGNED', 'That interviewer is already assigned to this round');
+    this.name = 'AlreadyAssignedError';
   }
 }

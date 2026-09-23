@@ -1,5 +1,10 @@
 import type { Logger } from 'pino';
-import { ApplicationStatus, AuditEntityType, PipelineStage } from '../../generated/prisma/enums.js';
+import {
+  ApplicationStatus,
+  AuditEntityType,
+  InterviewStatus,
+  PipelineStage,
+} from '../../generated/prisma/enums.js';
 import type { RoleStatus } from '../../generated/prisma/enums.js';
 import {
   ApplicationNotActiveError,
@@ -90,7 +95,15 @@ export interface PipelineRoleView {
   stages: Array<PipelineStageCell>;
 }
 
-/** The dashboard headline. Six numbers, and deliberately no `interviews` (FR-8.4). */
+/**
+ * The dashboard headline. **Seven** numbers as of the interviews feature, which
+ * revises FR-8.2 and supersedes FR-8.4 and XFE-9 (interviews FR-6.1, FR-6.2).
+ *
+ * `interviews` is the count of `SCHEDULED` rounds across all applications — the
+ * walkthrough's third tile, deferred here only because the `Interview` table did
+ * not exist yet, never on merit. Additive: a client written against the
+ * six-field version simply does not render the new tile.
+ */
 export interface PipelineSummary {
   openRoles: number;
   totalApplicants: number;
@@ -98,6 +111,7 @@ export interface PipelineSummary {
   offers: number;
   hired: number;
   rejected: number;
+  interviews: number;
 }
 
 /* -------------------------------------------------------------------------
@@ -586,7 +600,8 @@ export async function getPipeline(
  * ---------------------------------------------------------------------- */
 
 /**
- * Six indexed counts in one transaction (FR-8, PERF-4).
+ * Seven indexed counts in one transaction (FR-8, PERF-4, revised by interviews
+ * FR-6.1).
  *
  * `count` with a `where`, never a `findMany` whose `length` is taken — the
  * latter is the same §6 mistake as computing ageing in Node, just wearing a
@@ -596,13 +611,15 @@ export async function getPipeline(
  * separately from the board because the board is live candidates only (FR-7.6)
  * and `hired`/`rejected` are the outcomes that left it.
  *
- * **There is no `interviews` key** (FR-8.4, D-12). The `Interview` table does
- * not exist at this point in the build order, and a tile for a field the API
- * does not send is worse than no tile. The interviews feature adds it as a
- * revision to this spec, in the same pass that creates the table.
+ * **`interviews` was added by the interviews feature**, which explicitly
+ * reverses FR-8.4 and D-12 — both of which said this key would not exist,
+ * because at the time the `Interview` table did not. It is one more indexed
+ * `count` in the transaction that was already running, served by
+ * `Interview_status_scheduledAt_idx`, and it adds no new authorization surface:
+ * the endpoint is recruiter-only either way (interviews FR-6.1, PERF-7).
  */
 export async function getSummary(log: Logger): Promise<PipelineSummary> {
-  const [openRoles, totalApplicants, activeApplicants, offers, hired, rejected] =
+  const [openRoles, totalApplicants, activeApplicants, offers, hired, rejected, interviews] =
     await prisma.$transaction([
       prisma.role.count({ where: { status: 'OPEN' } }),
       prisma.application.count(),
@@ -612,9 +629,13 @@ export async function getSummary(log: Logger): Promise<PipelineSummary> {
       }),
       prisma.application.count({ where: { status: ApplicationStatus.HIRED } }),
       prisma.application.count({ where: { status: ApplicationStatus.REJECTED } }),
+      // Every SCHEDULED round, on any application including terminal ones — a
+      // round on a rejected application is still on the calendar until someone
+      // cancels it (interviews FR-6.1, EC-12).
+      prisma.interview.count({ where: { status: InterviewStatus.SCHEDULED } }),
     ]);
 
   log.info({ event: 'pipeline.aggregate_read', scope: 'summary' }, 'pipeline summary read');
 
-  return { openRoles, totalApplicants, activeApplicants, offers, hired, rejected };
+  return { openRoles, totalApplicants, activeApplicants, offers, hired, rejected, interviews };
 }

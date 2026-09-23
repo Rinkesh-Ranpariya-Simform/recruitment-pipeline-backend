@@ -1,6 +1,9 @@
 # Interviews — Rounds and Interviewer Assignment (Backend)
 
-> **Status:** Draft — awaiting approval. `plan.md` is a later artifact and does not exist yet.
+> **Status:** ✅ Approved and implemented (backend). `plan.md` was skipped — the feature was built
+> straight from this spec, as `candidate`, `audit` and `pipeline` were. See "Deviations recorded at
+> implementation" at the foot of this file for the four acceptance criteria whose literal form does
+> not hold and why.
 > **Feature slug:** `interviews`
 > **Scope:** `backend/` — Express 5 + Prisma 7 + PostgreSQL
 > **Counterpart:** [../../../../frontend/specs/features/interviews/spec.md](../../../../frontend/specs/features/interviews/spec.md)
@@ -1126,3 +1129,62 @@ the Revision section above. The frontend counterpart is revised in the same pass
 the summary's field list must be made in
 [../../../../frontend/specs/features/interviews/spec.md](../../../../frontend/specs/features/interviews/spec.md)
 in the same pass.
+
+---
+
+## Deviations recorded at implementation
+
+Four clauses do not hold as written. Each is recorded here rather than quietly worked around, in the
+same way pipeline AC-B34 is recorded in [`CLAUDE.md`](../../../CLAUDE.md).
+
+**BE-5's "the two reads carry no `requireRole`" — not implemented, and it could not be.** BE-5 says
+the scoping in the query is the whole control on `GET /api/interviews` and
+`GET /api/interviews/:id`. But AZ-9, EC-17, the endpoint × role matrix and **AC-B35** all require a
+CANDIDATE to receive `403` on both. With no guard, `buildInterviewWhere` would push
+`{ assignments: { some: { interviewerId: <candidate's id> } } }` into the `where` and answer
+`200 { interviews: [] }` — a scoped empty page, not a refusal. Both routes therefore carry
+`requireRole(RECRUITER, INTERVIEWER)`. **The guard admits exactly the two roles the matrix admits
+and narrows an interviewer's rows by nothing**; `buildInterviewWhere` remains the entire scoping
+mechanism.
+
+**AC-B22's grep is over-broad.** `grep -rn "assignments.some\|interviewerId" src/modules/interviews/`
+matches 22 lines across four files, because `interviewerId` is also the **wire field name** on
+`POST …/assignments` — so it necessarily appears in `interviews.schema.ts` (the zod body),
+`interviews.controller.ts` (reading the body) and `interviews.service.ts` (the insert and the audit
+metadata), all of which BE-1 explicitly places outside the repository. **The property the criterion
+is testing does hold**, and this grep proves it:
+
+```
+$ grep -rn "assignments: { some" src/
+src/modules/interviews/interviews.repository.ts:69
+```
+
+One line, one file. No handler filters a fetched list and there is no
+`if (interview.assignments.some(...))` anywhere.
+
+**AC-B43's named index is not the entry point, and the plan is still right.** The criterion expects
+the interviewer's list query to enter through `InterviewAssignment_interviewerId_createdAt_idx`. At
+40,011 rounds / 80,019 assignments Postgres instead drives from `Interview_scheduledAt_idx` — which
+satisfies the `ORDER BY scheduledAt DESC, id DESC LIMIT 20` without a sort — and resolves the
+`EXISTS` with an **Index Only Scan on `InterviewAssignment_interviewId_interviewerId_key`**,
+`Heap Fetches: 0`. That unique index covers both predicate columns in the direction the probe
+actually runs, so it is the cheaper choice. **The two substantive requirements hold: no sequential
+scan on either table, and PERF-1's measurable budget passes — p95 29.4 ms against 80 ms.** The
+`(interviewerId, createdAt)` index is not dead weight either: it is the chosen Index Only Scan
+whenever a query leads with `interviewerId`, which is the shape the feedback and candidate-access
+features will use (MIG-4). **Do not "fix" this by dropping an index or adding a hint.**
+
+**PERF-5 / AC-B45 — "a join", "exactly two statements" — is not achievable on Prisma 7.** Prisma 7's
+`prisma-client` generator exposes no `relationLoadStrategy`, so relations are always loaded as
+**batched follow-up queries**, never a SQL `JOIN`. A recruiter's list runs 8 statements: the page,
+one `IN (…)` per relation level, the `count`, and the `COMMIT`. **It is emphatically not N+1, which
+is what the criterion exists to rule out** — measured, the statement count is _constant_ in the
+number of rows:
+
+| page size | rows | panel seats | statements |
+| --------- | ---- | ----------- | ---------- |
+| 20        | 20   | 40          | 8          |
+| 100       | 100  | 200         | 8          |
+
+The interviewer's list is 6 statements on the same basis. Restate the criterion as "constant
+statements per request, independent of row count" and it passes; as written it cannot.

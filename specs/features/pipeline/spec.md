@@ -2,6 +2,9 @@
 
 > **Status:** ✅ Approved and implemented. `plan.md` was skipped — the feature was built straight
 > from this spec, as `candidate` and `audit` were.
+> **Revised by:** [../interviews/spec.md](../interviews/spec.md) — `GET /api/pipeline/summary` gained
+> a seventh field, `interviews`. FR-8.2, FR-8.3, FR-8.4, XFE-9, PERF-4, AC-B33 and D-12 are amended
+> in place below; the struck-through text is what the field's absence used to say.
 > **Feature slug:** `pipeline`
 > **Scope:** `backend/` — Express 5 + Prisma 7 + PostgreSQL
 > **Counterpart:** [../../../../frontend/specs/features/pipeline/spec.md](../../../../frontend/specs/features/pipeline/spec.md)
@@ -84,7 +87,7 @@ The schema was built anticipating this feature; this spec is where that anticipa
 | D-9  | Raw SQL or Prisma `groupBy`?                      | **Raw SQL via `$queryRaw`.** Prisma's `groupBy` cannot compute `now() - stageEnteredAt` per group, and doing it in Node is what §6 forbids                                              | FR-7.4, BE-4   |
 | D-10 | Two recruiters move the same application at once? | **The first wins; the second gets `409 STAGE_CONFLICT`.** Enforced by a stage-guarded `updateMany` whose `count: 0` means someone else moved first — never a read-then-write            | FR-6, EC-01    |
 | D-11 | Can a terminal application be moved?              | **No.** `HIRED` and `REJECTED` are terminal. Any transition or override against one is `409 APPLICATION_NOT_ACTIVE`                                                                     | FR-2.6, FR-4.6 |
-| D-12 | Does the dashboard count interviews?              | **Not yet.** The `Interview` table does not exist at this point in the order. The interviews feature adds that tile as a Revision to this spec                                          | FR-8.4         |
+| D-12 | Does the dashboard count interviews?              | ~~**Not yet.**~~ **REVERSED — it does.** The interviews feature shipped the table and the `interviews` field in one pass (interviews FR-6.1)                                            | FR-8.2, FR-8.4 |
 | D-13 | Does this feature touch `GET /api/applications`?  | **No.** It stays candidate-scoped and unpaged. A recruiter's view of applications is `GET /api/candidates`, owned by the candidate-access feature                                       | Out of Scope   |
 
 ---
@@ -342,13 +345,18 @@ SCREEN` is a board nobody can read.
 ### FR-8 — The dashboard summary
 
 - **FR-8.1** `GET /api/pipeline/summary` returns the recruiter's headline counts. Recruiter-only.
-- **FR-8.2** Four numbers: `openRoles`, `totalApplicants` (all applications, any status),
-  `activeApplicants`, `offers` (live applications at `OFFER`), plus `hired` and `rejected`.
-- **FR-8.3** Each is a `count` with a `where` — six cheap indexed counts in one `$transaction`,
-  never a `findMany` whose length is taken.
-- **FR-8.4** **No interview count.** The `Interview` table does not exist at this point in the build
-  order (D-12). The interviews feature adds that field as a `## Revision` to this spec, in the same
-  pass that creates the table.
+- **FR-8.2** ~~Four numbers~~ **Seven numbers**: `openRoles`, `totalApplicants` (all applications,
+  any status), `activeApplicants`, `offers` (live applications at `OFFER`), `hired`, `rejected`, and
+  — **added by the interviews feature (interviews FR-6.1)** — `interviews`, the count of `SCHEDULED`
+  rounds across all applications.
+- **FR-8.3** Each is a `count` with a `where` — ~~six~~ **seven** cheap indexed counts in one
+  `$transaction`, never a `findMany` whose length is taken.
+- **FR-8.4** ~~**No interview count.**~~ **SUPERSEDED by the interviews feature**, which shipped the
+  `Interview` table and the seventh field in the same pass (interviews FR-6.1, FR-6.2, and its
+  "Revision to the pipeline spec" section). This clause said the field would not exist because the
+  table did not; both halves of that are now false. D-12 is reversed with it. The field is
+  **additive** — a client written against the six-field version simply does not render the new
+  tile.
 
 ### FR-9 — Changes to shipped behaviour
 
@@ -404,9 +412,9 @@ The obligations this backend places on the Next.js client. The rest of the front
 - **XFE-8** `GET /api/pipeline` is unpaginated and returns no candidate names — only counts and
   ageing (FR-7.9). **The board is not a candidate list.** Names come from `GET /api/candidates`,
   which is the candidate-access feature and is paginated.
-- **XFE-9** `GET /api/pipeline/summary` has **no interview count** in this version (D-12, FR-8.4).
-  The client must not render a tile for a field the API does not send; the interviews feature adds
-  it.
+- **XFE-9** ~~`GET /api/pipeline/summary` has **no interview count**~~ — **INVERTED by the
+  interviews feature.** The summary now carries `interviews` (interviews FR-6.1, XFE-11), and the
+  client renders the walkthrough's third tile from it.
 - **XFE-10** Every successful write returns the updated application as
   `{ application: { id, status, currentStage, stageEnteredAt, role: { id, title } } }` — enough to
   update a board cell without a refetch, though the client is free to invalidate instead.
@@ -937,8 +945,10 @@ The shipped envelope, unchanged: `{ code, message, details? }`.
 - **PERF-3** **No endpoint in this feature loads applications into Node.** The brief forbids it by
   name (§6). Verification is mechanical: `grep -rn "application.findMany" src/modules/pipeline/`
   returns nothing.
-- **PERF-4** `GET /api/pipeline/summary` is six indexed `count` queries in one `$transaction`
-  (FR-8.3), p95 < 120 ms at the same scale. **No `findMany().length` anywhere.**
+- **PERF-4** `GET /api/pipeline/summary` is ~~six~~ **seven** indexed `count` queries in one
+  `$transaction` (FR-8.3), p95 < 120 ms at the same scale. **No `findMany().length` anywhere.** The
+  seventh is served by `Interview_status_scheduledAt_idx` and adds < 10 ms (interviews PERF-7);
+  measured at 33 ms total against 40,011 rounds.
 - **PERF-5** The pipeline response is bounded by `roles × 4`, not by candidates (FR-7.9). At 200
   roles that is 800 cells, roughly 90 KB of JSON. **If roles are ever expected to exceed 500, this
   endpoint must paginate** — that is the documented threshold, not a vague "if it gets slow".
@@ -1068,8 +1078,11 @@ application id at `APPLIED`.
   response is `400` with `details.stage` (VAL-1).
 - **AC-B32** — **Given** a `HIRED` application, **when** the aggregate is read, **then** it is
   counted in **no** stage cell — only `ACTIVE` rows appear on the board (FR-7.6).
-- **AC-B33** — **Given** `$R`, **when** `GET /api/pipeline/summary` is called, **then** the response
-  is `200` with exactly the six keys in FR-8.2, and **no** `interviews` key (FR-8.4, XFE-9).
+- **AC-B33** — **REVISED by the interviews feature.** **Given** `$R`, **when**
+  `GET /api/pipeline/summary` is called, **then** the response is `200` with exactly the **seven**
+  keys in FR-8.2, **including** `interviews`, whose value equals the `SCHEDULED` round count in
+  `psql` (interviews FR-6.1, AC-B42). The original form — six keys and no `interviews` — no longer
+  holds and must not be re-asserted.
 
 ### Performance — the brief's §6 scale check
 
@@ -1137,7 +1150,7 @@ application id at `APPLIED`.
 | Bulk stage moves                                 | A batch endpoint multiplies the concurrency surface (FR-6) for a convenience nobody asked for                                                                                         |
 | A history-reading endpoint                       | History is read on the recruiter candidate detail, owned by the candidate-access feature (FR-5.6). A second endpoint returning the same rows in a new envelope is how a contract rots |
 | Widening `GET /api/applications` to recruiters   | A recruiter's view of applications is `GET /api/candidates`, scoped for the purpose (D-13)                                                                                            |
-| Interview counts on the dashboard                | The table does not exist yet; the interviews feature adds it as a Revision (D-12, FR-8.4)                                                                                             |
+| ~~Interview counts on the dashboard~~            | **No longer out of scope** — shipped by the interviews feature as a Revision to this spec (interviews FR-6.1)                                                                         |
 | "Stuck beyond N days" alert view                 | Brief §8 optional work. The aggregate returns `maxDaysInStage`, which is the input such a view would need                                                                             |
 | Caching the aggregate                            | Accepted as a gap (SEC-8d) rather than half-built; a cache needs an invalidation story that five write paths would all have to honour                                                 |
 | Per-role recruiter ownership                     | There is no hiring-manager actor in this POC, so recruiter authority is global (SEC-8a)                                                                                               |

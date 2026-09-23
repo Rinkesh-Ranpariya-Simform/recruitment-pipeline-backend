@@ -3,6 +3,7 @@ import { UserRole } from '../../generated/prisma/enums.js';
 import { requireAuth } from '../../middleware/requireAuth.js';
 import { requireRole } from '../../middleware/requireRole.js';
 import { validate } from '../../middleware/validate.js';
+import { interviewApplicationRoutes } from '../interviews/interviews.routes.js';
 import { pipelineApplicationRoutes } from '../pipeline/pipeline.routes.js';
 import * as applicationsController from './applications.controller.js';
 import { createApplicationSchema } from './applications.schema.js';
@@ -59,3 +60,17 @@ applicationsRouter.get(
  * their `RECRUITER` guards leak back onto the two routes above.
  */
 applicationsRouter.use(pipelineApplicationRoutes);
+
+/**
+ * The interviews feature's two application-nested routes, on
+ * `/:applicationId/interviews` (interviews BE-2).
+ *
+ * Mounted here for the same reason as the pipeline routes above, and just as
+ * safely: both routes in this file match the exact path `/`, so nothing below
+ * them can shadow either. Every route inside carries its own `requireAuth` +
+ * `requireRole(RECRUITER)` stack — **including the GET**, which has no
+ * interviewer path at all, because reaching rounds by application id would
+ * bypass the assignment predicate the whole feature rests on (interviews
+ * FR-1.9, AZ-6).
+ */
+applicationsRouter.use(interviewApplicationRoutes);

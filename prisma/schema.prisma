@@ -50,6 +50,25 @@ enum RoleStatus {
   CLOSED
 }
 
+/// NEW (interviews FR-1.3). A finite set, for the same reason `PipelineStage`
+/// is one: a free-text round type is unqueryable by the third typo.
+enum InterviewType {
+  PHONE_SCREEN
+  TECHNICAL
+  SYSTEM_DESIGN
+  CULTURE_FIT
+  HIRING_MANAGER
+}
+
+/// NEW (interviews FR-1.5). Rescheduling is out of scope (D-11), so there is no
+/// `RESCHEDULED` value — an enum value no code path writes is a lie in the
+/// schema.
+enum InterviewStatus {
+  SCHEDULED
+  COMPLETED
+  CANCELLED
+}
+
 /// NEW (audit FR-4.1). Every state-changing action this API performs, as a row.
 ///
 /// Nine values, all declared in one migration even though eight are first
@@ -105,6 +124,19 @@ model User {
   /// (MIG-4).
   stageChanges StageHistory[]  @relation("StageHistoryActor")
   overrides    StageOverride[] @relation("StageOverrideActor")
+
+  /// NEW (interviews MIG-1). Back-relations only; no column is added here.
+  /// Three named relations because `User` is reachable from `Interview` and
+  /// `InterviewAssignment` by three distinct paths and Prisma needs the name to
+  /// tell them apart.
+  ///
+  /// `interviewAssignments` is `Cascade` on the far side — deleting a person
+  /// removes their seats. The two ACTOR references are `Restrict`, matching
+  /// `auditLogs`: who created a round and who staffed it are historical facts
+  /// and must not be erasable (MIG-6).
+  interviewsCreated    Interview[]           @relation("InterviewCreator")
+  interviewAssignments InterviewAssignment[] @relation("InterviewAssignee")
+  assignmentsMade      InterviewAssignment[] @relation("InterviewAssigner")
 }
 
 model RefreshToken {
@@ -195,6 +227,12 @@ model Application {
   /// NEW (pipeline FR-5). Back-relations only; no column is added here.
   stageHistory StageHistory[]
   overrides    StageOverride[]
+
+  /// NEW (interviews FR-1.2). A round belongs to an APPLICATION, not to a
+  /// candidate: a person in flight for two roles has two application rows, and
+  /// a round attaches to exactly one of them — which is what makes the
+  /// interviewer's authorization chain single-valued (D-1).
+  interviews Interview[]
 
   /// One application per candidate per requisition. Repeat applies are rejected
   /// by Postgres, so the rule holds under concurrency and for any writer —
@@ -318,4 +356,80 @@ model StageOverride {
   history     StageHistory?
 
   @@index([applicationId, createdAt])
+}
+
+/// NEW (interviews FR-1.1). One round, against one application (D-1).
+model Interview {
+  id            Int @id @default(autoincrement())
+  applicationId Int
+
+  type InterviewType
+
+  /// Which stage this round is FOR. Deliberately NOT constrained to equal
+  /// `Application.currentStage` (D-13, FR-1.4) — a recruiter schedules the
+  /// technical round while the candidate is still at SCREEN, routinely. It is
+  /// an intent, not an assertion about now.
+  stage PipelineStage
+
+  /// May be in the past (FR-1.7). Backfilling a round that already happened is
+  /// normal; refusing it would push recruiters to lie about the date. There is
+  /// no `.min(new Date())` in the schema either (VAL-3).
+  scheduledAt DateTime
+
+  /// No default: the service writes SCHEDULED explicitly, so the rule lives
+  /// where a reader will find it. Same reasoning as `Role.status` and
+  /// `Application.status` (FR-1.5, MIG-2).
+  status InterviewStatus
+
+  createdByUserId Int
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  application Application           @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  createdBy   User                  @relation("InterviewCreator", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  assignments InterviewAssignment[]
+
+  // `Feedback[]` is deliberately ABSENT (MIG-7). The `Feedback` model is the
+  // next feature's migration, and Prisma requires both sides of a relation to
+  // exist — so the back-relation ships there, not here.
+
+  @@index([applicationId, scheduledAt]) // an application's rounds — FR-1.9
+  @@index([status, scheduledAt]) // the dashboard's SCHEDULED count — FR-6.1
+  @@index([scheduledAt]) // the unfiltered recruiter list's ORDER BY
+}
+
+/// NEW (interviews FR-3.1) — and the most load-bearing table in this schema.
+///
+/// This is the row every interviewer-scoped query in the system joins against.
+/// `GET /api/interviews`, `GET /api/interviews/:id`, the feedback feature's
+/// insert precondition and the candidate-access feature's
+/// `getInterviewerCandidate` all resolve authorization through
+/// `assignments.some.interviewerId`. It is introduced here, third in the build
+/// order, because the two features after it cannot express their rules without
+/// it.
+model InterviewAssignment {
+  id          Int @id @default(autoincrement())
+  interviewId Int
+
+  interviewerId    Int
+  assignedByUserId Int
+
+  createdAt DateTime @default(now())
+
+  interview   Interview @relation(fields: [interviewId], references: [id], onDelete: Cascade)
+  interviewer User      @relation("InterviewAssignee", fields: [interviewerId], references: [id], onDelete: Cascade)
+  assignedBy  User      @relation("InterviewAssigner", fields: [assignedByUserId], references: [id], onDelete: Restrict)
+
+  /// One person, one seat, one round (D-5). The rule is HERE, in the database,
+  /// not as a `findFirst` in the service: a read-then-write check loses to two
+  /// concurrent clicks and would let both commit; a unique index cannot
+  /// (EC-01, MIG-3). The service maps the resulting `P2002` to
+  /// `409 ALREADY_ASSIGNED`. Same reasoning as
+  /// `@@unique([candidateUserId, roleId])` on `Application`.
+  @@unique([interviewId, interviewerId])
+  /// "My interviews" AND every authorization join in the two features that
+  /// follow (MIG-4). `interviewerId` leads because it is the predicate,
+  /// always. A sequential scan here would make the authorization query the
+  /// slowest thing in the system.
+  @@index([interviewerId, createdAt])
 }

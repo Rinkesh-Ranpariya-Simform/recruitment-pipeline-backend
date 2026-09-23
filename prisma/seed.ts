@@ -3,6 +3,8 @@ import {
   ApplicationStatus,
   AuditAction,
   AuditEntityType,
+  InterviewStatus,
+  InterviewType,
   PipelineStage,
   RoleStatus,
   UserRole,
@@ -12,6 +14,7 @@ import { hashPassword } from '../src/lib/password.js';
 import { disconnect, prisma } from '../src/lib/prisma.js';
 import { APPLICATION_SELECT } from '../src/modules/applications/application.select.js';
 import { recordAudit } from '../src/modules/audit/audit.service.js';
+import { ASSIGNMENT_SELECT } from '../src/modules/interviews/interview.select.js';
 import { stagesSkipped } from '../src/modules/pipeline/pipeline.rules.js';
 import { ROLE_SELECT } from '../src/modules/roles/role.select.js';
 import { SAFE_USER_SELECT } from '../src/modules/users/user.select.js';
@@ -213,6 +216,52 @@ const SEED_ROLES = [
   },
 ] as const;
 
+/**
+ * Demo interview rounds and their panels (interviews FR-7.3).
+ *
+ * Two rounds, and the SHAPE of the pair is the point rather than the rounds
+ * themselves:
+ *
+ *   - **Technical, on the `INTERVIEW`-stage application, with BOTH seeded
+ *     interviewers.** This is the panel the brief's §3.4 concurrent-feedback
+ *     case needs, demonstrable out of the box.
+ *   - **System Design, on a second application, with `interviewer1` ONLY.** So
+ *     that `interviewer2` has a real, live round they are **not** on. That is
+ *     the round AC-B18 fires against — without it, "an interviewer requesting a
+ *     round outside their assignment" has nothing to request, and the sharpest
+ *     check in the POC is unverifiable on a fresh database.
+ *
+ * Its `stage` is `SCREEN` while that application sits at `APPLIED`, deliberately
+ * (D-13, FR-1.4): a round's stage is what it is FOR, not an assertion about now,
+ * and the seed should show that rather than only describe it.
+ *
+ * Keyed by role title, matching `SEED_APPLICATIONS`, because neither `Role.id`
+ * nor `Application.id` is stable across a reseed. Interviewers are keyed by
+ * email for the same reason.
+ */
+const SEED_INTERVIEWS: ReadonlyArray<{
+  roleTitle: string;
+  type: InterviewType;
+  stage: PipelineStage;
+  inDays: number;
+  interviewerEmails: ReadonlyArray<string>;
+}> = [
+  {
+    roleTitle: 'Senior Backend Engineer',
+    type: InterviewType.TECHNICAL,
+    stage: PipelineStage.INTERVIEW,
+    inDays: 2,
+    interviewerEmails: ['interviewer1@demo.test', 'interviewer2@demo.test'],
+  },
+  {
+    roleTitle: 'Product Designer',
+    type: InterviewType.SYSTEM_DESIGN,
+    stage: PipelineStage.SCREEN,
+    inDays: 4,
+    interviewerEmails: ['interviewer1@demo.test'],
+  },
+] as const;
+
 async function main(): Promise<void> {
   const password = env.SEED_PASSWORD;
 
@@ -308,6 +357,28 @@ async function main(): Promise<void> {
     );
   }
 
+  // The panel members `SEED_INTERVIEWS` names, resolved once by email because
+  // `User.id` is not stable across a reseed. Scoped to `role: INTERVIEWER` in
+  // the `where` rather than checked afterwards, exactly as
+  // `assignInterviewer` does it (interviews FR-3.3) — a seed that could staff a
+  // recruiter onto a panel would be seeding a state the API refuses to create.
+  const interviewerEmails = [...new Set(SEED_INTERVIEWS.flatMap((seed) => seed.interviewerEmails))];
+
+  const interviewers = await prisma.user.findMany({
+    where: { email: { in: interviewerEmails }, role: UserRole.INTERVIEWER },
+    select: { id: true, email: true },
+  });
+
+  const interviewerIdByEmail = new Map(
+    interviewers.map((interviewer) => [interviewer.email, interviewer.id]),
+  );
+
+  for (const email of interviewerEmails) {
+    if (!interviewerIdByEmail.has(email)) {
+      throw new Error(`Seeded interviewer ${email} is missing — account seeding failed.`);
+    }
+  }
+
   // The seeded applications' audit rows go FIRST, before the applications
   // themselves are deleted, because the ids are the only thing linking them:
   // `AuditLog.entityId` is deliberately not a foreign key (FR-1.5), so nothing
@@ -324,10 +395,34 @@ async function main(): Promise<void> {
   });
 
   if (doomed.length > 0) {
+    const doomedApplicationIds = doomed.map((application) => application.id);
+
+    // The rounds on those applications will CASCADE away with them (interviews
+    // MIG-6), but their audit rows will not: `AuditLog.entityId` is deliberately
+    // not a foreign key (audit FR-1.5), so nothing in the database cleans them
+    // up. Collected BEFORE the delete, because afterwards there is no way left
+    // to learn which INTERVIEW ids belonged to this seed.
+    //
+    // Scoped to exactly those ids — never to `entityType: INTERVIEW` wholesale —
+    // so a reseed cannot erase the trace of a round somebody scheduled by hand
+    // (audit FR-7.2, EC-11).
+    const doomedInterviews = await prisma.interview.findMany({
+      where: { applicationId: { in: doomedApplicationIds } },
+      select: { id: true },
+    });
+
     const clearedAudit = await prisma.auditLog.deleteMany({
       where: {
-        entityType: AuditEntityType.APPLICATION,
-        entityId: { in: doomed.map((application) => application.id) },
+        OR: [
+          {
+            entityType: AuditEntityType.APPLICATION,
+            entityId: { in: doomedApplicationIds },
+          },
+          {
+            entityType: AuditEntityType.INTERVIEW,
+            entityId: { in: doomedInterviews.map((interview) => interview.id) },
+          },
+        ],
       },
     });
 
@@ -527,6 +622,103 @@ async function main(): Promise<void> {
         );
       }
 
+      // The rounds on this application, and their panels (interviews FR-7.3).
+      //
+      // Inside the SAME transaction as the application, its history and its
+      // audit trace: every write in this feature is one transaction holding its
+      // row change and its `recordAudit` call (interviews BE-7), and a seed that
+      // could produce a round with no audit row would misrepresent that
+      // invariant exactly as a half-written history would.
+      //
+      // `status` is the SCHEDULED literal, not a schema default, and
+      // `createdByUserId`/`assignedByUserId` are the recruiter — the same values
+      // the request path writes from `req.user.id` (interviews FR-1.5, AZ-7).
+      for (const round of SEED_INTERVIEWS.filter((entry) => entry.roleTitle === seed.roleTitle)) {
+        const interview = await tx.interview.create({
+          data: {
+            applicationId: created.id,
+            type: round.type,
+            stage: round.stage,
+            scheduledAt: new Date(Date.now() + round.inDays * 24 * 60 * 60 * 1000),
+            status: InterviewStatus.SCHEDULED,
+            createdByUserId: auditActor.id,
+            createdAt: at,
+          },
+          select: { id: true, type: true, stage: true, scheduledAt: true },
+        });
+
+        await recordAudit(
+          tx,
+          {
+            action: AuditAction.INTERVIEW_CREATED,
+            entityType: AuditEntityType.INTERVIEW,
+            entityId: interview.id,
+            actorUserId: auditActor.id,
+            metadata: {
+              applicationId: created.id,
+              type: interview.type,
+              stage: interview.stage,
+              scheduledAt: interview.scheduledAt.toISOString(),
+            },
+          },
+          logger,
+        );
+
+        for (const email of round.interviewerEmails) {
+          // Non-null: every email in `SEED_INTERVIEWS` was resolved and checked
+          // above, before any application was touched.
+          const interviewerId = interviewerIdByEmail.get(email) as number;
+
+          const assignment = await tx.interviewAssignment.create({
+            data: {
+              interviewId: interview.id,
+              interviewerId,
+              assignedByUserId: auditActor.id,
+              createdAt: at,
+            },
+            select: ASSIGNMENT_SELECT,
+          });
+
+          await recordAudit(
+            tx,
+            {
+              action: AuditAction.INTERVIEWER_ASSIGNED,
+              entityType: AuditEntityType.INTERVIEW,
+              entityId: interview.id,
+              actorUserId: auditActor.id,
+              metadata: { interviewerId },
+            },
+            logger,
+          );
+
+          logger.info(
+            // Ids and enum values only — never the interviewer's name or email
+            // (interviews FR-7.2).
+            {
+              event: 'interview.seeded_assignment',
+              interviewId: interview.id,
+              assignmentId: assignment.id,
+              targetUserId: interviewerId,
+              source: 'seed',
+            },
+            'seeded interview assignment',
+          );
+        }
+
+        logger.info(
+          {
+            event: 'interview.seeded',
+            interviewId: interview.id,
+            applicationId: created.id,
+            type: interview.type,
+            stage: interview.stage,
+            panelSize: round.interviewerEmails.length,
+            source: 'seed',
+          },
+          `seeded interview: ${round.type} on ${seed.roleTitle}`,
+        );
+      }
+
       return created;
     });
 
@@ -555,6 +747,11 @@ try {
       roles: SEED_ROLES.length,
       applications: SEED_APPLICATIONS.length,
       timelineSteps: SEED_TIMELINES.reduce((count, trace) => count + trace.steps.length, 0),
+      interviews: SEED_INTERVIEWS.length,
+      assignments: SEED_INTERVIEWS.reduce(
+        (count, round) => count + round.interviewerEmails.length,
+        0,
+      ),
     },
     'seed complete',
   );

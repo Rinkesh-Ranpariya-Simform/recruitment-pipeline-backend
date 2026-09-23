@@ -13,6 +13,7 @@ import { requestId } from './middleware/requestId.js';
 import { applicationsRouter } from './modules/applications/applications.routes.js';
 import { auditRouter } from './modules/audit/audit.routes.js';
 import { authRouter } from './modules/auth/auth.routes.js';
+import { interviewsRouter } from './modules/interviews/interviews.routes.js';
 import { pipelineRouter } from './modules/pipeline/pipeline.routes.js';
 import { rolesRouter } from './modules/roles/roles.routes.js';
 import { usersRouter } from './modules/users/users.routes.js';
@@ -67,6 +68,13 @@ app.use('/api/applications', applicationsRouter);
 // endpoint on this router and none is planned: that read belongs to the
 // candidate-access feature (pipeline FR-5.6).
 app.use('/api/pipeline', pipelineRouter);
+// Two reads open to RECRUITER and INTERVIEWER — an interviewer's rows are
+// narrowed to their own assignments by `buildInterviewWhere`, in the query, not
+// after it (interviews AZ-4). Plus three RECRUITER-only writes: the status
+// change and the two assignment routes. The feature's other two routes are not
+// here — they mount on `/api/applications` above, because the resource they
+// hang off is an application (interviews BE-2).
+app.use('/api/interviews', interviewsRouter);
 // One RECRUITER-only GET. There is no PATCH, DELETE or `/:id` on this router:
 // an audit row is never updated or deleted, so those paths fall through to
 // `notFound` and answer 404 (audit spec FR-6.1, AZ-4).

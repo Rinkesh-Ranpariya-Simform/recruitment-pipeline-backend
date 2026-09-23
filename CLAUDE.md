@@ -61,7 +61,10 @@ write path onto a candidate.
 - **Candidate** — linked to the role(s) they're being considered for
 - **PipelineStage** — a small, finite, explicit set (don't model stage as a free-text column)
 - Candidate's **current stage** + enough history to compute ageing (time at current stage)
-- **InterviewRound** — tied to a candidate + role, with assigned interviewer(s)
+- **Built** — `Interview` (a round, tied to an **application**, not a candidate) and
+  `InterviewAssignment` (the panel). See
+  [specs/features/interviews/spec.md](specs/features/interviews/spec.md) and the "Interviewer
+  scoping" section below, which every interviewer-facing read is bound by
 - **Feedback** — tied to a specific round, a specific interviewer, a rating + notes
 - **StageOverride** — who performed it, when, and why (recruiter-only unless documented
   otherwise); this must be a real recorded row, never inferred from a stage change alone
@@ -164,13 +167,14 @@ Feature specs live in `specs/features/<feature>/`, each holding `spec.md` (what 
 `plan.md` (how). Phases run in that order and each is approved before the next begins; if implementation reveals
 the spec is wrong, update the spec and get it re-approved rather than letting code and spec drift.
 
-| Feature                                                 | spec        | plan                                                 | code                                                                                                         |
-| ------------------------------------------------------- | ----------- | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| [authentication](specs/features/authentication/spec.md) | ✅ approved | [✅ approved](specs/features/authentication/plan.md) | ✅ implemented                                                                                               |
-| [roles](specs/features/roles/spec.md)                   | ✅ approved | [✅ drafted](specs/features/roles/plan.md)           | ⬜ not started                                                                                               |
-| [candidate](specs/features/candidate/spec.md)           | ✅ approved | ⬜ skipped (implemented straight from the spec)      | ✅ implemented — all 55 acceptance criteria verified by hand against the running API                         |
-| [audit](specs/features/audit/spec.md)                   | ✅ approved | ⬜ skipped (implemented straight from the spec)      | ✅ implemented — 27 acceptance criteria verified by hand (`curl` + `psql` + `EXPLAIN ANALYZE` at 120k rows)  |
-| [pipeline](specs/features/pipeline/spec.md)             | ✅ approved | ⬜ skipped (implemented straight from the spec)      | ✅ implemented — 50 acceptance criteria verified by hand (`curl` + `psql` + concurrent requests at 20k rows) |
+| Feature                                                 | spec        | plan                                                 | code                                                                                                                                                                                     |
+| ------------------------------------------------------- | ----------- | ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [authentication](specs/features/authentication/spec.md) | ✅ approved | [✅ approved](specs/features/authentication/plan.md) | ✅ implemented                                                                                                                                                                           |
+| [roles](specs/features/roles/spec.md)                   | ✅ approved | [✅ drafted](specs/features/roles/plan.md)           | ⬜ not started                                                                                                                                                                           |
+| [candidate](specs/features/candidate/spec.md)           | ✅ approved | ⬜ skipped (implemented straight from the spec)      | ✅ implemented — all 55 acceptance criteria verified by hand against the running API                                                                                                     |
+| [audit](specs/features/audit/spec.md)                   | ✅ approved | ⬜ skipped (implemented straight from the spec)      | ✅ implemented — 27 acceptance criteria verified by hand (`curl` + `psql` + `EXPLAIN ANALYZE` at 120k rows)                                                                              |
+| [pipeline](specs/features/pipeline/spec.md)             | ✅ approved | ⬜ skipped (implemented straight from the spec)      | ✅ implemented — 50 acceptance criteria verified by hand (`curl` + `psql` + concurrent requests at 20k rows)                                                                             |
+| [interviews](specs/features/interviews/spec.md)         | ✅ approved | ⬜ skipped (implemented straight from the spec)      | ✅ implemented — 83 checks verified by hand (`curl` + `psql` + concurrent requests + `EXPLAIN ANALYZE` at 40k rounds / 80k assignments); four criteria deviate, all recorded in the spec |
 
 **Pipeline**, the feature the brief's §3.1/§3.3/§3.5 are about. Five endpoints, two new tables
 (`StageHistory`, `StageOverride`), and three new `ErrorCode` values —
@@ -192,6 +196,57 @@ worth knowing before touching anything nearby:
   the index was tried and did not change the unfiltered plan. **The measurable requirement —
   PERF-1's p95 under 300 ms — passes at 96 ms.** Don't "fix" this by adding an index hint or a
   redundant index.
+
+## Interviewer scoping (read before adding any interviewer-facing read)
+
+Shipped by the [interviews feature](specs/features/interviews/spec.md). This is the brief's §3.2
+"core hard case", and `InterviewAssignment` is the table that answers it.
+
+- **One function expresses the scope.** `buildInterviewWhere(query, actorRole, actorId)` in
+  `src/modules/interviews/interviews.repository.ts` is the only place in `src/` that writes
+  `assignments: { some: … }` — confirm with `grep -rn "assignments: { some" src/`, which returns
+  exactly one line. It serves the page, the pager's `count` **and** the by-id read. **A third
+  interviews read routes through it**; a second copy of that decision is how this rule rots. It
+  mirrors `buildRoleWhere` deliberately, down to the `!== RECRUITER` test that fails closed.
+- **The predicate is in the `where`, so an unassigned interviewer's row is never fetched.** There is
+  no fetch-then-check and no `if (interview.assignments.some(...))` anywhere in the module.
+- **A scoped miss is `404`, never `403`.** A `403` confirms the round exists and turns the endpoint
+  into an enumeration oracle. The body is byte-identical to a nonexistent id's. The miss is logged
+  as `interview.scoped_read_miss` — the line worth watching for someone probing the id space.
+- **Two selects, chosen by role BEFORE the query runs.** `INTERVIEWER_INTERVIEW_SELECT` does not
+  name `email`, joins no `candidateProfile` and carries no `assignments` list; the recruiter's is a
+  different object, not a runtime branch. `grep -rniE "sanitis|sanitiz|strip|redact"
+src/modules/interviews/` returns nothing, and that absence is the design. `toInterviewerView` is
+  **not** an exception: it re-nests three already-selected values because Prisma cannot flatten a
+  relation and the published contract is flat. **If a field must be kept from an interviewer, take
+  it out of the select — never out of that function.**
+- **Only recruiters write to `InterviewAssignment`.** Both the `POST` and the `DELETE` are
+  `requireRole(RECRUITER)`. An interviewer who could create an assignment could grant themselves
+  access to any candidate in the system; **the entire scoping model rests on this one guard.**
+- **Access is evaluated per request, not captured in a token**, so an unassignment takes effect on
+  the interviewer's very next call rather than their next login.
+- **The two reads carry `requireRole(RECRUITER, INTERVIEWER)`**, which the spec's BE-5 said they
+  would not. Without it a candidate gets a scoped `200 { interviews: [] }` instead of the `403`
+  AZ-9 and AC-B35 require. The guard narrows an interviewer's rows by nothing.
+
+Three more things worth knowing before touching anything nearby:
+
+- **`GET /api/applications/:id/interviews` has no interviewer path at all** — reaching rounds by
+  application id would bypass the assignment predicate, so the route is recruiter-only and there is
+  nothing to bypass. Do not add one "for convenience".
+- **Duplicate assignment is a database constraint**, `@@unique([interviewId, interviewerId])` →
+  `P2002` → `409 ALREADY_ASSIGNED`. Verified under genuinely concurrent `curl`s: one `201`, one
+  `409`, exactly one row. **There is no `findFirst` before that create and must not be one.** A
+  missing round on the same insert is the FK's `P2003` → `404`, also at no extra statement.
+- **`GET /api/pipeline/summary` now returns SEVEN keys**, including `interviews`. This reverses
+  pipeline FR-8.4, XFE-9 and D-12, which are struck through in that spec rather than deleted.
+
+Two acceptance criteria in the interviews spec do not hold as written — AC-B22's grep is
+over-broad, and AC-B43's named index is not the plan's entry point although the plan is correct and
+PERF-1 passes at 29.4 ms against 80 ms. Both, plus the BE-5 and PERF-5 deviations, are written up
+under "Deviations recorded at implementation" at the foot of
+[the interviews spec](specs/features/interviews/spec.md). **Don't re-derive them, and don't "fix"
+the index.**
 
 The **candidate** feature added a third `UserRole`, made signup candidate-only, and introduced
 `Application`. It **deliberately reversed two rules that used to be stated below**; both paragraphs are now

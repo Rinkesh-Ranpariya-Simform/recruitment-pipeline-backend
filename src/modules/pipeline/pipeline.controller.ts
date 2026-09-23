@@ -103,7 +103,7 @@ export async function getPipeline(req: Request, res: Response): Promise<void> {
   res.status(200).json({ roles });
 }
 
-/** The dashboard headline. Six keys, and no `interviews` until that table exists (FR-8.4). */
+/** The dashboard headline. Seven keys, including `interviews` (interviews FR-6.1). */
 export async function getSummary(req: Request, res: Response): Promise<void> {
   const summary = await pipelineService.getSummary(req.log);
 
