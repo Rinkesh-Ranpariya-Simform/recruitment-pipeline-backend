@@ -23,6 +23,8 @@ export type ErrorCode =
   | 'INVALID_STAGE_TRANSITION'
   | 'APPLICATION_NOT_ACTIVE'
   | 'STAGE_CONFLICT'
+  | 'FEEDBACK_ALREADY_SUBMITTED'
+  | 'INTERVIEW_CANCELLED'
   | 'INTERNAL_ERROR';
 
 /** Field-keyed validation messages, keyed by request-body field name (VAL-5). */
@@ -262,5 +264,57 @@ export class AlreadyAssignedError extends AppError {
   constructor() {
     super(409, 'ALREADY_ASSIGNED', 'That interviewer is already assigned to this round');
     this.name = 'AlreadyAssignedError';
+  }
+}
+
+/**
+ * 409 — this interviewer has already filed feedback on this round (feedback
+ * FR-3.3, D-1).
+ *
+ * Derived from the `Feedback_interviewId_interviewerId_key` unique violation the
+ * insert itself raises, NOT from a preceding `findFirst` — **and that is the
+ * whole of the brief's §3.4 answer.** A check-then-insert loses to two
+ * overlapping submissions from one person: both read "nothing here yet" and
+ * both commit, or one silently overwrites the other. Postgres cannot be raced
+ * this way. Same discipline as `AlreadyAssignedError` and `AlreadyAppliedError`
+ * (ERR-4, EC-02).
+ *
+ * **The message names the remedy** — the remedy is a different verb on the same
+ * path, and a client that does not know that shows a dead end where an edit form
+ * belongs (ERR-3, XFE-3).
+ *
+ * Two DIFFERENT interviewers submitting at the same instant never reach this:
+ * their unique-key tuples differ, so there is nothing to contend on and both
+ * succeed. That is the panel case, and it is a non-event by design (FR-3.2).
+ */
+export class FeedbackAlreadySubmittedError extends AppError {
+  constructor() {
+    super(
+      409,
+      'FEEDBACK_ALREADY_SUBMITTED',
+      'You have already submitted feedback for this round. Edit it instead.',
+    );
+    this.name = 'FeedbackAlreadySubmittedError';
+  }
+}
+
+/**
+ * 409 — feedback submitted against a `CANCELLED` round (feedback FR-2.7, D-12).
+ *
+ * A cancelled round did not happen, so there is nothing to assess. The status is
+ * read by the SAME scoped `findFirst` that authorizes the submission, so this
+ * costs no extra query (PERF-1).
+ *
+ * A 409 and not a 400 because the request is well-formed — it is the resource
+ * that is in a state which refuses it, matching `ApplicationNotActiveError`
+ * (ERR-5).
+ *
+ * It governs NEW submissions only. Cancelling a round does not unmake feedback
+ * already written for it, and that feedback stays readable (EC-19).
+ */
+export class InterviewCancelledError extends AppError {
+  constructor() {
+    super(409, 'INTERVIEW_CANCELLED', 'This interview was cancelled and cannot receive feedback');
+    this.name = 'InterviewCancelledError';
   }
 }

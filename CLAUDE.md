@@ -65,7 +65,9 @@ write path onto a candidate.
   `InterviewAssignment` (the panel). See
   [specs/features/interviews/spec.md](specs/features/interviews/spec.md) and the "Interviewer
   scoping" section below, which every interviewer-facing read is bound by
-- **Feedback** — tied to a specific round, a specific interviewer, a rating + notes
+- **Built** — `Feedback`, tied to a specific round, a specific interviewer, a rating + notes. See
+  [specs/features/feedback/spec.md](specs/features/feedback/spec.md) and the "Feedback" section
+  below
 - **StageOverride** — who performed it, when, and why (recruiter-only unless documented
   otherwise); this must be a real recorded row, never inferred from a stage change alone
 - **Built** — the audit/event trail: `AuditLog`, plus the `AuditAction` and `AuditEntityType`
@@ -99,11 +101,14 @@ them; a shape that redacts them after fetching is one missed call site away from
 - **Bad input**: a feedback submission against a nonexistent round, or a transition naming an
   undefined stage, must be rejected by input validation before it reaches business logic (zod
   or equivalent at the route boundary, matching the frontend's validation approach).
-- **Concurrent feedback**: decide and document whether two interviewers submitting feedback for
-  the same round near-simultaneously both persist, one wins, or they merge — then enforce it at
-  the DB layer (e.g. a unique constraint + explicit conflict handling, or a transaction), not a
-  check-then-write race in application code. It must hold under two requests that actually
-  overlap, not just two sequential ones.
+- **Concurrent feedback**: **settled and shipped by the [feedback feature](specs/features/feedback/spec.md).
+  The policy is BOTH ARE KEPT — one row per interviewer per round**, enforced by
+  `@@unique([interviewId, interviewerId])` on `Feedback`. Two different panellists firing at the
+  same instant hold different key tuples and both get `201`; the same panellist twice gets one
+  `201` and one `409 FEEDBACK_ALREADY_SUBMITTED` from `P2002`, caught outside the transaction
+  callback. **There is no `findFirst` before that `create` and must not be one** — a read-then-write
+  check loses to two overlapping requests. Verified under genuinely concurrent `curl`s, including
+  the brief's §8 variant (three panellists plus a simultaneous stage override).
 - **Pipeline/ageing queries**: **shipped** as `GET /api/pipeline`. One `$queryRaw` `GROUP BY`
   over `Application` plus one indexed `Role` read — two queries regardless of scale, and nothing
   is counted or aged in Node. The raw SQL is confined to
@@ -167,14 +172,15 @@ Feature specs live in `specs/features/<feature>/`, each holding `spec.md` (what 
 `plan.md` (how). Phases run in that order and each is approved before the next begins; if implementation reveals
 the spec is wrong, update the spec and get it re-approved rather than letting code and spec drift.
 
-| Feature                                                 | spec        | plan                                                 | code                                                                                                                                                                                     |
-| ------------------------------------------------------- | ----------- | ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [authentication](specs/features/authentication/spec.md) | ✅ approved | [✅ approved](specs/features/authentication/plan.md) | ✅ implemented                                                                                                                                                                           |
-| [roles](specs/features/roles/spec.md)                   | ✅ approved | [✅ drafted](specs/features/roles/plan.md)           | ⬜ not started                                                                                                                                                                           |
-| [candidate](specs/features/candidate/spec.md)           | ✅ approved | ⬜ skipped (implemented straight from the spec)      | ✅ implemented — all 55 acceptance criteria verified by hand against the running API                                                                                                     |
-| [audit](specs/features/audit/spec.md)                   | ✅ approved | ⬜ skipped (implemented straight from the spec)      | ✅ implemented — 27 acceptance criteria verified by hand (`curl` + `psql` + `EXPLAIN ANALYZE` at 120k rows)                                                                              |
-| [pipeline](specs/features/pipeline/spec.md)             | ✅ approved | ⬜ skipped (implemented straight from the spec)      | ✅ implemented — 50 acceptance criteria verified by hand (`curl` + `psql` + concurrent requests at 20k rows)                                                                             |
-| [interviews](specs/features/interviews/spec.md)         | ✅ approved | ⬜ skipped (implemented straight from the spec)      | ✅ implemented — 83 checks verified by hand (`curl` + `psql` + concurrent requests + `EXPLAIN ANALYZE` at 40k rounds / 80k assignments); four criteria deviate, all recorded in the spec |
+| Feature                                                 | spec        | plan                                                 | code                                                                                                                                                                                                          |
+| ------------------------------------------------------- | ----------- | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [authentication](specs/features/authentication/spec.md) | ✅ approved | [✅ approved](specs/features/authentication/plan.md) | ✅ implemented                                                                                                                                                                                                |
+| [roles](specs/features/roles/spec.md)                   | ✅ approved | [✅ drafted](specs/features/roles/plan.md)           | ⬜ not started                                                                                                                                                                                                |
+| [candidate](specs/features/candidate/spec.md)           | ✅ approved | ⬜ skipped (implemented straight from the spec)      | ✅ implemented — all 55 acceptance criteria verified by hand against the running API                                                                                                                          |
+| [audit](specs/features/audit/spec.md)                   | ✅ approved | ⬜ skipped (implemented straight from the spec)      | ✅ implemented — 27 acceptance criteria verified by hand (`curl` + `psql` + `EXPLAIN ANALYZE` at 120k rows)                                                                                                   |
+| [pipeline](specs/features/pipeline/spec.md)             | ✅ approved | ⬜ skipped (implemented straight from the spec)      | ✅ implemented — 50 acceptance criteria verified by hand (`curl` + `psql` + concurrent requests at 20k rows)                                                                                                  |
+| [interviews](specs/features/interviews/spec.md)         | ✅ approved | ⬜ skipped (implemented straight from the spec)      | ✅ implemented — 83 checks verified by hand (`curl` + `psql` + concurrent requests + `EXPLAIN ANALYZE` at 40k rounds / 80k assignments); four criteria deviate, all recorded in the spec                      |
+| [feedback](specs/features/feedback/spec.md)             | ✅ approved | ⬜ skipped (implemented straight from the spec)      | ✅ implemented — 45 acceptance criteria verified by hand (`curl` + Prisma + concurrent requests + `EXPLAIN ANALYZE` at 80k feedback rows / 80k assignments); three criteria deviate, all recorded in the spec |
 
 **Pipeline**, the feature the brief's §3.1/§3.3/§3.5 are about. Five endpoints, two new tables
 (`StageHistory`, `StageOverride`), and three new `ErrorCode` values —
@@ -203,9 +209,12 @@ Shipped by the [interviews feature](specs/features/interviews/spec.md). This is 
 "core hard case", and `InterviewAssignment` is the table that answers it.
 
 - **One function expresses the scope.** `buildInterviewWhere(query, actorRole, actorId)` in
-  `src/modules/interviews/interviews.repository.ts` is the only place in `src/` that writes
-  `assignments: { some: … }` — confirm with `grep -rn "assignments: { some" src/`, which returns
-  exactly one line. It serves the page, the pager's `count` **and** the by-id read. **A third
+  `src/modules/interviews/interviews.repository.ts` is the only place in the INTERVIEWS module that
+  writes `assignments: { some: … }`. `grep -rn "assignments: { some" src/` now returns **two**
+  executable lines, not one: the feedback feature added `assignedTo` in
+  `src/modules/feedback/feedback.repository.ts`, which is the same decision for its own three
+  endpoints. One expression per module, each serving every read and write in that module — that is
+  the line this codebase draws, and a third copy inside either module is what would rot. It serves the page, the pager's `count` **and** the by-id read. **A third
   interviews read routes through it**; a second copy of that decision is how this rule rots. It
   mirrors `buildRoleWhere` deliberately, down to the `!== RECRUITER` test that fails closed.
 - **The predicate is in the `where`, so an unassigned interviewer's row is never fetched.** There is
@@ -240,6 +249,58 @@ Three more things worth knowing before touching anything nearby:
   missing round on the same insert is the FK's `P2003` → `404`, also at no extra statement.
 - **`GET /api/pipeline/summary` now returns SEVEN keys**, including `interviews`. This reverses
   pipeline FR-8.4, XFE-9 and D-12, which are struck through in that spec rather than deleted.
+
+## Feedback (read before touching an assessment)
+
+Shipped by the [feedback feature](specs/features/feedback/spec.md) — the brief's §3.2, §3.4 and the
+§3.6 leak path it names by name. Three routes, nested under
+`/api/interviews/:interviewId/feedback`, one new table, two new `ErrorCode` values —
+`FEEDBACK_ALREADY_SUBMITTED` and `INTERVIEW_CANCELLED`.
+
+- **The authorization is the assignment, in the `where` — never
+  `feedback.interviewerId === currentUser.id`.** That comparison is not weak, it is **vacuous**:
+  `interviewerId` is the value the service is about to write, so it compares a value to itself.
+  `assignedTo(actorId)` in `src/modules/feedback/feedback.repository.ts` is the one expression of
+  the real rule, and all three verbs go through it. `interviewerId` appears in a `where` only on
+  `PATCH`, where it answers a different question — _is this row mine_ — alongside the assignment
+  predicate, never instead of it.
+- **`PATCH` is gated on the assignment too, which FR-4.2's snippet does not show.** The endpoint ×
+  role matrix answers `404` for an unassigned interviewer on all three verbs, and AZ-9 evaluates
+  access per request. Verified: unassign an interviewer and their read, edit and submit all answer
+  `404` on the next call, while **their existing row survives untouched** and stays readable by the
+  recruiter and the rest of the panel. Re-assign them and the edit works again.
+- **`FEEDBACK_SELECT` names no `interview` relation and therefore reaches no candidate.** One
+  projection for both roles, because neither may see more than the other here. §3.6 names a
+  feedback-submission endpoint specifically as the leak path; the answer is that the row Postgres
+  returns has no candidate column in it. `grep -rniE "sanitis|sanitiz|strip|redact"
+src/modules/feedback/` returns only prose, and that absence is the design. **If a field must be
+  kept from a reader, take it out of the select.**
+- **A scoped miss is `404`, never `403`**, byte-identical to a nonexistent round, on all three
+  verbs. `403` means wrong role for the route; `404` means right role, wrong round. Mixing them
+  turns the endpoint into an enumeration oracle. The misses log as
+  `feedback.scoped_write_miss` / `feedback.scoped_read_miss`.
+- **A recruiter can read any round's feedback but cannot write or edit one.** They did not conduct
+  the interview, and an assessment a recruiter can rewrite is not an assessment — that guard is what
+  makes the audit trail worth reading. A candidate is `403` everywhere, including on feedback about
+  themselves.
+- **`notes` never leaves the feedback record.** It is not in audit `metadata` (the entry carries
+  `rating`, and `fromRating`/`toRating` on an edit), it is not in any log line, and it is on pino's
+  `redact` list beside `reason`.
+- **There is no `DELETE` and no `GET /api/feedback`.** Both answer `404` from the shipped `notFound`
+  handler, and the absence is the guarantee — retracting an assessment without a trace is the
+  opposite of what §6 asks for. An interviewer who changes their mind edits, and the edit is audited.
+- **`AuditAction` now has five of its nine values written** (the two feedback ones joined the three
+  pipeline/interview ones). The documented exception still closes with candidate-access; don't add
+  an enum migration.
+
+Three acceptance criteria do not hold as written, and all three are written up under "Deviations
+recorded at implementation" at the foot of
+[the feedback spec](specs/features/feedback/spec.md). In short: **`PATCH` runs three statements,
+not PERF-5's two** — `metadata.fromRating` cannot be read out of the statement that overwrites it,
+and the preceding read is not an authorization check; **AC-B43's named index is not the plan's entry
+point** although the plan is better than the one it asks for and PERF-3 passes at 9.5 ms against a
+50 ms budget; and **AC-B37's and AC-B38's greps are over-broad**, matching this file's own prose.
+**Don't re-derive them, and don't "fix" the index.**
 
 Two acceptance criteria in the interviews spec do not hold as written — AC-B22's grep is
 over-broad, and AC-B43's named index is not the plan's entry point although the plan is correct and

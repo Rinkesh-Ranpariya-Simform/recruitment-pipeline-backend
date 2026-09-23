@@ -5,6 +5,7 @@ import { requireRole } from '../../middleware/requireRole.js';
 import { validate } from '../../middleware/validate.js';
 import { validateParams } from '../../middleware/validateParams.js';
 import { validateQuery } from '../../middleware/validateQuery.js';
+import { feedbackRouter } from '../feedback/feedback.routes.js';
 import * as interviewsController from './interviews.controller.js';
 import {
   applicationIdParamSchema,
@@ -156,3 +157,25 @@ interviewsRouter.delete(
   validateParams(assignmentParamsSchema),
   interviewsController.unassign,
 );
+
+/* -------------------------------------------------------------------------
+ * The feedback feature's three routes — mounted under /:interviewId/feedback
+ * ---------------------------------------------------------------------- */
+
+/**
+ * Feedback hangs off a round, so its routes mount here (feedback BE-3).
+ *
+ * The nesting is not cosmetic: **it is the authorization model made visible.**
+ * There is no path to an assessment that does not name the round it belongs to,
+ * so the question every one of those three routes asks is the same question this
+ * module already answers — is this caller on that round's panel (feedback
+ * FR-6.2).
+ *
+ * The module owns its own guards and its own copy of the assignment predicate,
+ * in `feedback.repository.ts`. That is the **second** place in `src/` writing
+ * `assignments: { some: … }`, after `buildInterviewWhere` above — one per
+ * feature, each serving every read and write in its own module, which is the
+ * line this codebase draws rather than sharing one helper across two features'
+ * `where` shapes.
+ */
+interviewsRouter.use('/:interviewId/feedback', feedbackRouter);

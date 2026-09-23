@@ -33,6 +33,12 @@ const REDACTED_PATHS = [
   // prints `[redacted]` rather than a recruiter's own words about a candidate.
   'reason',
   '*.reason',
+  // An interviewer's assessment of a person (feedback FR-7.2, SEC-5). Nothing
+  // logs it deliberately - every `feedback.*` line carries ids and the rating
+  // alone - so like `reason` this is the second line of defence, for the future
+  // line that passes a whole feedback row into a log call by accident.
+  'notes',
+  '*.notes',
 ];
 
 export const logger = pino({

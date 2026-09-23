@@ -1,6 +1,8 @@
 # Feedback — Assignment-Gated Structured Feedback (Backend)
 
-> **Status:** Draft — awaiting approval. `plan.md` is a later artifact and does not exist yet.
+> **Status:** Approved and implemented. `plan.md` was skipped — implemented straight from this
+> spec, as the candidate, audit, pipeline and interviews features were. Deviations found during
+> implementation are recorded at the foot of this document.
 > **Feature slug:** `feedback`
 > **Scope:** `backend/` — Express 5 + Prisma 7 + PostgreSQL
 > **Counterpart:** [../../../../frontend/specs/features/feedback/spec.md](../../../../frontend/specs/features/feedback/spec.md)
@@ -988,3 +990,97 @@ the feedback this feature writes.
 `FEEDBACK_SELECT` shape must be made in
 [../../../../frontend/specs/features/feedback/spec.md](../../../../frontend/specs/features/feedback/spec.md)
 in the same pass.
+
+---
+
+## Deviations recorded at implementation
+
+Four things in this spec do not hold exactly as written. Each is recorded here rather than being
+quietly "fixed" in code or quietly ignored.
+
+### 1. `PATCH` runs three statements, not PERF-5's two (AC-B45)
+
+**PERF-5 and AC-B45** ask for a `PATCH` of exactly two statements — the guarded update and the audit
+insert — with **no preceding read**. **FR-4.4** asks the audit entry to carry `metadata.fromRating`,
+and `AuditEntry`'s discriminated union makes that a compile-time requirement, not an option.
+
+The two cannot both hold. The previous rating cannot be read out of the statement that overwrites
+it: Prisma's `updateManyAndReturn` returns post-update values and does not accept a relation select,
+and a raw `UPDATE … RETURNING` of the old row would put SQL in a module this spec confines to the
+ORM. So `PATCH` is three statements: the scoped read of the caller's own row, the update, the audit
+insert.
+
+**`fromRating` was the right thing to keep.** A changed score is precisely what a hiring manager
+would ask about, and "the rating went from 4 to 5" is the whole value of `FEEDBACK_UPDATED`. One
+extra indexed lookup is not a cost worth that.
+
+**The read is not an authorization check**, which is the thing PERF-5 exists to protect. The
+update's own `where` still carries `interviewerId`, so deleting the read would not widen access by
+one row.
+
+### 2. `PATCH` is gated on the assignment, which FR-4.2's snippet omits (EC-12, AZ-9)
+
+**FR-4.2** shows `updateMany({ where: { interviewId, interviewerId: actorId } })` — ownership only,
+no assignment predicate. Taken literally, an interviewer **removed from a round could still edit
+what they wrote there**, indefinitely.
+
+That contradicts three other parts of this spec: the **endpoint × role matrix**, whose `PATCH`
+column answers `404` for an unassigned interviewer; **AZ-9**, which evaluates access per request
+against the assignment table; and **BE-2**, which calls the assignment predicate "the only place …
+on the write path" — and `PATCH` is a write.
+
+`findEditableFeedback` therefore carries **both** conditions in one `where`: `interviewerId: actorId`
+(ownership) and `interview: assignedTo(actorId)` (authorization). Verified: after
+`DELETE …/assignments/:userId`, the author's `GET`, `PATCH` and `POST` all answer `404` on the very
+next call, **their existing row is unchanged and still visible to the recruiter and the remaining
+panel** (AC-B21, AC-B22), and re-assigning them restores the edit.
+
+The asymmetry FR-6.4 and EC-12 describe is intact, and is sharper for it: **unassignment withdraws
+access; it does not retract an assessment.**
+
+### 3. AC-B43's named index is not the plan's entry point, and the plan is better
+
+AC-B43 expects index scans on `Feedback_interviewId_createdAt_idx` **and**
+`InterviewAssignment_interviewerId_createdAt_idx`. At 40 000 rounds / 80 004 assignments / 80 003
+feedback rows, `EXPLAIN (ANALYZE, BUFFERS)` on the interviewer's scoped `GET` shows:
+
+- `Index Scan Backward using "Feedback_interviewId_createdAt_idx"` — as specified, and it serves the
+  `ORDER BY` as well as the filter;
+- `Index Only Scan using "InterviewAssignment_interviewId_interviewerId_key"`, `Heap Fetches: 0` —
+  **the unique index, not the one AC-B43 names**;
+- `Index Only Scan using "Interview_pkey"`, `Heap Fetches: 0`;
+- **no sequential scan anywhere**, which is the part of AC-B43 that matters.
+
+The planner is right. This predicate binds **both** columns of the unique key, so that index is
+strictly more selective than `(interviewerId, createdAt)`, which binds only its first. The index
+AC-B43 names is the correct entry point for the interviews module's _list_ — "every round this
+interviewer is on" — where only `interviewerId` is bound. Here the round id is known.
+
+**The measurable requirement, PERF-3's p95 under 50 ms, passes at 9.5 ms** (p50 6.1 ms over 60
+requests, interviewer and recruiter alike). **Do not add an index hint or a redundant index.**
+
+### 4. AC-B37 and AC-B38's greps are over-broad
+
+Both greps match this module's own **prose**. `grep -rn "interviewerId === " src/modules/feedback/`
+returns two doc-comment lines that quote the anti-pattern in order to reject it, and
+`grep -rniE "sanitis|sanitiz|strip|redact" src/modules/feedback/` returns comment text explaining
+that nothing is stripped, plus the word "stripped" in `feedback.schema.ts` describing zod dropping
+unknown keys. **Neither returns a line of executable code**, which is what both criteria actually
+assert. The same over-broad-grep note was recorded against the interviews spec's AC-B22.
+
+## Verification summary
+
+Verified by hand against the running API (`curl` + Prisma + genuinely concurrent requests +
+`EXPLAIN ANALYZE`) on 2026-09-24:
+
+| Group                            | Result                                                                                                                                                            |
+| -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Submitting (AC-B01…B10)          | pass — including the `CHECK` constraint rejecting `rating: 99` and `rating: 0` on a direct insert that bypasses zod entirely                                      |
+| §3.4 concurrency (AC-B11…B15)    | pass — two panellists fired together: two `201`s, two rows; one panellist twice: one `201`, one `409`, **one** row, **one** audit entry, no orphan                |
+| §8 harder variant (AC-B14)       | pass — three panellists plus a simultaneous stage override: three rows, application at exactly one stage, one `StageHistory` row, one `StageOverride`             |
+| The assignment gate (AC-B16…B22) | pass — including the `PATCH` gap in deviation 2, found by AC-B21 and fixed                                                                                        |
+| Reading (AC-B23…B26)             | pass                                                                                                                                                              |
+| Editing (AC-B27…B32)             | pass — `fromRating: 4` / `toRating: 5` in the audit entry, no notes text                                                                                          |
+| Contact exclusion (AC-B33…B39)   | pass — `email`, `phone`, `candidate` and `candidateUserId` appear **zero** times in the `201` body and in both roles' `GET` bodies; no notes text in any log line |
+| Absence guarantees (AC-B40…B42)  | pass — `DELETE` and `GET /api/feedback` both `404`                                                                                                                |
+| Performance (AC-B43…B45)         | PERF-3 passes at p95 9.5 ms / 80 003 rows; AC-B43's index name and AC-B45's statement count deviate — see above                                                   |

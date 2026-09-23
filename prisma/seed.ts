@@ -14,6 +14,7 @@ import { hashPassword } from '../src/lib/password.js';
 import { disconnect, prisma } from '../src/lib/prisma.js';
 import { APPLICATION_SELECT } from '../src/modules/applications/application.select.js';
 import { recordAudit } from '../src/modules/audit/audit.service.js';
+import { FEEDBACK_SELECT } from '../src/modules/feedback/feedback.select.js';
 import { ASSIGNMENT_SELECT } from '../src/modules/interviews/interview.select.js';
 import { stagesSkipped } from '../src/modules/pipeline/pipeline.rules.js';
 import { ROLE_SELECT } from '../src/modules/roles/role.select.js';
@@ -245,6 +246,11 @@ const SEED_INTERVIEWS: ReadonlyArray<{
   stage: PipelineStage;
   inDays: number;
   interviewerEmails: ReadonlyArray<string>;
+  /// Feedback already on the round (feedback FR-7.3). Each author must also
+  /// appear in `interviewerEmails` above - the seed refuses to write an
+  /// assessment from somebody who is not on the panel, because the request path
+  /// cannot either (feedback FR-1.1).
+  feedback: ReadonlyArray<{ interviewerEmail: string; rating: number; notes: string }>;
 }> = [
   {
     roleTitle: 'Senior Backend Engineer',
@@ -252,6 +258,20 @@ const SEED_INTERVIEWS: ReadonlyArray<{
     stage: PipelineStage.INTERVIEW,
     inDays: 2,
     interviewerEmails: ['interviewer1@demo.test', 'interviewer2@demo.test'],
+    // ONE entry, from ONE of the two panellists (feedback FR-7.3). The asymmetry
+    // is the point: `interviewer2` is assigned to this round and has written
+    // nothing, so a fresh database demonstrates BOTH the "read a colleague's
+    // prior feedback before your own round" case - the brief's opening
+    // complaint - and the "submit your own" case, with no setup.
+    feedback: [
+      {
+        interviewerEmail: 'interviewer1@demo.test',
+        rating: 4,
+        notes:
+          'Strong backend fundamentals. Walked through the indexing trade-offs unprompted; ' +
+          'less confident explaining isolation levels under concurrent writes.',
+      },
+    ],
   },
   {
     roleTitle: 'Product Designer',
@@ -259,6 +279,10 @@ const SEED_INTERVIEWS: ReadonlyArray<{
     stage: PipelineStage.SCREEN,
     inDays: 4,
     interviewerEmails: ['interviewer1@demo.test'],
+    // Deliberately empty. This is the round `interviewer2` is NOT on, so it is
+    // what the assignment gate is verified against - and a 404 there must not be
+    // confusable with "the round happens to have no feedback".
+    feedback: [],
   },
 ] as const;
 
@@ -379,6 +403,21 @@ async function main(): Promise<void> {
     }
   }
 
+  // The seed must not write an assessment from somebody who is not on the panel:
+  // the request path cannot, because the assignment IS the authorization
+  // (feedback FR-1.1), and a seed that could would misrepresent the rule on a
+  // fresh database. Checked here, before any application is touched.
+  for (const round of SEED_INTERVIEWS) {
+    for (const entry of round.feedback) {
+      if (!round.interviewerEmails.includes(entry.interviewerEmail)) {
+        throw new Error(
+          `Seeded feedback author ${entry.interviewerEmail} is not on the ${round.type} panel — ` +
+            'the assignment is the authorization (feedback FR-1.1).',
+        );
+      }
+    }
+  }
+
   // The seeded applications' audit rows go FIRST, before the applications
   // themselves are deleted, because the ids are the only thing linking them:
   // `AuditLog.entityId` is deliberately not a foreign key (FR-1.5), so nothing
@@ -411,6 +450,15 @@ async function main(): Promise<void> {
       select: { id: true },
     });
 
+    // Feedback cascades away with its round (feedback MIG-5), and its audit rows
+    // do not — for the same reason the rounds' do not. Collected here, before
+    // the delete, and scoped to exactly these ids so that a reseed cannot erase
+    // the trace of an assessment somebody filed by hand (audit FR-7.2).
+    const doomedFeedback = await prisma.feedback.findMany({
+      where: { interviewId: { in: doomedInterviews.map((interview) => interview.id) } },
+      select: { id: true },
+    });
+
     const clearedAudit = await prisma.auditLog.deleteMany({
       where: {
         OR: [
@@ -421,6 +469,10 @@ async function main(): Promise<void> {
           {
             entityType: AuditEntityType.INTERVIEW,
             entityId: { in: doomedInterviews.map((interview) => interview.id) },
+          },
+          {
+            entityType: AuditEntityType.FEEDBACK,
+            entityId: { in: doomedFeedback.map((feedback) => feedback.id) },
           },
         ],
       },
@@ -705,6 +757,63 @@ async function main(): Promise<void> {
           );
         }
 
+        // The round's existing feedback (feedback FR-7.3).
+        //
+        // Inside the SAME transaction as the round and its panel, holding its
+        // `recordAudit` call beside the insert — every write in that feature is
+        // one transaction (feedback BE-7), and a seeded assessment with no audit
+        // row would misrepresent the invariant.
+        //
+        // `interviewerId` is the panellist's own id, exactly as the request path
+        // writes `req.user.id` (feedback FR-2.5, AZ-8); `rating` passes the
+        // CHECK constraint the migration added, which is what makes that
+        // constraint a real second line of defence rather than decoration
+        // (feedback MIG-4).
+        for (const entry of round.feedback) {
+          // Non-null: every author was resolved and checked against the panel
+          // above, before any application was touched.
+          const authorId = interviewerIdByEmail.get(entry.interviewerEmail) as number;
+
+          const feedback = await tx.feedback.create({
+            data: {
+              interviewId: interview.id,
+              interviewerId: authorId,
+              rating: entry.rating,
+              notes: entry.notes,
+              createdAt: at,
+            },
+            select: FEEDBACK_SELECT,
+          });
+
+          await recordAudit(
+            tx,
+            {
+              action: AuditAction.FEEDBACK_SUBMITTED,
+              entityType: AuditEntityType.FEEDBACK,
+              entityId: feedback.id,
+              actorUserId: authorId,
+              // The rating, never the notes — the same metadata the request path
+              // writes (feedback FR-2.8, audit FR-4.4).
+              metadata: { interviewId: interview.id, rating: feedback.rating },
+            },
+            logger,
+          );
+
+          logger.info(
+            // Ids and the rating only. The notes are never logged, here or on
+            // the request path (feedback FR-7.2, SEC-5).
+            {
+              event: 'feedback.seeded',
+              interviewId: interview.id,
+              feedbackId: feedback.id,
+              authorUserId: authorId,
+              rating: feedback.rating,
+              source: 'seed',
+            },
+            'seeded interview feedback',
+          );
+        }
+
         logger.info(
           {
             event: 'interview.seeded',
@@ -713,6 +822,7 @@ async function main(): Promise<void> {
             type: interview.type,
             stage: interview.stage,
             panelSize: round.interviewerEmails.length,
+            feedbackCount: round.feedback.length,
             source: 'seed',
           },
           `seeded interview: ${round.type} on ${seed.roleTitle}`,
@@ -752,6 +862,7 @@ try {
         (count, round) => count + round.interviewerEmails.length,
         0,
       ),
+      feedback: SEED_INTERVIEWS.reduce((count, round) => count + round.feedback.length, 0),
     },
     'seed complete',
   );
