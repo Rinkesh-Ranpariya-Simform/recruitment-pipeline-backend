@@ -1,6 +1,6 @@
 import type { Logger } from 'pino';
-import { Prisma } from '../../generated/prisma/client.js';
-import { RoleStatus, UserRole } from '../../generated/prisma/enums.js';
+import { Prisma } from '../../../generated/prisma/client.js';
+import { RoleStatus, UserRole } from '../../../generated/prisma/enums.js';
 import { NotFoundError, RoleHasApplicationsError, RoleNotClosedError } from '../../lib/errors.js';
 import { prisma } from '../../lib/prisma.js';
 import { PUBLIC_ROLE_SELECT, ROLE_SELECT } from './role.select.js';

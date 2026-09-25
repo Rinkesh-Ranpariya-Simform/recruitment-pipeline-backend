@@ -1,6 +1,6 @@
 import type { NextFunction, Request, Response } from 'express';
 import { ForbiddenError, UnauthenticatedError } from '../lib/errors.js';
-import type { UserRole } from '../generated/prisma/enums.js';
+import type { UserRole } from '../../generated/prisma/enums.js';
 
 /**
  * Restricts a route to certain `UserRole`s. Always composed after `requireAuth`.

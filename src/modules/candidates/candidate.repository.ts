@@ -1,5 +1,5 @@
-import type { Prisma } from '../../generated/prisma/client.js';
-import { UserRole } from '../../generated/prisma/enums.js';
+import type { Prisma } from '../../../generated/prisma/client.js';
+import { UserRole } from '../../../generated/prisma/enums.js';
 import { prisma } from '../../lib/prisma.js';
 import {
   INTERVIEWER_CANDIDATE_ROUND_SELECT,

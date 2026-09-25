@@ -336,7 +336,7 @@ Plus `src/types/express.d.ts` (above) and `prisma/seed.ts` (below) — **eight f
 
 **`prisma/seed.ts`** — MODIFIED
 
-- **Change:** `import { Role }` → `import { UserRole, RoleStatus } from '../src/generated/prisma/enums.js';`
+- **Change:** `import { Role }` → `import { UserRole, RoleStatus } from '../generated/prisma/enums.js';`
   and `UserRole.RECRUITER` / `UserRole.INTERVIEWER` in `SEED_ACCOUNTS`.
 - **Add:** a `SEED_ROLES` array and a loop creating demo roles **after** the demo accounts, so a fresh
   database plus one command gives the frontend something to render (FR-9.1).

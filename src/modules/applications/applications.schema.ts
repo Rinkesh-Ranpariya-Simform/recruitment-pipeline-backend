@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { ApplicationStatus, PipelineStage } from '../../generated/prisma/enums.js';
+import { ApplicationStatus, PipelineStage } from '../../../generated/prisma/enums.js';
 
 /**
  * Unknown keys are stripped (zod object default), which is what makes the

@@ -4,8 +4,8 @@ import {
   AuditEntityType,
   InterviewStatus,
   PipelineStage,
-} from '../../generated/prisma/enums.js';
-import type { RoleStatus } from '../../generated/prisma/enums.js';
+} from '../../../generated/prisma/enums.js';
+import type { RoleStatus } from '../../../generated/prisma/enums.js';
 import {
   ApplicationNotActiveError,
   InvalidStageTransitionError,

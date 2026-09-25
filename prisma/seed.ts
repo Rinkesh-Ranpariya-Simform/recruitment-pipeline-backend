@@ -8,7 +8,7 @@ import {
   PipelineStage,
   RoleStatus,
   UserRole,
-} from '../src/generated/prisma/enums.js';
+} from '../generated/prisma/enums.js';
 import { logger } from '../src/lib/logger.js';
 import { hashPassword } from '../src/lib/password.js';
 import { disconnect, prisma } from '../src/lib/prisma.js';

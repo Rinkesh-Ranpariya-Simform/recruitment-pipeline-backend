@@ -4,7 +4,7 @@ import type {
   InterviewStatus,
   InterviewType,
   PipelineStage,
-} from '../../generated/prisma/enums.js';
+} from '../../../generated/prisma/enums.js';
 import type { TimelineNode } from './timeline.js';
 
 /**

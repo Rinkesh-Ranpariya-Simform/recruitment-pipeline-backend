@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { AuditAction, AuditEntityType } from '../../generated/prisma/enums.js';
+import { AuditAction, AuditEntityType } from '../../../generated/prisma/enums.js';
 
 /**
  * The query contract for `GET /api/audit` (Validation table).

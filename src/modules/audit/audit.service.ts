@@ -1,12 +1,12 @@
 import type { Logger } from 'pino';
-import type { Prisma } from '../../generated/prisma/client.js';
+import type { Prisma } from '../../../generated/prisma/client.js';
 import type {
   ApplicationStatus,
   AuditAction,
   AuditEntityType,
   PipelineStage,
   UserRole,
-} from '../../generated/prisma/enums.js';
+} from '../../../generated/prisma/enums.js';
 import { prisma } from '../../lib/prisma.js';
 import { AUDIT_SELECT } from './audit.select.js';
 import type { ListAuditQuery } from './audit.schema.js';

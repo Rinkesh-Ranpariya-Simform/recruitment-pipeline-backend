@@ -1,6 +1,6 @@
-import type { Prisma } from '../../generated/prisma/client.js';
-import { UserRole } from '../../generated/prisma/enums.js';
-import type { InterviewStatus } from '../../generated/prisma/enums.js';
+import type { Prisma } from '../../../generated/prisma/client.js';
+import { UserRole } from '../../../generated/prisma/enums.js';
+import type { InterviewStatus } from '../../../generated/prisma/enums.js';
 import { prisma } from '../../lib/prisma.js';
 import { FEEDBACK_SELECT, type FeedbackView } from './feedback.select.js';
 import type { UpdateFeedbackInput } from './feedback.schema.js';

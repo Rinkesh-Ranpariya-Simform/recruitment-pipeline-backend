@@ -1,11 +1,11 @@
 import type { Logger } from 'pino';
-import { Prisma } from '../../generated/prisma/client.js';
+import { Prisma } from '../../../generated/prisma/client.js';
 import {
   AuditAction,
   AuditEntityType,
   InterviewStatus,
   UserRole,
-} from '../../generated/prisma/enums.js';
+} from '../../../generated/prisma/enums.js';
 import {
   FeedbackAlreadySubmittedError,
   InterviewCancelledError,

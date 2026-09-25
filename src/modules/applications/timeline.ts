@@ -4,7 +4,7 @@ import type {
   InterviewStatus,
   InterviewType,
   PipelineStage,
-} from '../../generated/prisma/enums.js';
+} from '../../../generated/prisma/enums.js';
 
 /**
  * The stage transition timeline, and nothing else (BE-2).

@@ -1,4 +1,4 @@
-import { ApplicationStatus, PipelineStage } from '../../generated/prisma/enums.js';
+import { ApplicationStatus, PipelineStage } from '../../../generated/prisma/enums.js';
 
 /**
  * The stage progression rule, and nothing else (BE-2).

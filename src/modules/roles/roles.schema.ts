@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { RoleStatus } from '../../generated/prisma/enums.js';
+import { RoleStatus } from '../../../generated/prisma/enums.js';
 
 /**
  * All schemas here strip unknown keys (zod's default), so an unexpected field

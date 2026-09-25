@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { UserRole } from '../../generated/prisma/enums.js';
+import { UserRole } from '../../../generated/prisma/enums.js';
 import { requireAuth } from '../../middleware/requireAuth.js';
 import { requireRole } from '../../middleware/requireRole.js';
 import * as usersController from './users.controller.js';

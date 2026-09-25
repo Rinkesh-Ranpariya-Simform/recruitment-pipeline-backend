@@ -1,5 +1,5 @@
 import { prisma } from '../../lib/prisma.js';
-import { UserRole } from '../../generated/prisma/enums.js';
+import { UserRole } from '../../../generated/prisma/enums.js';
 import type { SafeUser } from '../auth/auth.service.js';
 import { SAFE_USER_SELECT } from './user.select.js';
 

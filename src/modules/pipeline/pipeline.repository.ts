@@ -1,5 +1,5 @@
-import { Prisma } from '../../generated/prisma/client.js';
-import { ApplicationStatus, PipelineStage } from '../../generated/prisma/enums.js';
+import { Prisma } from '../../../generated/prisma/client.js';
+import { ApplicationStatus, PipelineStage } from '../../../generated/prisma/enums.js';
 import { prisma } from '../../lib/prisma.js';
 import type { PipelineQuery } from './pipeline.schema.js';
 

@@ -26,7 +26,7 @@ write path onto a candidate.
 
 - Runtime: Node + TypeScript (`tsx` for dev), ESM (`"type": "module"`)
 - Framework: Express 5
-- DB: PostgreSQL via Prisma 7 (`@prisma/client` generated into `src/generated/prisma` — never
+- DB: PostgreSQL via Prisma 7 (`@prisma/client` generated into `generated/prisma` — never
   hand-edit generated output)
 - `npm run dev` — start with tsx, `npm run build` / `npm start` — compiled run
 - `npm run lint` / `lint:fix`, `npm run format` / `format:check`
@@ -458,7 +458,7 @@ failures are visible too.
 **Database changes**: inspect the current schema and migrations before altering them; every schema
 change should trace back to a spec requirement (§4); never hand-edit a generated migration or drop
 existing data as a shortcut. Use `prisma migrate dev` to create migrations, don't edit
-`src/generated/prisma` directly.
+`generated/prisma` directly.
 
 **Scope discipline**: implement only what's approved — no unrelated refactors, no speculative
 endpoints, no new dependencies unless the existing stack (Express, Prisma, zod-equivalent) can't

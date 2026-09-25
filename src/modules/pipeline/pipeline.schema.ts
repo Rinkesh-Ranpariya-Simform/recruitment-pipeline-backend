@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { ApplicationStatus, PipelineStage } from '../../generated/prisma/enums.js';
+import { ApplicationStatus, PipelineStage } from '../../../generated/prisma/enums.js';
 
 /**
  * The validation boundary for all five endpoints (Validation table).

@@ -1,5 +1,5 @@
 import type { Logger } from 'pino';
-import { AuditAction, AuditEntityType, UserRole } from '../../generated/prisma/enums.js';
+import { AuditAction, AuditEntityType, UserRole } from '../../../generated/prisma/enums.js';
 import { NotFoundError, ValidationError } from '../../lib/errors.js';
 import { prisma } from '../../lib/prisma.js';
 import { recordAudit } from '../audit/audit.service.js';

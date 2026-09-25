@@ -62,7 +62,7 @@ For **each acceptance criterion** (`AC-B01…`):
 Database work:
 
 - Edit `prisma/schema.prisma`, then create the migration with `npx prisma migrate dev --name <name-from-plan>`.
-- **Never hand-edit a generated migration**, never edit `src/generated/prisma`, and never drop existing data as a shortcut.
+- **Never hand-edit a generated migration**, never edit `generated/prisma`, and never drop existing data as a shortcut.
 - If a migration in the plan is destructive, flag it and get confirmation before running it.
 
 Track progress with a todo list — one item per acceptance criterion — so the state of the work is visible.

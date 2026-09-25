@@ -4,7 +4,7 @@ import type {
   InterviewStatus,
   InterviewType,
   PipelineStage,
-} from '../../generated/prisma/enums.js';
+} from '../../../generated/prisma/enums.js';
 
 /**
  * Two projections, and **the role decides which is used before the query runs**

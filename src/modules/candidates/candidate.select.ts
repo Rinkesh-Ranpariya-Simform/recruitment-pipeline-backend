@@ -1,11 +1,11 @@
-import type { Prisma } from '../../generated/prisma/client.js';
+import type { Prisma } from '../../../generated/prisma/client.js';
 import type {
   ApplicationStatus,
   InterviewStatus,
   InterviewType,
   PipelineStage,
   RoleStatus,
-} from '../../generated/prisma/enums.js';
+} from '../../../generated/prisma/enums.js';
 
 /**
  * **This is the file the brief's §7.3 question is answered in** (BE-2, SEC-1).

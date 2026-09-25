@@ -1,5 +1,5 @@
 import type { Request, Response } from 'express';
-import { UserRole } from '../../generated/prisma/enums.js';
+import { UserRole } from '../../../generated/prisma/enums.js';
 import { UnauthenticatedError } from '../../lib/errors.js';
 import type {
   ApplicationIdParam,

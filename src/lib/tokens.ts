@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import jwt from 'jsonwebtoken';
 import type { JwtPayload, SignOptions } from 'jsonwebtoken';
 import { env } from '../config/env.js';
-import { UserRole } from '../generated/prisma/enums.js';
+import { UserRole } from '../../generated/prisma/enums.js';
 
 /**
  * The only module that imports `jsonwebtoken` and `node:crypto` (BE-4).

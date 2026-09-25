@@ -4,7 +4,7 @@ import {
   InterviewStatus,
   InterviewType,
   PipelineStage,
-} from '../../generated/prisma/enums.js';
+} from '../../../generated/prisma/enums.js';
 
 /**
  * The validation boundary for all seven endpoints (Validation table).

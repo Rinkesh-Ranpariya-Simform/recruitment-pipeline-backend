@@ -1,6 +1,6 @@
 import type { Logger } from 'pino';
-import { Prisma } from '../../generated/prisma/client.js';
-import { ApplicationStatus, PipelineStage, RoleStatus } from '../../generated/prisma/enums.js';
+import { Prisma } from '../../../generated/prisma/client.js';
+import { ApplicationStatus, PipelineStage, RoleStatus } from '../../../generated/prisma/enums.js';
 import { AlreadyAppliedError, NotFoundError } from '../../lib/errors.js';
 import { prisma } from '../../lib/prisma.js';
 import {

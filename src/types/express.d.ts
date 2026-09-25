@@ -1,5 +1,5 @@
 import type { Logger } from 'pino';
-import type { UserRole } from '../generated/prisma/enums.js';
+import type { UserRole } from '../../generated/prisma/enums.js';
 
 /**
  * Declaration merging so `req.user`, `req.id` and `req.log` are typed

@@ -1,5 +1,5 @@
 import type { Logger } from 'pino';
-import { Prisma } from '../../generated/prisma/client.js';
+import { Prisma } from '../../../generated/prisma/client.js';
 import {
   ApplicationStatus,
   AuditAction,
@@ -7,7 +7,7 @@ import {
   InterviewOutcome,
   InterviewStatus,
   UserRole,
-} from '../../generated/prisma/enums.js';
+} from '../../../generated/prisma/enums.js';
 import {
   AlreadyAssignedError,
   ApplicationNotActiveError,
