@@ -22,11 +22,12 @@ proves the spec wrong, the spec is corrected and re-approved — code and spec d
 | 5   | [pipeline](features/pipeline/spec.md)                 | ✅ approved | ⬜ skipped                                     | ✅ implemented |
 | 6   | [interviews](features/interviews/spec.md)             | ✅ approved | ⬜ skipped                                     | ✅ implemented |
 | 7   | [feedback](features/feedback/spec.md)                 | ✅ approved | ⬜ skipped                                     | ✅ implemented |
-| 8   | [candidate-access](features/candidate-access/spec.md) | 🟡 draft    | ⬜ not started                                 | ⬜ not started |
+| 8   | [candidate-access](features/candidate-access/spec.md) | ✅ approved | ⬜ skipped                                     | ✅ implemented |
 | 9   | [applications](features/applications/spec.md)         | ✅ approved | ⬜ skipped                                     | ✅ implemented |
 
-Features 1–5 shipped. Features 6–8 are what remains: they are the half of the brief that carries its
-stated centre of gravity — _restricted data excluded at the query, not filtered after the fact_.
+**Features 1–9 have shipped**, `candidate-access` last of all. The sentence that stood here described
+6–8 as what remained; they were the half of the brief that carries its stated centre of gravity —
+_restricted data excluded at the query, not filtered after the fact_ — and they now do so in code.
 
 ---
 

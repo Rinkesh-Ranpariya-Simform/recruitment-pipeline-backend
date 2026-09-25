@@ -13,6 +13,7 @@ import { requestId } from './middleware/requestId.js';
 import { applicationsRouter } from './modules/applications/applications.routes.js';
 import { auditRouter } from './modules/audit/audit.routes.js';
 import { authRouter } from './modules/auth/auth.routes.js';
+import { candidatesRouter } from './modules/candidates/candidate.routes.js';
 import { interviewsRouter } from './modules/interviews/interviews.routes.js';
 import { pipelineRouter } from './modules/pipeline/pipeline.routes.js';
 import { rolesRouter } from './modules/roles/roles.routes.js';
@@ -75,6 +76,15 @@ app.use('/api/pipeline', pipelineRouter);
 // here — they mount on `/api/applications` above, because the resource they
 // hang off is an application (interviews BE-2).
 app.use('/api/interviews', interviewsRouter);
+// Two reads open to RECRUITER and INTERVIEWER, and one RECRUITER-only PATCH.
+// An interviewer's rows are narrowed to candidates they have a round with by
+// `buildCandidateWhere`, in the query, not after it — and an unassigned
+// interviewer's by-id read is a 404 produced by a query that returned no row,
+// never a 403 (candidate-access AZ-2, AZ-6). **There is deliberately no POST**:
+// provisioning is signup or the seed, and this router adds no second
+// account-creation path, so that verb falls through to `notFound` and answers
+// 404 (candidate-access FR-1.4).
+app.use('/api/candidates', candidatesRouter);
 // One RECRUITER-only GET. There is no PATCH, DELETE or `/:id` on this router:
 // an audit row is never updated or deleted, so those paths fall through to
 // `notFound` and answer 404 (audit spec FR-6.1, AZ-4).

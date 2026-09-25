@@ -170,6 +170,16 @@ model User {
   /// assessment whose author a deletion can erase is not an assessment
   /// (feedback MIG-5).
   feedback Feedback[] @relation("FeedbackAuthor")
+
+  /// NEW (candidate-access MIG-1). Back-relation only. **No column is added to
+  /// `User`, and that is the entire security design** (candidate-access D-2,
+  /// D-3, MIG-2) — see `CandidateProfile` at the foot of this file for why
+  /// `phone` is not a column beside `email`.
+  ///
+  /// Optional because a candidate with no recorded contact details is the
+  /// normal state, not a gap (MIG-5), and because recruiters and interviewers
+  /// are `User` rows too and will never have one.
+  candidateProfile CandidateProfile?
 }
 
 model RefreshToken {
@@ -556,4 +566,49 @@ model Feedback {
   @@unique([interviewId, interviewerId])
   @@index([interviewId, createdAt]) // a round's panel, newest first — FR-5.1
   @@index([interviewerId]) // "everything this interviewer has written"
+}
+
+/// NEW (candidate-access FR-2.1). A candidate's contact details, in a table of
+/// their own.
+///
+/// THIS TABLE IS THE SECURITY DESIGN (D-2, D-3, MIG-2). `phone` could have been
+/// a column on `User`. It is not, because `User` also serves recruiters and
+/// interviewers, and every select in every module would then need auditing
+/// forever against a rule a reviewer has to remember.
+///
+/// Here the rule is structural: `INTERVIEWER_CANDIDATE_SELECT` does not join
+/// this relation, so an interviewer's query CANNOT reach `phone` — not "does
+/// not currently", cannot. Verifying it is reading one constant
+/// (`src/modules/candidates/candidate.select.ts`), not auditing every call site.
+///
+/// `email` is the exception and it is stated rather than hidden: it lives on
+/// `User` because authentication needs it there and moving it would break
+/// login. The interviewer's select simply does not name it — the same guarantee
+/// by a weaker mechanism, which is exactly why `phone` was not put beside it.
+model CandidateProfile {
+  /// The primary key IS the foreign key: one profile per user, enforced by the
+  /// key itself rather than by a separate unique index, and with no
+  /// autoincrement `id` that could be confused with a `userId` (MIG-3).
+  userId Int @id
+
+  /// Stored as the recruiter typed it, trimmed (FR-2.3). No normalisation, no
+  /// country-code inference, and no unique constraint (FR-2.4) — two candidates
+  /// may share a landline, and a POC that rejects a valid international number
+  /// is worse than one that stores a string.
+  phone    String?
+  location String?
+  headline String?
+
+  updatedAt DateTime @updatedAt
+
+  /// `Cascade`, unlike every ACTOR reference in this schema, which is
+  /// `Restrict` (MIG-4). The distinction is the point and it is the general
+  /// rule this schema follows: an actor reference is a historical fact and must
+  /// survive; current data about a live account is not.
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// NO INDEX, deliberately (MIG-6). This table is only ever reached by primary
+  /// key from a recruiter's candidate query — there is no "find candidate by
+  /// phone" path, and `?q=` searches `User.name` and `User.email` (FR-3.4), not
+  /// anything here. An index for a query nobody issues is cost without benefit.
 }

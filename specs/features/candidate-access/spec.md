@@ -1,6 +1,7 @@
 # Candidate Access — Recruiter & Interviewer Views of a Candidate (Backend)
 
-> **Status:** Draft — awaiting approval. `plan.md` is a later artifact and does not exist yet.
+> **Status:** ✅ Implemented. `plan.md` was skipped — implemented straight from the spec, as the four
+> features before it were. Deviations are recorded at the foot of this file.
 > **Feature slug:** `candidate-access`
 > **Scope:** `backend/` — Express 5 + Prisma 7 + PostgreSQL
 > **Counterpart:** [../../../../frontend/specs/features/candidate-access/spec.md](../../../../frontend/specs/features/candidate-access/spec.md)
@@ -515,9 +516,13 @@ Errors: `400 VALIDATION_ERROR` (including `?q=` from an interviewer) · `401` ·
             "feedback": [
               {
                 "id": 31,
+                // `interviewId` and `updatedAt` are additions — see "Contract
+                // additions recorded at implementation" at the foot of this file.
+                "interviewId": 7,
                 "rating": 4,
                 "notes": "Strong backend fundamentals…",
                 "createdAt": "2026-09-24T11:02:14.331Z",
+                "updatedAt": "2026-09-24T11:02:14.331Z",
                 "interviewer": { "id": 4, "name": "Ivan Interviewer" },
               },
             ],
@@ -1108,3 +1113,150 @@ exist there.
 the `PATCH` field list must be made in
 [../../../../frontend/specs/features/candidate-access/spec.md](../../../../frontend/specs/features/candidate-access/spec.md)
 in the same pass.
+
+---
+
+## Deviations recorded at implementation
+
+Two things in this spec do not hold exactly as written, and a third is a clarification rather than a
+deviation. Each is recorded here rather than being quietly "fixed" in code or quietly ignored.
+
+### 1. PERF-2 / AC-B44 and PERF-7 / AC-B47 — Prisma's statement counts
+
+**What the spec says.** The recruiter detail is "one Prisma call" whose nested `select` "produces a
+bounded set of joined statements" (PERF-2), and the interviewer's by-id read is "two queries", both
+carrying an `interviewerId` predicate (PERF-7, AC-B47).
+
+**What actually happens.** This Prisma client resolves a nested `select` as **one batched statement
+per relation LEVEL**, not as one joined statement. Measured with the client's own query log:
+
+| Read                            | Prisma calls | SQL statements |
+| ------------------------------- | ------------ | -------------- |
+| Recruiter detail                | 1            | **13**         |
+| Interviewer by-id               | 2            | **4**          |
+| Recruiter list (page + count)   | 2            | 5              |
+| Interviewer list (page + count) | 2            | **2**          |
+
+**Why the design is still right, and AC-B44's substance holds.** The statements are per level, not
+per row — each one batches its parents' ids into a single `IN (…)`. Measured directly:
+
+```
+recruiter detail,  1 application /  1 round /  1 feedback  -> 13 SQL statements
+recruiter detail, 12 applications / 12 rounds / 12 feedback -> 13 SQL statements
+```
+
+**AC-B44 asks exactly this** — "the statement count is independent of the number of applications on
+that candidate; no per-application loop" — and it passes. PERF-2's "one Prisma call" also holds
+literally; what does not hold is the parenthetical about joins.
+
+The two extra statements on the interviewer's by-id read resolve an already-authorized round's
+`application → role`, because `Interview` has no `roleId` of its own. They carry no `interviewerId`
+predicate, which is the letter of AC-B47 that fails — **but they read only the ids that the
+assignment-scoped statement before them already authorized**, and they select `Application.id`,
+`Application.roleId`, `Role.id` and `Role.title` and nothing else. No candidate column, and no
+contact column, is reachable from either. The security property AC-B47 exists to protect is intact;
+the count is not two.
+
+**What was NOT done about it.** `relationLoadStrategy: "join"` would collapse each read to one
+statement, but it is not present in this generated client and enabling it would mean a generator
+preview-feature flag — a schema change outside this feature's scope, affecting every other module's
+queries. **Do not add one to "fix" these numbers.**
+
+### 2. AC-B43 — the named index is not the by-id plan's entry point
+
+**What the spec says.** At 20 000 candidates / 40 000 rounds / 80 000 assignments, `EXPLAIN ANALYZE`
+on the interviewer's scoped by-id read must show the plan entering through
+`InterviewAssignment_interviewerId_createdAt_idx`, with no sequential scan on `User`,
+`Application`, `Interview` or `InterviewAssignment`.
+
+**What actually happens**, verified at exactly that scale (20 003 candidates, 40 002 rounds,
+80 003 assignments): **the no-sequential-scan half holds completely** — every node is an index scan,
+and the assignment is resolved by an _index-only_ scan on
+`InterviewAssignment_interviewId_interviewerId_key`. But the plan enters through **`User_pkey`**:
+
+```
+Limit  (actual time=0.069..0.070 rows=1)
+  -> Nested Loop Semi Join
+       -> Index Scan using "User_pkey" on "User"   (Index Cond: id = 20011)
+       -> Nested Loop Semi Join
+            -> Index Scan using "Application_candidateUserId_roleId_key"
+            -> Nested Loop
+                 -> Index Scan using "Interview_applicationId_createdAt_idx"
+                 -> Index Only Scan using "InterviewAssignment_interviewId_interviewerId_key"
+                      Index Cond: ("interviewId" = t1.id) AND ("interviewerId" = 5)
+Execution Time: 0.150 ms
+```
+
+**The planner is right and the criterion is wrong.** A by-id read supplies a candidate id, which is
+vastly more selective than "every round this interviewer is on" — entering through
+`interviewerId` would walk 40 000 assignments to find one person. The named index **is** the entry
+point on the interviewer's **list**, which is the read that has no id to start from:
+
+```
+-> Index Scan using "InterviewAssignment_interviewerId_createdAt_idx" on "InterviewAssignment"
+     Index Cond: ("interviewerId" = 20012)
+Execution Time: 0.256 ms
+```
+
+**The measurable requirement, PERF-1, passes with room.** Timed ten times over HTTP at that scale:
+
+| Endpoint                                   | p95         | Budget                  |
+| ------------------------------------------ | ----------- | ----------------------- |
+| `GET /api/candidates/:id` (interviewer)    | **20.6 ms** | 100 ms (PERF-1)         |
+| `GET /api/candidates/999999` (scoped miss) | 12.4 ms     | —                       |
+| `GET /api/candidates` (recruiter)          | **88.9 ms** | 250 ms (PERF-3, AC-B45) |
+| `GET /api/candidates?q=…` (recruiter)      | 139.9 ms    | 250 ms                  |
+| `GET /api/candidates?roleId=` (recruiter)  | 79.2 ms     | —                       |
+
+**Don't "fix" this by adding an index hint or a redundant index.** This is the same finding already
+recorded for pipeline AC-B34, interviews AC-B43 and feedback AC-B43, for the same reason each time.
+
+**One shape worth naming, outside any criterion.** With one interviewer assigned to **every** round
+in the database — 40 000 of 40 000 — their list plan switches to hash joins over sequential scans
+and takes 175 ms (p95 271 ms over HTTP). The planner is again correct: the predicate matches 100% of
+rows, so a seq scan is cheaper than any index path. It is not a realistic panel shape, it is not
+what PERF-3 measures (which names the recruiter), and the realistic shape is the 0.256 ms plan
+above. Recorded so nobody rediscovers it and treats it as a regression.
+
+### 3. FR-4.2 versus VAL-3 — a `PATCH` body of only stripped fields
+
+FR-4.2 says a body carrying `{"email":"x@y.z"}` "succeeds and changes nothing". VAL-3 and AC-B29 say
+`{}` is a `400` keyed `_`. The `.refine()` runs **after** unknown keys are dropped, so a body
+containing _nothing but_ `name`/`email`/`role` reaches it as `{}` and is a `400`, not a `200`.
+
+VAL-3 wins, and nothing tests the other reading. FR-4.2's point — that the fields are **dropped
+rather than rejected**, so an attacker learns nothing about which fields exist — holds exactly as
+written whenever the body also carries a real field, which is what AC-B28 checks and what passes:
+`{"phone":"+1","email":"attacker@evil.test","role":"RECRUITER","name":"X"}` answers `200` and
+changes only the phone.
+
+---
+
+## Contract additions recorded at implementation
+
+### The recruiter detail's feedback entries carry `interviewId` and `updatedAt`
+
+**What FR-5.2 and the contract sketch say.** Each round's `feedback` carries
+`rating`, `notes`, `createdAt` and `interviewer` (plus `id`).
+
+**What shipped.** Two more fields, on that projection only.
+
+**Why.** The frontend counterpart's D-7, FE-7 and XBE-6 require the recruiter's
+detail to render each round's assessments with the **feedback feature's own
+`<FeedbackList>`, fed from this payload**, so that a candidate with five rounds
+is one request rather than six. That component's `Feedback` type declares
+`interviewId` and `updatedAt` — the second is what tells a reader an assessment
+was revised — so a payload without them could not be handed to it, and the
+zero-request path the two specs agree on would not exist. The two specs simply
+did not check each other's field lists on this one object.
+
+**Why it is safe, stated rather than assumed.** Neither field is restricted.
+`interviewId` is the id of the round the object is already nested inside, so it
+adds no information to a reader who has the payload. `updatedAt` is a timestamp
+on an assessment. Both are already in **every** response
+`GET /api/interviews/:interviewId/feedback` gives a recruiter, and a recruiter
+may read any round's feedback (feedback AZ-3). **It adds nothing an interviewer
+can reach**: `INTERVIEWER_CANDIDATE_SELECT` does not join `applications`, so it
+reaches no application, no round and therefore no assessment at all — contract
+invariant 3 is untouched, and AC-B08's and AC-B10's searches of an interviewer's
+response body still find nothing.

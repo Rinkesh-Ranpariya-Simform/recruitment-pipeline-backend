@@ -37,10 +37,30 @@ const SEED_ACCOUNTS = [
   // candidates and nothing else now, so the other three have no HTTP path at
   // all (FR-3.1).
   { name: 'Cara Candidate', email: 'candidate@demo.test', role: UserRole.CANDIDATE },
+  /**
+   * A SECOND candidate, added by the candidate-access feature (FR-8.3).
+   *
+   * She has an application and **no interviews at all**, which makes her the
+   * candidate every seeded interviewer is NOT assigned to. Without her, AC-B01
+   * — the brief's §6 sharpest check, "an interviewer requesting a candidate
+   * they are not assigned to, directly by ID, is refused at the query" — has
+   * nothing to request on a fresh database, and the central claim of the POC is
+   * unverifiable. Exactly the same reasoning that gave `interviewer2` a live
+   * round they are not on.
+   */
+  { name: 'Casey Candidate', email: 'candidate2@demo.test', role: UserRole.CANDIDATE },
 ] as const;
 
-/** The candidate whose applications are seeded below. */
+/** The candidate with the full history — applications, rounds, panels, feedback. */
 const SEED_CANDIDATE_EMAIL = 'candidate@demo.test';
+
+/**
+ * The candidate with applications and **no rounds** (candidate-access FR-8.3).
+ *
+ * This is `$CAND_OTHER` in that spec's acceptance criteria: the person an
+ * interviewer can name an id for and must still be refused.
+ */
+const SEED_OTHER_CANDIDATE_EMAIL = 'candidate2@demo.test';
 
 /**
  * The actor on every seeded audit row (audit spec FR-2.3, FR-7.2).
@@ -286,138 +306,29 @@ const SEED_INTERVIEWS: ReadonlyArray<{
   },
 ] as const;
 
-async function main(): Promise<void> {
-  const password = env.SEED_PASSWORD;
-
-  if (password === undefined) {
-    throw new Error(
-      'SEED_PASSWORD is not set. See .env.example — the seed has no default password.',
-    );
-  }
-
-  for (const account of SEED_ACCOUNTS) {
-    // Hashed per account rather than once, so each row gets its own bcrypt salt.
-    const passwordHash = await hashPassword(password);
-
-    const user = await prisma.user.upsert({
-      where: { email: account.email },
-      // Re-seeding resets the password and role, so the baseline is restorable
-      // after a verification pass has mutated things.
-      update: { name: account.name, passwordHash, role: account.role },
-      create: { name: account.name, email: account.email, passwordHash, role: account.role },
-      select: SAFE_USER_SELECT,
-    });
-
-    logger.info(
-      { event: 'user.created', createdUserId: user.id, role: user.role, source: 'seed' },
-      `seeded ${user.email}`,
-    );
-  }
-
-  // Roles come AFTER the demo accounts (FR-9.1).
-  //
-  // Idempotency is `findFirst`-then-`create`, not `upsert`, because `title` is
-  // deliberately not unique (FR-1.3) — two teams hiring the same title is
-  // ordinary, so there is no key to upsert on.
-  //
-  // A CHECK-THEN-WRITE IS ACCEPTABLE HERE AND NOWHERE ELSE IN THIS CODEBASE
-  // (FR-9.3): the seed is a single-process script with no concurrent caller,
-  // whereas a request path must derive conflicts from a database constraint
-  // (ERR-2).
-  for (const seed of SEED_ROLES) {
-    const existing = await prisma.role.findFirst({
-      where: { title: seed.title },
-      select: { id: true },
-    });
-
-    if (existing !== null) {
-      logger.info(
-        { event: 'role.seed_skipped', roleId: existing.id, source: 'seed' },
-        `role already present: ${seed.title}`,
-      );
-      continue;
-    }
-
-    const role = await prisma.role.create({ data: seed, select: ROLE_SELECT });
-
-    logger.info(
-      // `role.seeded`, NOT `role.created`: the latter is the request-path audit
-      // event, which carries an `actorId` and must never carry title text
-      // (FR-8.2, FR-8.4, AC-B28). A seeded title is a constant in this repo,
-      // not user data, so echoing it in the human message is safe — and mirrors
-      // the account loop above.
-      { event: 'role.seeded', roleId: role.id, status: role.status, source: 'seed' },
-      `seeded role: ${role.title}`,
-    );
-  }
-
-  // Applications come LAST — they reference both a user and a role (FR-10.2).
-  //
-  // Idempotency here is DELETE-then-CREATE. `(candidateUserId, roleId)` is now
-  // unique, so an upsert would work — but it would leave behind any application
-  // this candidate made by hand to a role the seed no longer lists, and the
-  // point of a reseed is to restore a known baseline, not merge into one.
-  // Scoped to the seeded candidate, so a hand-created candidate's applications
-  // survive a reseed (FR-10.4, AC-B55).
-  const candidate = await prisma.user.findUnique({
-    where: { email: SEED_CANDIDATE_EMAIL },
-    select: { id: true },
-  });
-
-  const auditActor = await prisma.user.findUnique({
-    where: { email: SEED_AUDIT_ACTOR_EMAIL },
-    select: { id: true },
-  });
-
-  if (candidate === null) {
-    throw new Error(
-      `Seeded candidate ${SEED_CANDIDATE_EMAIL} is missing — account seeding failed.`,
-    );
-  }
-
-  if (auditActor === null) {
-    throw new Error(
-      `Seeded audit actor ${SEED_AUDIT_ACTOR_EMAIL} is missing — account seeding failed.`,
-    );
-  }
-
-  // The panel members `SEED_INTERVIEWS` names, resolved once by email because
-  // `User.id` is not stable across a reseed. Scoped to `role: INTERVIEWER` in
-  // the `where` rather than checked afterwards, exactly as
-  // `assignInterviewer` does it (interviews FR-3.3) — a seed that could staff a
-  // recruiter onto a panel would be seeding a state the API refuses to create.
-  const interviewerEmails = [...new Set(SEED_INTERVIEWS.flatMap((seed) => seed.interviewerEmails))];
-
-  const interviewers = await prisma.user.findMany({
-    where: { email: { in: interviewerEmails }, role: UserRole.INTERVIEWER },
-    select: { id: true, email: true },
-  });
-
-  const interviewerIdByEmail = new Map(
-    interviewers.map((interviewer) => [interviewer.email, interviewer.id]),
-  );
-
-  for (const email of interviewerEmails) {
-    if (!interviewerIdByEmail.has(email)) {
-      throw new Error(`Seeded interviewer ${email} is missing — account seeding failed.`);
-    }
-  }
-
-  // The seed must not write an assessment from somebody who is not on the panel:
-  // the request path cannot, because the assignment IS the authorization
-  // (feedback FR-1.1), and a seed that could would misrepresent the rule on a
-  // fresh database. Checked here, before any application is touched.
-  for (const round of SEED_INTERVIEWS) {
-    for (const entry of round.feedback) {
-      if (!round.interviewerEmails.includes(entry.interviewerEmail)) {
-        throw new Error(
-          `Seeded feedback author ${entry.interviewerEmail} is not on the ${round.type} panel — ` +
-            'the assignment is the authorization (feedback FR-1.1).',
-        );
-      }
-    }
-  }
-
+/**
+ * One candidate's whole seeded world: their applications, each application's
+ * stage timeline, its rounds, those rounds' panels and their feedback — plus
+ * the audit trace behind every one of it.
+ *
+ * Extracted into a function by the candidate-access feature (FR-8.3), which
+ * needs a SECOND seeded candidate: one with applications and **no interviews at
+ * all**, so that an interviewer has a real candidate they are not assigned to.
+ * Without one, AC-B01 — the brief's §6 sharpest check — has nothing to fire
+ * against on a fresh database, exactly as `interviewer2`'s unassigned round is
+ * what makes the interviews feature's equivalent check verifiable.
+ *
+ * Everything below is the code that used to sit inline in `main`, unchanged in
+ * behaviour: the three seed arrays it read are now fields on `plan`, and a
+ * candidate with an empty `timelines` and `interviews` simply takes none of
+ * those branches.
+ */
+async function seedCandidateApplications(
+  candidate: { id: number },
+  auditActor: { id: number },
+  interviewerIdByEmail: ReadonlyMap<string, number>,
+  plan: SeedCandidatePlan,
+): Promise<void> {
   // The seeded applications' audit rows go FIRST, before the applications
   // themselves are deleted, because the ids are the only thing linking them:
   // `AuditLog.entityId` is deliberately not a foreign key (FR-1.5), so nothing
@@ -497,7 +408,7 @@ async function main(): Promise<void> {
     );
   }
 
-  for (const seed of SEED_APPLICATIONS) {
+  for (const seed of plan.applications) {
     const role = await prisma.role.findFirst({
       where: { title: seed.roleTitle },
       select: { id: true },
@@ -548,7 +459,7 @@ async function main(): Promise<void> {
         select: { id: true },
       });
 
-      const timeline = SEED_TIMELINES.find((entry) => entry.roleTitle === seed.roleTitle);
+      const timeline = plan.timelines.find((entry) => entry.roleTitle === seed.roleTitle);
 
       for (const step of timeline?.steps ?? []) {
         // Each step writes its history row and its audit row together, exactly
@@ -685,7 +596,7 @@ async function main(): Promise<void> {
       // `status` is the SCHEDULED literal, not a schema default, and
       // `createdByUserId`/`assignedByUserId` are the recruiter — the same values
       // the request path writes from `req.user.id` (interviews FR-1.5, AZ-7).
-      for (const round of SEED_INTERVIEWS.filter((entry) => entry.roleTitle === seed.roleTitle)) {
+      for (const round of plan.interviews.filter((entry) => entry.roleTitle === seed.roleTitle)) {
         const interview = await tx.interview.create({
           data: {
             applicationId: created.id,
@@ -724,7 +635,7 @@ async function main(): Promise<void> {
         );
 
         for (const email of round.interviewerEmails) {
-          // Non-null: every email in `SEED_INTERVIEWS` was resolved and checked
+          // Non-null: every email in `plan.interviews` was resolved and checked
           // above, before any application was touched.
           const interviewerId = interviewerIdByEmail.get(email) as number;
 
@@ -856,20 +767,285 @@ async function main(): Promise<void> {
   }
 }
 
+/**
+ * `$CAND_OTHER`'s applications (candidate-access FR-8.3).
+ *
+ * ONE application, to **Engineering Manager** — the one requisition neither
+ * seeded interviewer has a round on. That is not incidental: AC-B04 asks that
+ * an interviewer passing `?roleId=<the role $CAND_OTHER applied to>` gets
+ * `200 { candidates: [] }`, proving a filter narrows within their scope and
+ * cannot widen beyond it. If she applied to a role an interviewer DID have a
+ * round on, that check would return somebody else's candidate and prove nothing.
+ *
+ * No timeline and no rounds, deliberately. She sits at `APPLIED` because that
+ * is where `POST /api/applications` leaves a real one, and she is invisible to
+ * every interviewer because no assignment chain reaches her (EC-09, AC-B22).
+ */
+const SEED_OTHER_CANDIDATE_APPLICATIONS = [
+  {
+    roleTitle: 'Engineering Manager',
+    status: ApplicationStatus.ACTIVE,
+    currentStage: PipelineStage.APPLIED,
+    daysAgo: 5,
+  },
+] as const;
+
+/**
+ * Everything the seed writes for one candidate, as data rather than as code
+ * (candidate-access FR-8.3).
+ *
+ * `profile` is the `CandidateProfile` row, or `null` for a candidate a
+ * recruiter has recorded nothing about — which is the normal state, not a gap
+ * (candidate-access MIG-5, EC-10).
+ */
+interface SeedCandidatePlan {
+  email: string;
+  profile: { phone: string; location: string; headline: string } | null;
+  applications: ReadonlyArray<{
+    roleTitle: string;
+    status: ApplicationStatus;
+    currentStage: PipelineStage;
+    daysAgo: number;
+  }>;
+  timelines: typeof SEED_TIMELINES;
+  interviews: typeof SEED_INTERVIEWS;
+}
+
+/**
+ * The two seeded candidates, and the contrast between them is the point.
+ *
+ * **Cara** has a recorded phone, three applications, a stage timeline including
+ * an override, two rounds, a panel of two and one filed assessment. She is what
+ * a recruiter's candidate detail is demonstrated on, and her phone number is
+ * what AC-B12 searches every interviewer-facing response body for.
+ *
+ * **Casey** has one application and nothing else — no rounds, no panel, no
+ * profile row. She is what the sharpest check in the POC is fired against
+ * (AC-B01, AC-B03, AC-B04, AC-B22), and what EC-10's "a candidate with no
+ * profile still answers with three nulls" is checked on.
+ */
+const SEED_CANDIDATES: ReadonlyArray<SeedCandidatePlan> = [
+  {
+    email: SEED_CANDIDATE_EMAIL,
+    profile: {
+      phone: '+91 98765 43210',
+      location: 'Ahmedabad, IN',
+      headline: 'Backend engineer, 6y — Node, Postgres, distributed systems',
+    },
+    applications: SEED_APPLICATIONS,
+    timelines: SEED_TIMELINES,
+    interviews: SEED_INTERVIEWS,
+  },
+  {
+    email: SEED_OTHER_CANDIDATE_EMAIL,
+    profile: null,
+    applications: SEED_OTHER_CANDIDATE_APPLICATIONS,
+    timelines: [],
+    interviews: [],
+  },
+];
+
+async function main(): Promise<void> {
+  const password = env.SEED_PASSWORD;
+
+  if (password === undefined) {
+    throw new Error(
+      'SEED_PASSWORD is not set. See .env.example — the seed has no default password.',
+    );
+  }
+
+  for (const account of SEED_ACCOUNTS) {
+    // Hashed per account rather than once, so each row gets its own bcrypt salt.
+    const passwordHash = await hashPassword(password);
+
+    const user = await prisma.user.upsert({
+      where: { email: account.email },
+      // Re-seeding resets the password and role, so the baseline is restorable
+      // after a verification pass has mutated things.
+      update: { name: account.name, passwordHash, role: account.role },
+      create: { name: account.name, email: account.email, passwordHash, role: account.role },
+      select: SAFE_USER_SELECT,
+    });
+
+    logger.info(
+      { event: 'user.created', createdUserId: user.id, role: user.role, source: 'seed' },
+      `seeded ${user.email}`,
+    );
+  }
+
+  // Roles come AFTER the demo accounts (FR-9.1).
+  //
+  // Idempotency is `findFirst`-then-`create`, not `upsert`, because `title` is
+  // deliberately not unique (FR-1.3) — two teams hiring the same title is
+  // ordinary, so there is no key to upsert on.
+  //
+  // A CHECK-THEN-WRITE IS ACCEPTABLE HERE AND NOWHERE ELSE IN THIS CODEBASE
+  // (FR-9.3): the seed is a single-process script with no concurrent caller,
+  // whereas a request path must derive conflicts from a database constraint
+  // (ERR-2).
+  for (const seed of SEED_ROLES) {
+    const existing = await prisma.role.findFirst({
+      where: { title: seed.title },
+      select: { id: true },
+    });
+
+    if (existing !== null) {
+      logger.info(
+        { event: 'role.seed_skipped', roleId: existing.id, source: 'seed' },
+        `role already present: ${seed.title}`,
+      );
+      continue;
+    }
+
+    const role = await prisma.role.create({ data: seed, select: ROLE_SELECT });
+
+    logger.info(
+      // `role.seeded`, NOT `role.created`: the latter is the request-path audit
+      // event, which carries an `actorId` and must never carry title text
+      // (FR-8.2, FR-8.4, AC-B28). A seeded title is a constant in this repo,
+      // not user data, so echoing it in the human message is safe — and mirrors
+      // the account loop above.
+      { event: 'role.seeded', roleId: role.id, status: role.status, source: 'seed' },
+      `seeded role: ${role.title}`,
+    );
+  }
+
+  // Applications come LAST — they reference both a user and a role (FR-10.2).
+  //
+  // Idempotency here is DELETE-then-CREATE. `(candidateUserId, roleId)` is now
+  // unique, so an upsert would work — but it would leave behind any application
+  // a seeded candidate made by hand to a role the seed no longer lists, and the
+  // point of a reseed is to restore a known baseline, not merge into one.
+  // Scoped to the seeded candidates, so a hand-created candidate's applications
+  // survive a reseed (FR-10.4, AC-B55).
+  const auditActor = await prisma.user.findUnique({
+    where: { email: SEED_AUDIT_ACTOR_EMAIL },
+    select: { id: true },
+  });
+
+  if (auditActor === null) {
+    throw new Error(
+      `Seeded audit actor ${SEED_AUDIT_ACTOR_EMAIL} is missing — account seeding failed.`,
+    );
+  }
+
+  // The panel members the seeded rounds name, resolved once by email because
+  // `User.id` is not stable across a reseed. Scoped to `role: INTERVIEWER` in
+  // the `where` rather than checked afterwards, exactly as
+  // `assignInterviewer` does it (interviews FR-3.3) — a seed that could staff a
+  // recruiter onto a panel would be seeding a state the API refuses to create.
+  const interviewerEmails = [
+    ...new Set(
+      SEED_CANDIDATES.flatMap((plan) => plan.interviews.flatMap((seed) => seed.interviewerEmails)),
+    ),
+  ];
+
+  const interviewers = await prisma.user.findMany({
+    where: { email: { in: interviewerEmails }, role: UserRole.INTERVIEWER },
+    select: { id: true, email: true },
+  });
+
+  const interviewerIdByEmail = new Map(
+    interviewers.map((interviewer) => [interviewer.email, interviewer.id]),
+  );
+
+  for (const email of interviewerEmails) {
+    if (!interviewerIdByEmail.has(email)) {
+      throw new Error(`Seeded interviewer ${email} is missing — account seeding failed.`);
+    }
+  }
+
+  // The seed must not write an assessment from somebody who is not on the panel:
+  // the request path cannot, because the assignment IS the authorization
+  // (feedback FR-1.1), and a seed that could would misrepresent the rule on a
+  // fresh database. Checked here, before any application is touched.
+  for (const plan of SEED_CANDIDATES) {
+    for (const round of plan.interviews) {
+      for (const entry of round.feedback) {
+        if (!round.interviewerEmails.includes(entry.interviewerEmail)) {
+          throw new Error(
+            `Seeded feedback author ${entry.interviewerEmail} is not on the ${round.type} panel — ` +
+              'the assignment is the authorization (feedback FR-1.1).',
+          );
+        }
+      }
+    }
+  }
+
+  for (const plan of SEED_CANDIDATES) {
+    const candidate = await prisma.user.findUnique({
+      where: { email: plan.email },
+      select: { id: true },
+    });
+
+    if (candidate === null) {
+      throw new Error(`Seeded candidate ${plan.email} is missing — account seeding failed.`);
+    }
+
+    // The contact profile (candidate-access FR-8.3, MIG-5).
+    //
+    // `upsert`, matching the request path's own write (candidate-access FR-4.3,
+    // D-4) — and NOT created for every candidate: `$CAND_OTHER` deliberately
+    // has none, because "a candidate a recruiter has recorded nothing about" is
+    // the normal state EC-10 and AC-B25 are checked against, not a gap to fill.
+    //
+    // This is real contact data on a demo account, which is exactly the point:
+    // without a phone in the database, AC-B12 — the phone string appearing in
+    // no response to any interviewer, from any endpoint — has nothing to search
+    // for.
+    if (plan.profile !== null) {
+      const profile = await prisma.candidateProfile.upsert({
+        where: { userId: candidate.id },
+        update: plan.profile,
+        create: { userId: candidate.id, ...plan.profile },
+        select: { userId: true },
+      });
+
+      logger.info(
+        // The candidate's id and the FIELD NAMES, never the values — the same
+        // rule the request path's audit row and log line follow
+        // (candidate-access FR-4.5, FR-8.2, SEC-7, SEC-8). A seeded phone
+        // number is still a phone number in a log file.
+        {
+          event: 'candidate.profile_seeded',
+          candidateUserId: profile.userId,
+          fields: Object.keys(plan.profile),
+          source: 'seed',
+        },
+        'seeded candidate contact profile',
+      );
+    }
+
+    await seedCandidateApplications(candidate, auditActor, interviewerIdByEmail, plan);
+  }
+}
+
 try {
   await main();
   logger.info(
     {
       accounts: SEED_ACCOUNTS.length,
       roles: SEED_ROLES.length,
-      applications: SEED_APPLICATIONS.length,
-      timelineSteps: SEED_TIMELINES.reduce((count, trace) => count + trace.steps.length, 0),
-      interviews: SEED_INTERVIEWS.length,
-      assignments: SEED_INTERVIEWS.reduce(
-        (count, round) => count + round.interviewerEmails.length,
+      candidates: SEED_CANDIDATES.length,
+      profiles: SEED_CANDIDATES.filter((plan) => plan.profile !== null).length,
+      applications: SEED_CANDIDATES.reduce((count, plan) => count + plan.applications.length, 0),
+      timelineSteps: SEED_CANDIDATES.reduce(
+        (count, plan) =>
+          count + plan.timelines.reduce((steps, trace) => steps + trace.steps.length, 0),
         0,
       ),
-      feedback: SEED_INTERVIEWS.reduce((count, round) => count + round.feedback.length, 0),
+      interviews: SEED_CANDIDATES.reduce((count, plan) => count + plan.interviews.length, 0),
+      assignments: SEED_CANDIDATES.reduce(
+        (count, plan) =>
+          count +
+          plan.interviews.reduce((seats, round) => seats + round.interviewerEmails.length, 0),
+        0,
+      ),
+      feedback: SEED_CANDIDATES.reduce(
+        (count, plan) =>
+          count + plan.interviews.reduce((rows, round) => rows + round.feedback.length, 0),
+        0,
+      ),
     },
     'seed complete',
   );

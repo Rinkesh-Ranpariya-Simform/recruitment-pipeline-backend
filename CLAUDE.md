@@ -87,6 +87,14 @@ that simply omits contact columns for interviewer-facing queries over fetching t
 stripping fields before sending the response — a shape that never selects the columns can't leak
 them; a shape that redacts them after fetching is one missed call site away from doing so.
 
+**The file that answers the brief's §7.3 question is
+[`src/modules/candidates/candidate.select.ts`](src/modules/candidates/candidate.select.ts)**, and
+answering it is reading two constants. `INTERVIEWER_CANDIDATE_SELECT` is `{ id: true, name: true }`:
+it names no `email`, and `phone` lives on `CandidateProfile`, a relation it does not join.
+`RECRUITER_CANDIDATE_SELECT` is a **different object**, not a superset the other is derived from,
+and `candidate.service.ts` picks between them **before any query runs**. See "Candidate access"
+below before touching anything in that module.
+
 ## Business rules to enforce server-side
 
 - **Stage transitions**: **shipped by the [pipeline feature](specs/features/pipeline/spec.md).**
@@ -147,9 +155,11 @@ candidate-access all write through it; none of them may invent a second way.
   no per-row scoping behind it. Widening the guard leaks the entire trace; there is no partial view.
 - `AuditLog.entityId` is deliberately **not** a foreign key — it addresses four tables. It may name
   a row that no longer exists; treat it as a historical reference, not a join target.
-- All nine `AuditAction` values already exist in the schema although only three are written today.
-  That is the documented exception to "an enum value no code writes is a lie in the schema", and it
-  closes when the candidate-access feature ships. Don't add a fifth enum migration.
+- **All ten `AuditAction` values are now written by code.** The documented exception to "an enum
+  value no code writes is a lie in the schema" is **CLOSED**: candidate-access was the last feature
+  to open it, and `CANDIDATE_CONTACT_UPDATED` is written by
+  `candidate.service.updateCandidateContact`. (`INTERVIEW_DECISION_RECORDED` arrived later, with
+  the applications feature and its own migration.) Don't add an enum migration.
 
 ## Verification expectations
 
@@ -172,15 +182,16 @@ Feature specs live in `specs/features/<feature>/`, each holding `spec.md` (what 
 `plan.md` (how). Phases run in that order and each is approved before the next begins; if implementation reveals
 the spec is wrong, update the spec and get it re-approved rather than letting code and spec drift.
 
-| Feature                                                 | spec        | plan                                                 | code                                                                                                                                                                                                          |
-| ------------------------------------------------------- | ----------- | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [authentication](specs/features/authentication/spec.md) | ✅ approved | [✅ approved](specs/features/authentication/plan.md) | ✅ implemented                                                                                                                                                                                                |
-| [roles](specs/features/roles/spec.md)                   | ✅ approved | [✅ drafted](specs/features/roles/plan.md)           | ⬜ not started                                                                                                                                                                                                |
-| [candidate](specs/features/candidate/spec.md)           | ✅ approved | ⬜ skipped (implemented straight from the spec)      | ✅ implemented — all 55 acceptance criteria verified by hand against the running API                                                                                                                          |
-| [audit](specs/features/audit/spec.md)                   | ✅ approved | ⬜ skipped (implemented straight from the spec)      | ✅ implemented — 27 acceptance criteria verified by hand (`curl` + `psql` + `EXPLAIN ANALYZE` at 120k rows)                                                                                                   |
-| [pipeline](specs/features/pipeline/spec.md)             | ✅ approved | ⬜ skipped (implemented straight from the spec)      | ✅ implemented — 50 acceptance criteria verified by hand (`curl` + `psql` + concurrent requests at 20k rows)                                                                                                  |
-| [interviews](specs/features/interviews/spec.md)         | ✅ approved | ⬜ skipped (implemented straight from the spec)      | ✅ implemented — 83 checks verified by hand (`curl` + `psql` + concurrent requests + `EXPLAIN ANALYZE` at 40k rounds / 80k assignments); four criteria deviate, all recorded in the spec                      |
-| [feedback](specs/features/feedback/spec.md)             | ✅ approved | ⬜ skipped (implemented straight from the spec)      | ✅ implemented — 45 acceptance criteria verified by hand (`curl` + Prisma + concurrent requests + `EXPLAIN ANALYZE` at 80k feedback rows / 80k assignments); three criteria deviate, all recorded in the spec |
+| Feature                                                     | spec        | plan                                                 | code                                                                                                                                                                                                          |
+| ----------------------------------------------------------- | ----------- | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [authentication](specs/features/authentication/spec.md)     | ✅ approved | [✅ approved](specs/features/authentication/plan.md) | ✅ implemented                                                                                                                                                                                                |
+| [roles](specs/features/roles/spec.md)                       | ✅ approved | [✅ drafted](specs/features/roles/plan.md)           | ⬜ not started                                                                                                                                                                                                |
+| [candidate](specs/features/candidate/spec.md)               | ✅ approved | ⬜ skipped (implemented straight from the spec)      | ✅ implemented — all 55 acceptance criteria verified by hand against the running API                                                                                                                          |
+| [audit](specs/features/audit/spec.md)                       | ✅ approved | ⬜ skipped (implemented straight from the spec)      | ✅ implemented — 27 acceptance criteria verified by hand (`curl` + `psql` + `EXPLAIN ANALYZE` at 120k rows)                                                                                                   |
+| [pipeline](specs/features/pipeline/spec.md)                 | ✅ approved | ⬜ skipped (implemented straight from the spec)      | ✅ implemented — 50 acceptance criteria verified by hand (`curl` + `psql` + concurrent requests at 20k rows)                                                                                                  |
+| [interviews](specs/features/interviews/spec.md)             | ✅ approved | ⬜ skipped (implemented straight from the spec)      | ✅ implemented — 83 checks verified by hand (`curl` + `psql` + concurrent requests + `EXPLAIN ANALYZE` at 40k rounds / 80k assignments); four criteria deviate, all recorded in the spec                      |
+| [feedback](specs/features/feedback/spec.md)                 | ✅ approved | ⬜ skipped (implemented straight from the spec)      | ✅ implemented — 45 acceptance criteria verified by hand (`curl` + Prisma + concurrent requests + `EXPLAIN ANALYZE` at 80k feedback rows / 80k assignments); three criteria deviate, all recorded in the spec |
+| [candidate-access](specs/features/candidate-access/spec.md) | ✅ approved | ⬜ skipped (implemented straight from the spec)      | ✅ implemented — 47 acceptance criteria verified by hand (`curl` + Prisma query log + `EXPLAIN ANALYZE` at 20k candidates / 40k rounds / 80k assignments); two criteria deviate, both recorded in the spec    |
 
 **Pipeline**, the feature the brief's §3.1/§3.3/§3.5 are about. Five endpoints, two new tables
 (`StageHistory`, `StageOverride`), and three new `ErrorCode` values —
@@ -290,8 +301,74 @@ src/modules/feedback/` returns only prose, and that absence is the design. **If 
   handler, and the absence is the guarantee — retracting an assessment without a trace is the
   opposite of what §6 asks for. An interviewer who changes their mind edits, and the edit is audited.
 - **`AuditAction` now has five of its nine values written** (the two feedback ones joined the three
-  pipeline/interview ones). The documented exception still closes with candidate-access; don't add
-  an enum migration.
+  pipeline/interview ones). The documented exception was closed by candidate-access, which wrote the
+  last of them; don't add an enum migration.
+
+## Candidate access (read before touching a candidate read)
+
+Shipped by the [candidate-access feature](specs/features/candidate-access/spec.md) — the brief's
+§3.2, §3.6, §4 and §7.3, and the last feature in the sequence. Three routes on `/api/candidates`,
+one new table (`CandidateProfile`), **no new `ErrorCode`**. That last fact is worth stating: the
+sharpest authorization boundary in the system is expressed entirely in existing codes, because the
+correct answer to "you may not see this" is the same as the answer to "this is not here".
+
+- **`candidate.select.ts` answers §7.3 and `candidate.repository.ts` answers §6.** Two files, read
+  in one sitting, no following required. The first shows contact data is never selected for an
+  interviewer; the second shows an unassigned interviewer's row is never fetched.
+- **Two explicitly scoped repository functions, and there is no generic `getCandidate`.**
+  `getRecruiterCandidate(candidateId)` and `getInterviewerCandidate(candidateId, interviewerId)`.
+  The role picks which one runs, in `candidate.service.getCandidateDetail`, **before any query is
+  issued** — the role never decides which fields are removed from a result. A single function with
+  a role parameter is one edit away from the wrong branch, and that leak is silent.
+- **`buildCandidateWhere` is the one expression of the scope**, and every executable call site is
+  inside `candidate.repository.ts` — the page, the pager's `count` and both by-id reads. It is the
+  THIRD such function, after `buildRoleWhere` and `buildInterviewWhere`, and it mirrors them down to
+  the `!== RECRUITER` test that fails closed. **If you add a fourth candidates read, route it
+  through `buildCandidateWhere`**; a second copy of that decision is how the rule rots.
+- **`role: UserRole.CANDIDATE` is in every `where`.** `/api/candidates/:id` naming a recruiter's or
+  an interviewer's user id answers `404` — **for every caller, including a recruiter** — and their
+  user row is never loaded. This is not a generic user reader wearing a candidate-shaped path.
+- **The interviewer's filters and their scope predicate share ONE `applications: { some: … }`
+  block.** Separate clauses would let `?roleId=3&stage=SCREEN` match a candidate who applied to role
+  3 at OFFER and role 9 at SCREEN. Folded, a filter narrows within their scope and **can never widen
+  beyond it** — which is also what makes the pipeline drill-down's three-way filter mean what a
+  recruiter reads it to mean.
+- **A scoped miss is `404`, never `403`**, byte-identical to a nonexistent id and to a
+  non-candidate id. Third feature, same rule, no exceptions. The miss logs as
+  `candidate.scoped_read_miss`.
+- **`?q=` is recruiter-only and an interviewer sending it is a `400`**, not a silently dropped
+  parameter. It is the one Validation-table rule not in `candidate.schema.ts`, because it depends on
+  the caller's role, which `validateQuery` cannot see — it is enforced at the top of
+  `listCandidates`, still before any query runs. **`q` is never logged**: a recruiter's search term
+  may be a candidate's email address.
+- **`phone` is on `CandidateProfile`, not on `User`, and that is the security design.** `User`
+  serves recruiters and interviewers too, so a column there would put every select in every module
+  under a permanent review obligation. A relation the interviewer's select does not join cannot be
+  reached. `email` is the stated exception — authentication needs it on `User` — and the
+  interviewer's select simply does not name it, which is the same guarantee by a weaker mechanism.
+- **`PATCH` accepts `phone`, `location` and `headline` and nothing else.** `name`, `email` and
+  `role` are dropped by zod, so a body carrying them answers `200` and changes nothing — rejecting
+  would tell an attacker which fields exist. An explicit `null` clears a field; an omitted key
+  leaves it unchanged, distinguished by `!== undefined`, never by a sentinel.
+- **The audit row records field NAMES, never values.** No phone number reaches the audit feed,
+  which has a broader set of readers than this endpoint.
+- **There is no `POST` and no `DELETE` on this router**, and both absences are guarantees. The
+  shipped codebase has exactly one account-creation path (signup, candidates only) and this feature
+  does not add a second; a GDPR-shaped anonymise is a real feature, not a verb.
+
+Two acceptance criteria do not hold as written, and both are written up under "Deviations recorded
+at implementation" at the foot of
+[the candidate-access spec](specs/features/candidate-access/spec.md). Both are the same underlying
+fact: **this Prisma client resolves a nested `select` as one batched statement per relation LEVEL,
+not as one joined statement.** So PERF-2's recruiter detail is one Prisma call but 13 SQL
+statements — and AC-B44's actual requirement holds, measured: 13 statements at 1 application and 13
+at 12, so the count is independent of the row count and there is no N+1. PERF-7's interviewer by-id
+read is two Prisma calls but four statements, the extra two resolving an already-authorized round's
+role and reaching no candidate data. `relationLoadStrategy: "join"` is not available in the
+generated client; **don't add a preview-feature flag to "fix" this.** AC-B43's named index is also
+not the by-id plan's entry point — the planner enters through `User_pkey`, which is correct, since
+the candidate id is far more selective than an interviewer's 40 000 assignments; it IS the entry
+point on the interviewer's LIST, and **PERF-1 passes at 20.6 ms against a 100 ms budget**.
 
 Three acceptance criteria do not hold as written, and all three are written up under "Deviations
 recorded at implementation" at the foot of
