@@ -14,16 +14,16 @@ import type {
 } from './interviews.schema.js';
 
 /**
- * HTTP only: read the request, call a service, shape a response (BE-1). No
- * scoping, no Prisma, no transactions — the interviewer predicate lives in
- * `interviews.repository.ts` and nowhere else (BE-3, AZ-4).
+ * HTTP only: read the request, call a service, shape a response. No scoping,
+ * no Prisma, no transactions — the interviewer predicate lives in
+ * `interviews.repository.ts` and nowhere else.
  *
  * **Nothing here filters a response.** The two reads pass `req.user.role` down
  * so the SERVICE can pick a projection before its query runs; no handler
- * inspects a fetched round and decides what to send (BE-4, FR-5.4).
+ * inspects a fetched round and decides what to send.
  *
  * Handlers don't catch — Express 5 forwards a rejected promise to the error
- * middleware, which is what keeps a Prisma code off the wire (ERR-5).
+ * middleware, which is what keeps a Prisma code off the wire.
  *
  * Input comes from `req.validatedParams`, `req.validatedQuery` and `req.body`,
  * never the raw `req.params` / `req.query`, which are un-coerced strings. Each
@@ -33,7 +33,7 @@ import type {
 
 /**
  * The actor on every row this feature writes, and the subject every scoped read
- * resolves against (AZ-7, SEC-8).
+ * resolves against.
  *
  * `req.user.id`, established by `requireAuth` from a verified token, and
  * **nothing else**. No body, query parameter or header supplies one.
@@ -60,7 +60,7 @@ function actorRole(req: Request): UserRole {
   return req.user.role;
 }
 
-/** 201 with the created round, `status: "SCHEDULED"` and an empty panel (AC-B01). */
+/** 201 with the created round, `status: "SCHEDULED"` and an empty panel. */
 export async function create(req: Request, res: Response): Promise<void> {
   const { applicationId } = req.validatedParams as ApplicationIdParam;
 
@@ -74,7 +74,7 @@ export async function create(req: Request, res: Response): Promise<void> {
   res.status(201).json({ interview });
 }
 
-/** Unpaged — bounded by the rounds on one application (PERF-8). */
+/** Unpaged — bounded by the rounds on one application. */
 export async function listForApplication(req: Request, res: Response): Promise<void> {
   const { applicationId } = req.validatedParams as ApplicationIdParam;
 
@@ -109,10 +109,10 @@ export async function updateStatus(req: Request, res: Response): Promise<void> {
 }
 
 /**
- * One endpoint, two response shapes, chosen by the caller's role (XBE/XFE-1).
+ * One endpoint, two response shapes, chosen by the caller's role.
  *
  * An empty result is `200 { interviews: [], pagination }`, never a 404 — an
- * interviewer with no assignments has a valid, empty answer (EC-15).
+ * interviewer with no assignments has a valid, empty answer.
  */
 export async function list(req: Request, res: Response): Promise<void> {
   const { interviews, pagination } = await interviewsService.listInterviews(
@@ -125,7 +125,7 @@ export async function list(req: Request, res: Response): Promise<void> {
   res.status(200).json({ interviews, pagination });
 }
 
-/** 404 — never 403 — when the caller's scope does not contain the round (FR-4.6). */
+/** 404 — never 403 — when the caller's scope does not contain the round. */
 export async function get(req: Request, res: Response): Promise<void> {
   const { interviewId } = req.validatedParams as InterviewIdParam;
 
@@ -155,8 +155,7 @@ export async function assign(req: Request, res: Response): Promise<void> {
 }
 
 /**
- * `204 No Content` with an empty body, matching the shipped
- * `DELETE /api/roles/:roleId` (FR-3.6, XFE-7). There is no seat left to return.
+ * `204 No Content` with an empty body. There is no seat left to return.
  */
 export async function unassign(req: Request, res: Response): Promise<void> {
   const { interviewId, userId } = req.validatedParams as AssignmentParams;
@@ -167,7 +166,7 @@ export async function unassign(req: Request, res: Response): Promise<void> {
 }
 
 /**
- * A round's verdict, and whatever it moves (applications FR-3).
+ * A round's verdict, and whatever it moves.
  *
  * `200` with the decided round — including the application's new
  * `currentStage` and `status`, since a decision routinely changes both and the

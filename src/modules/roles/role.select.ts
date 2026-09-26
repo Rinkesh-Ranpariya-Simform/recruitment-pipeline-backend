@@ -15,14 +15,14 @@ export const ROLE_SELECT = {
 } as const;
 
 /**
- * What a NON-RECRUITER gets from the two read endpoints (candidate spec FR-4.5).
+ * What a NON-RECRUITER gets from the two read endpoints.
  *
  * `updatedAt` is omitted: a candidate browsing open positions has no use for a
  * requisition's internal editing churn.
  *
  * It omits nothing else, deliberately: `Role` references no person and carries
  * no restricted column. **The protection is not this list** — it is the forced
- * `status: OPEN` predicate in `buildRoleWhere` (FR-4.4).
+ * `status: OPEN` predicate in `buildRoleWhere`.
  */
 export const PUBLIC_ROLE_SELECT = {
   id: true,

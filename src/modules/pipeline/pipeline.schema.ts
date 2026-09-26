@@ -2,17 +2,16 @@ import { z } from 'zod';
 import { ApplicationStatus, PipelineStage } from '../../../generated/prisma/enums.js';
 
 /**
- * The validation boundary for all five endpoints (Validation table).
+ * The validation boundary for all five endpoints.
  *
- * **This is where the brief's §6 check lives**: a transition naming a stage
- * that isn't defined is rejected *before any business logic runs* (VAL-1).
- * `{ "toStage": "PROBATION" }` never reaches `pipeline.rules`, never reaches
- * Prisma, and produces no `pipeline.*` log line.
+ * A transition naming a stage that isn't defined is rejected *before any business
+ * logic runs*. `{ "toStage": "PROBATION" }` never reaches `pipeline.rules`,
+ * never reaches Prisma, and produces no `pipeline.*` log line.
  *
- * Unknown keys are stripped, as everywhere else in this codebase (VAL-5). A
- * body of `{ toStage: 'SCREEN', performedBy: 9, currentStage: 'OFFER' }`
- * reaches the service as `{ toStage: 'SCREEN' }` — the tampered fields are not
- * rejected, they simply do not exist by the time any code could read one.
+ * Unknown keys are stripped, as everywhere else in this codebase. A body of
+ * `{ toStage: 'SCREEN', performedBy: 9, currentStage: 'OFFER' }` reaches the
+ * service as `{ toStage: 'SCREEN' }` — the tampered fields are not rejected,
+ * they simply do not exist by the time any code could read one.
  *
  * This is zod v4: enum messages are `z.enum(Values, 'message')`, not
  * `z.nativeEnum` or `{ message: … }`.
@@ -21,7 +20,7 @@ import { ApplicationStatus, PipelineStage } from '../../../generated/prisma/enum
 const STAGE_MESSAGE = 'Stage must be one of APPLIED, SCREEN, INTERVIEW, OFFER';
 
 /** Coerced here, so `/api/applications/abc/stage` is a 400 at the boundary
- *  rather than a 500 further down (EC-06). */
+ *  rather than a 500 further down. */
 export const applicationIdParamSchema = z.object({
   applicationId: z.coerce
     .number('Application id must be a positive integer')
@@ -39,7 +38,7 @@ export const changeStageSchema = z.object({
 });
 
 /**
- * The override (FR-4.3, VAL-2, brief §3.3).
+ * The override.
  *
  * **`reason` is required and is 10 characters minimum after trimming.** The
  * trim is in the schema, so `"   "` is a 400 rather than an empty recorded
@@ -61,15 +60,15 @@ export const stageOverrideSchema = z.object({
 });
 
 /**
- * The outcome (FR-3.2, FR-3.6, VAL-3, VAL-4).
+ * The outcome.
  *
  * `status` accepts the two TERMINAL values only. `{ "status": "ACTIVE" }` is a
  * 400 and not a resurrection: un-rejecting a candidate is out of scope, and a
  * validation error states that more clearly than a 409 would.
  *
- * `reason` is optional here, unlike on the override, and carries no minimum
- * (VAL-3). Rejecting at the end of a stage is not an exception to the process;
- * skipping one is. It is recorded in the audit metadata when present.
+ * `reason` is optional here, unlike on the override, and carries no minimum.
+ * Rejecting at the end of a stage is not an exception to the process; skipping
+ * one is. It is recorded in the audit metadata when present.
  */
 export const setOutcomeSchema = z.object({
   status: z.enum(
@@ -84,15 +83,14 @@ export const setOutcomeSchema = z.object({
 });
 
 /**
- * The aggregate's two filters (FR-7.2).
+ * The aggregate's two filters.
  *
  * Both optional and both ANDed — they sit on different columns, so assigning
  * each is already a conjunction and one can never overwrite the other.
  *
- * There is no `page`/`pageSize` here, deliberately (FR-7.9): the response is
- * one row per role per stage, bounded by roles rather than by the 20,000
- * candidates behind them. PERF-5 names 500 roles as the threshold at which that
- * stops being true and this gains a pager.
+ * There is no `page`/`pageSize` here, deliberately: the response is one row per
+ * role per stage, bounded by roles rather than by the 20,000 candidates behind
+ * them.
  */
 export const pipelineQuerySchema = z.object({
   roleId: z.coerce

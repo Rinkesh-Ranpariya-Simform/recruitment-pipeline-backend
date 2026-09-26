@@ -21,10 +21,11 @@ import type { ListApplicationsQuery } from './applications.schema.js';
  *
  * **Every read in this file is written twice, once per audience** — a candidate
  * function and a recruiter function, each with its own `where` and its own
- * select (BE-2). There is no function here that takes a role and branches
- * inside one query. That is the same discipline as `getRecruiterCandidate` /
- * `getInterviewerCandidate` in the candidate-access spec, and it exists because
- * a single function with a role branch is one edit away from the wrong branch.
+ * select. There is no function here that takes a role and branches inside one
+ * query. That is the same discipline as `getRecruiterCandidate` /
+ * `getInterviewerCandidate` in the candidate-access feature, and it exists
+ * because a single function with a role branch is one edit away from the wrong
+ * branch.
  */
 
 /** The candidate-facing envelope, as both of their endpoints return it. */
@@ -52,15 +53,15 @@ interface CandidateApplicationRow {
 }
 
 /**
- * Replaces the fetched rounds with the timeline built from them (FR-5.4).
+ * Replaces the fetched rounds with the timeline built from them.
  *
- * **This is not the post-fetch filtering BE-4 forbids, and the distinction is
- * the whole point** — the same one `toInterviewerView` documents. BE-4 rules
- * out a step that FETCHES restricted columns and then removes them, the failure
- * mode where one missed call site leaks a rating or an interviewer's name.
- * Nothing restricted is fetched here: `APPLICATION_SELECT` names eight neutral
- * columns per round and no `interviewer`, `feedback`, `rating` or `notes`, so
- * this function has nothing to remove and removes nothing of the kind.
+ * **This is not post-fetch filtering, and the distinction is the whole point.**
+ * The architecture rules out a step that FETCHES restricted columns and then
+ * removes them, the failure mode where one missed call site leaks a rating or
+ * an interviewer's name. Nothing restricted is fetched here:
+ * `APPLICATION_SELECT` names eight neutral columns per round and no
+ * `interviewer`, `feedback`, `rating` or `notes`, so this function has nothing
+ * to remove and removes nothing of the kind.
  *
  * What it drops is a raw round list a candidate has no route to open, having
  * already used it for the one thing it was selected for.
@@ -80,25 +81,25 @@ const toCandidateApplication = (row: CandidateApplicationRow): CandidateApplicat
 };
 
 /**
- * Creates one application for the authenticated candidate (candidate FR-5).
+ * Creates one application for the authenticated candidate.
  *
- * **`candidateUserId` comes from the token, never the body** (FR-5.3, AZ-5). The
- * schema has no field for it, so there is no impersonation case to defend
- * against rather than a check that could be forgotten.
+ * **`candidateUserId` comes from the token, never the body.** The schema has no
+ * field for it, so there is no impersonation case to defend against rather than
+ * a check that could be forgotten.
  *
  * The requisition is resolved by a query whose `where` is `{ id, status: OPEN }`
- * — **the eligibility rule and the lookup are one statement** (FR-5.5, AZ-6).
- * There is no fetch-then-check, so there is no window between deciding a role is
- * open and using it. A CLOSED or missing role produces the same 404 from the
- * same query, which is also what keeps the endpoint from confirming that a
- * closed requisition exists (SEC-4, AC-B30/AC-B31).
+ * — **the eligibility rule and the lookup are one statement**. There is no
+ * fetch-then-check, so there is no window between deciding a role is open and
+ * using it. A CLOSED or missing role produces the same 404 from the same query,
+ * which is also what keeps the endpoint from confirming that a closed
+ * requisition exists.
  *
- * `status`, `currentStage` and `stageEnteredAt` are literals (FR-5.4). Nothing
- * in the request influences them.
+ * `status`, `currentStage` and `stageEnteredAt` are literals. Nothing in the
+ * request influences them.
  *
  * **A candidate may apply to the same role only ONCE**, enforced by the
  * `@@unique([candidateUserId, roleId])` index rather than a preceding
- * `findFirst` — see `AlreadyAppliedError` for why (EC-06).
+ * `findFirst` — see `AlreadyAppliedError` for why.
  */
 export async function createApplication(
   roleId: number,
@@ -106,12 +107,12 @@ export async function createApplication(
   log: Logger,
 ): Promise<Application> {
   // One transaction so the `Role` row's existence is guaranteed for the insert
-  // and the foreign key cannot fail with an unexplained P2003 (FR-5.7).
+  // and the foreign key cannot fail with an unexplained P2003.
   //
   // A recruiter closing this role between the two statements is possible, and
   // accepted: the resulting row is valid, the FK holds, and the candidate did
-  // apply while it was genuinely open (EC-08). Preventing it would mean row
-  // locking `Role` on every apply, which is not worth it at this scale.
+  // apply while it was genuinely open. Preventing it would mean row locking
+  // `Role` on every apply, which is not worth it at this scale.
   let application: CandidateApplicationRow;
 
   try {
@@ -138,9 +139,9 @@ export async function createApplication(
         select: APPLICATION_SELECT,
       });
 
-      // The ENTRY row of the stage timeline (pipeline FR-9.1, FR-5.3) — the one
-      // statement this feature gains from the pipeline feature, and the only
-      // amendment pipeline makes to shipped code.
+      // The ENTRY row of the stage timeline — the one statement this feature
+      // gains from the pipeline feature, and the only amendment pipeline makes
+      // to shipped code.
       //
       // `fromStage`/`fromStatus` are null here and ONLY here: this row records
       // an application coming into existence at APPLIED, so there is no
@@ -184,7 +185,7 @@ export async function createApplication(
   }
 
   // Ids only — never the candidate's name or email, and never the requisition
-  // title (FR-5.9, FR-9.4).
+  // title.
   log.info(
     {
       event: 'application.created',
@@ -203,25 +204,23 @@ export async function createApplication(
  * ---------------------------------------------------------------------- */
 
 /**
- * The authenticated candidate's own applications, and only those (candidate
- * FR-6).
+ * The authenticated candidate's own applications, and only those.
  *
  * **The scoping is in the query** — `where: { candidateUserId }` — not a wider
- * read narrowed afterwards in application code (FR-6.2, AZ-2). This is the
- * brief's §3.2 discipline pointed at the new actor: a shape that never selects
+ * read narrowed afterwards in application code. A shape that never selects
  * another candidate's rows cannot leak them.
  *
  * **It takes no query parameters**, deliberately, even though the route now runs
  * `validateQuery` for both roles. A candidate's list is their own and is short;
  * a `roleId` filter on it would let them narrow a set they can already see
- * whole, and a pager would be a second contract to keep. `ListApplicationsQuery`
- * is not a parameter of this function, so no filter can reach this `where` by
- * any route the controller could take.
+ * whole, and a pager would be a second contract to keep.
+ * `ListApplicationsQuery` is not a parameter of this function, so no filter can
+ * reach this `where` by any route the controller could take.
  *
  * One indexed query, served by `@@index([candidateUserId, createdAt])` — the
- * filter and the ORDER BY in one index, so there is no sort step (PERF-1). The
- * rounds behind each timeline are one further batched query for the whole list,
- * not one per application (PERF-2).
+ * filter and the ORDER BY in one index, so there is no sort step. The rounds
+ * behind each timeline are one further batched query for the whole list, not
+ * one per application.
  */
 export async function listApplications(candidateUserId: number): Promise<Array<Application>> {
   const rows = await prisma.application.findMany({
@@ -236,19 +235,13 @@ export async function listApplications(candidateUserId: number): Promise<Array<A
 }
 
 /**
- * One of the authenticated candidate's own applications (FR-4.3).
+ * One of the authenticated candidate's own applications.
  *
- * **`candidateUserId` is part of the `where`, not a check after the fetch**
- * (AZ-2). A candidate asking for somebody else's id gets a `404` produced by a
- * query that returned no row — the same answer a nonexistent id gets, from the
- * same statement, so the response cannot be used to discover that an
- * application exists.
- *
- * This is the route the candidate feature deliberately did not ship (candidate
- * FR-6.8), and the reversal is deliberate too: that absence was a guarantee
- * only because there was nothing on a detail page worth showing. There is now —
- * the stage timeline the brief's §3.5 complaint is about. The guarantee is
- * replaced by the predicate above rather than abandoned.
+ * **`candidateUserId` is part of the `where`, not a check after the fetch.** A
+ * candidate asking for somebody else's id gets a `404` produced by a query that
+ * returned no row — the same answer a nonexistent id gets, from the same
+ * statement, so the response cannot be used to discover that an application
+ * exists.
  */
 export async function getCandidateApplication(
   applicationId: number,
@@ -271,7 +264,7 @@ export async function getCandidateApplication(
  * ---------------------------------------------------------------------- */
 
 /**
- * `?hasInterviews=` as a `where` fragment (FR-1.4).
+ * `?hasInterviews=` as a `where` fragment.
  *
  * Both branches are `EXISTS` subqueries in the SQL Prisma emits — `some` and
  * `none` — rather than a join that multiplies rows or a count loaded into Node.
@@ -289,22 +282,20 @@ const interviewPresenceFilter = (
 };
 
 /**
- * Every application, filtered and paged (FR-1).
+ * Every application, filtered and paged.
  *
  * **There is no per-row scoping here, and the role guard on the route is the
- * whole authorization** — the same arrangement as the pipeline board (pipeline
- * AZ-2). A recruiter sees every application on every requisition. Anyone
- * widening that guard is not granting a filtered view; they are granting
- * everything.
+ * whole authorization** — a recruiter sees every application on every
+ * requisition. Anyone widening that guard is not granting a filtered view; they
+ * are granting everything.
  *
- * `hasInterviews` is the filter that makes `/interviews` a list of candidates in
- * process rather than a list of rounds (FR-1.4). It is expressed as `interviews:
+ * `hasInterviews` is the filter that makes the list a list of candidates in
+ * process rather than a list of rounds. It is expressed as `interviews:
  * { some: {} }` / `{ none: {} }`, which Prisma compiles to an `EXISTS`
  * subquery — not a join that multiplies rows and not a count loaded into Node.
  *
  * Paged, unlike the candidate's list, because this one scales with people: it is
- * the only read in this module whose result set grows with the 20,000 candidates
- * the brief names (PERF-3).
+ * the only read in this module whose result set grows with the candidate count.
  */
 export async function listRecruiterApplications(
   query: ListApplicationsQuery,
@@ -352,7 +343,7 @@ export async function listRecruiterApplications(
 }
 
 /**
- * One application, with its timeline and every round on it (FR-4.2).
+ * One application, with its timeline and every round on it.
  *
  * `404` on a missing id. There is no scoping predicate and none is missing: a
  * recruiter may read every application, as they may on the board and on
@@ -378,9 +369,9 @@ export async function getRecruiterApplication(
     createdAt: row.createdAt,
     role: row.role,
     candidate: row.candidate,
-    // The SAME builder a candidate's timeline comes from (FR-5.5). Two builders
-    // would eventually tell the two audiences different stories about one
-    // process, which is the failure the brief opens with.
+    // The SAME builder a candidate's timeline comes from. Two builders would
+    // eventually tell the two audiences different stories about one process,
+    // which is the failure the brief opens with.
     timeline: buildTimeline(row, row.interviews),
     interviews: row.interviews,
   };

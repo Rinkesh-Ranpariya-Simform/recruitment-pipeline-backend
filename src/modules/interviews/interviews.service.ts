@@ -21,11 +21,11 @@ import {
 import { prisma } from '../../lib/prisma.js';
 import { recordAudit } from '../audit/audit.service.js';
 // The stage graph and the two guarded writes come from the module that OWNS
-// them (applications FR-3.4). This is a real cross-module dependency and it is
-// the right one: re-deriving `canTransition` here would put a second copy of
-// the brief's §3.1 rule in the codebase, and two copies of a rule are two
-// rules. `pipeline.rules` imports nothing but the Prisma enums, so nothing
-// circular comes back with it.
+// them. This is a real cross-module dependency and it is the right one:
+// re-deriving `canTransition` here would put a second copy of the stage
+// progression rule in the codebase, and two copies of a rule are two rules.
+// `pipeline.rules` imports nothing but the Prisma enums, so nothing circular
+// comes back with it.
 import { ALLOWED_STAGE_TRANSITIONS, canTransition } from '../pipeline/pipeline.rules.js';
 import { guardedOutcomeUpdate, guardedStageUpdate } from '../pipeline/pipeline.repository.js';
 import {
@@ -53,27 +53,25 @@ import type {
  * Three rules hold across every function here:
  *
  *   1. **Every write is ONE transaction** holding its row change and its
- *      `recordAudit` call (BE-7). `recordAudit` is passed `tx`, never the global
- *      client — the latter does not compile (audit EC-03) — and its failure is
- *      deliberately not caught: an action that could not be recorded did not
- *      happen (ERR-6, EC-20).
- *   2. **Conflicts come from constraints, not from preceding reads** (BE-6). A
+ *      `recordAudit` call. `recordAudit` is passed `tx`, never the global
+ *      client, and its failure is deliberately not caught: an action that could
+ *      not be recorded did not happen.
+ *   2. **Conflicts come from constraints, not from preceding reads.** A
  *      duplicate assignment is `P2002` from the unique index; a missing round on
  *      an insert is `P2003` from the foreign key. Prisma codes are caught
  *      OUTSIDE the transaction callback, because a constraint violation has
  *      already aborted the Postgres transaction by the time the `catch` runs —
  *      the same pattern as `applications.service.createApplication`.
- *   3. **The select is chosen by role before the query runs** (BE-4, FR-5.4).
- *      There is no post-fetch removal step in this module, and no function
- *      named after any kind of cleaning pass — their absence is the design, and
- *      AC-B23 is the grep that confirms it.
+ *   3. **The select is chosen by role before the query runs.** There is no
+ *      post-fetch removal step in this module, and no function named after any
+ *      kind of cleaning pass — their absence is the design.
  *
  * The interviewer scope itself is not written here. It lives in exactly one
- * place, `interviews.repository.ts` (BE-3, AZ-4).
+ * place, `interviews.repository.ts`.
  *
- * `log: Logger` is last on every function, matching every shipped service
- * (BE-8). Log lines carry ids and enum values only — never a candidate name, an
- * email or a round's contents (FR-7.2, SEC-7).
+ * `log: Logger` is last on every function, matching every shipped service. Log
+ * lines carry ids and enum values only — never a candidate name, an email or a
+ * round's contents.
  */
 
 /** The `POST …/assignments` response body (contract). */
@@ -85,11 +83,11 @@ export interface AssignmentCreatedView {
 }
 
 /* -------------------------------------------------------------------------
- * FR-1 — creating a round
+ * Creating a round
  * ---------------------------------------------------------------------- */
 
 /**
- * Schedules one round against one ACTIVE application (FR-1.6).
+ * Schedules one round against one ACTIVE application.
  *
  * The application is resolved by `findFirst({ where: { id, status: ACTIVE } })`
  * — **the eligibility rule and the lookup are one statement**, so there is no
@@ -98,13 +96,13 @@ export interface AssignmentCreatedView {
  * missing application (`404`) from a terminal one (`409`).
  *
  * `status` is the `SCHEDULED` literal below, never a schema default, so the rule
- * lives where a reader will find it (FR-1.5). `createdByUserId` is the token's
- * subject; no body field can set it (AZ-7).
+ * lives where a reader will find it. `createdByUserId` is the token's subject;
+ * no body field can set it.
  *
  * `stage` is whatever the recruiter asked for and is **not** checked against the
- * application's `currentStage` (D-13, FR-1.4, EC-09): scheduling the technical
- * round while the candidate is still at SCREEN is routine. The stage on a round
- * is what it is FOR, not an assertion about now.
+ * application's `currentStage`: scheduling the technical round while the
+ * candidate is still at SCREEN is routine. The stage on a round is what it is
+ * FOR, not an assertion about now.
  */
 export async function createInterview(
   applicationId: number,
@@ -122,7 +120,7 @@ export async function createInterview(
       // Only reached on a miss, so the happy path stays at one lookup. A
       // terminal application is a 409 and a missing one a 404 — the recruiter
       // is the only actor who can reach this route, so there is no enumeration
-      // concern in telling the two apart (EC-11, D-12).
+      // concern in telling the two apart.
       const exists = await tx.application.findUnique({
         where: { id: applicationId },
         select: { id: true },
@@ -139,7 +137,7 @@ export async function createInterview(
         // `?? null` rather than passing `undefined` through: Prisma treats an
         // absent key and an explicit `null` identically on a create, but the
         // column is nullable on purpose and writing the intent out stops a
-        // later reader assuming the field was forgotten (applications FR-2.3).
+        // later reader assuming the field was forgotten.
         scheduledAt: input.scheduledAt ?? null,
         status: InterviewStatus.SCHEDULED,
         createdByUserId: actorUserId,
@@ -189,17 +187,16 @@ export async function createInterview(
 }
 
 /* -------------------------------------------------------------------------
- * FR-2 — the lifecycle
+ * The lifecycle
  * ---------------------------------------------------------------------- */
 
 /**
- * A round's status, its date, or both (FR-2.1, FR-2.2, applications FR-2.4).
+ * A round's status, its date, or both.
  *
  * **Neither terminal status may change again.** A second status `PATCH` is `409
  * INVALID_STAGE_TRANSITION` — the code the pipeline feature added, reused rather
  * than duplicated: it is the same idea, a state machine refusing a move, and a
- * second code for it would give the client two branches where one suffices
- * (ERR-4, EC-14).
+ * second code for it would give the client two branches where one suffices.
  *
  * **A date may only be set while a round is `SCHEDULED`**, through the same
  * guard and for the same reason. Moving the date of a round that already
@@ -211,8 +208,8 @@ export async function createInterview(
  * gets the same `409` as a sequential second attempt. The follow-up read runs
  * only on a miss, to tell a missing round from an already-terminal one.
  *
- * **Cancelling does not touch assignments** (FR-2.3, AC-B38). The round was
- * planned and its panel was chosen; erasing the panel would erase that record.
+ * **Cancelling does not touch assignments.** The round was planned and its
+ * panel was chosen; erasing the panel would erase that record.
  */
 export async function updateInterviewStatus(
   interviewId: number,
@@ -222,7 +219,7 @@ export async function updateInterviewStatus(
 ): Promise<RecruiterInterviewView> {
   // `'scheduledAt' in input`, not a truthiness test: `null` is a meaningful
   // value here — it clears the date back to undated — and `?? undefined` would
-  // silently turn "clear it" into "leave it alone" (VAL-3).
+  // silently turn "clear it" into "leave it alone".
   const changesDate = 'scheduledAt' in input;
 
   const interview = await prisma.$transaction(async (tx) => {
@@ -246,7 +243,7 @@ export async function updateInterviewStatus(
 
       // `details.allowed` is empty because nothing is reachable from a terminal
       // round — the same contract as the pipeline's stage refusal, so a client
-      // renders its remaining actions from one array either way (ERR-1, XFE-2).
+      // renders its remaining actions from one array either way.
       throw new InvalidStageTransitionError(
         `This interview is already ${existing.status} and cannot be changed again`,
         { status: [`Not reachable from ${existing.status}`], allowed: [] },
@@ -276,12 +273,12 @@ export async function updateInterviewStatus(
 }
 
 /* -------------------------------------------------------------------------
- * applications FR-3 — the verdict, and what it moves
+ * The verdict, and what it moves
  * ---------------------------------------------------------------------- */
 
 /**
  * Records "selected" or "rejected" AT one round, and applies what that means to
- * the application — **in one transaction** (applications FR-3.3).
+ * the application — **in one transaction**.
  *
  * This is the single write behind the Select / Reject pair at the top of a
  * round's page, and it is one endpoint rather than three client calls for a
@@ -300,15 +297,13 @@ export async function updateInterviewStatus(
  *    winning.
  * 2. **On `SELECTED`** — moves the application to the round's own stage, if it
  *    is not already there. `canTransition` is imported from `pipeline.rules`,
- *    **not re-derived here**: the stage graph has one definition, and a second
- *    copy in this module is how the two come to disagree. A move the graph
- *    refuses is `409 INVALID_STAGE_TRANSITION`, and the recruiter's path is then
- *    a stage override with a reason — the brief's §3.1 "cannot skip a stage
- *    without an explicit override" holding for this endpoint too.
+ *    **not re-derived here**: the stage graph has one definition. A move the
+ *    graph refuses is `409 INVALID_STAGE_TRANSITION`, and the recruiter's path
+ *    is then a stage override with a reason.
  * 3. **On `REJECTED`** — closes the application, leaving `currentStage` exactly
- *    where it stopped (pipeline FR-3.5). "Rejected at Screen" and "rejected at
- *    Offer" are different outcomes, and an outcome that reset the stage would
- *    erase the difference.
+ *    where it stopped. "Rejected at Screen" and "rejected at Offer" are
+ *    different outcomes, and an outcome that reset the stage would erase the
+ *    difference.
  * 4. **Writes the history and audit rows** for whichever of those happened, plus
  *    one `INTERVIEW_DECISION_RECORDED` row naming the round. Three audit actions
  *    rather than one, because they answer three different questions — collapsing
@@ -347,7 +342,7 @@ export async function recordDecision(
 
     if (existing.status === InterviewStatus.CANCELLED) {
       // A cancelled round did not happen, so there is nothing to decide about
-      // it — the same reasoning that refuses feedback on one (feedback D-12).
+      // it — the same reasoning that refuses feedback on one.
       throw new InterviewCancelledError();
     }
 
@@ -427,7 +422,7 @@ export async function recordDecision(
           fromStatus: ApplicationStatus.ACTIVE,
           toStatus: ApplicationStatus.ACTIVE,
           changedByUserId: actorUserId,
-          // Null: this transition did not use the override path (pipeline FR-5.4).
+          // Null: this transition did not use the override path.
           overrideId: null,
         },
         select: { id: true },
@@ -462,7 +457,7 @@ export async function recordDecision(
           applicationId: existing.application.id,
           // `currentStage` is untouched by an outcome, and both ends are
           // recorded anyway: a history row that only fills in what moved cannot
-          // be read on its own (pipeline FR-5.2).
+          // be read on its own.
           fromStage,
           toStage: fromStage,
           fromStatus: ApplicationStatus.ACTIVE,
@@ -522,7 +517,7 @@ export async function recordDecision(
     };
   });
 
-  // Ids and enum values only — never the candidate's name (pipeline FR-10.2).
+  // Ids and enum values only — never the candidate's name.
   log.info(
     {
       event: 'interview.decision_recorded',
@@ -540,27 +535,27 @@ export async function recordDecision(
 }
 
 /* -------------------------------------------------------------------------
- * FR-3 — the panel
+ * The panel
  * ---------------------------------------------------------------------- */
 
 /**
- * Puts one interviewer on one round (FR-3.2) — **the write the whole scoping
- * model rests on**, which is why it is recruiter-gated at the route and has no
- * other caller outside the seed (AZ-3, SEC-3).
+ * Puts one interviewer on one round — **the write the whole scoping model rests
+ * on**, which is why it is recruiter-gated at the route and has no other caller
+ * outside the seed.
  *
- * Three statements, and only three (PERF-6): the interviewer lookup, the insert,
- * the audit insert.
+ * Three statements, and only three: the interviewer lookup, the insert, the
+ * audit insert.
  *
- *   - **The role requirement is in the `where`** (FR-3.3): a `findFirst` for
+ *   - **The role requirement is in the `where`**: a `findFirst` for
  *     `{ id, role: INTERVIEWER }` that matches nothing is `400
  *     NOT_AN_INTERVIEWER`. A recruiter's or candidate's user row is never
  *     loaded, and a nonexistent id answers identically — so the endpoint does
- *     not reveal whether the id exists as some other role (EC-03, EC-04, VAL-6).
+ *     not reveal whether the id exists as some other role.
  *   - **The duplicate is refused by Postgres**, not by a preceding read: the
  *     `@@unique([interviewId, interviewerId])` index raises `P2002`, which
- *     becomes `409 ALREADY_ASSIGNED` (FR-3.4, D-5). A check-then-write loses to
- *     two concurrent clicks; a unique index cannot (EC-01, AC-B14). **Do not add
- *     a `findFirst` before this create.**
+ *     becomes `409 ALREADY_ASSIGNED`. A check-then-write loses to two
+ *     concurrent clicks; a unique index cannot. **Do not add a `findFirst`
+ *     before this create.**
  *   - **A missing round is refused by the foreign key**, `P2003` → `404`, for
  *     the same reason and at the same cost: no extra statement.
  */
@@ -588,8 +583,7 @@ export async function assignInterviewer(
           interviewId,
           interviewerId: interviewer.id,
           // The token's subject. A body carrying `assignedByUserId` was already
-          // dropped by zod and reaches no code that could read it (AZ-7,
-          // VAL-5, AC-B37).
+          // dropped by zod and reaches no code that could read it.
           assignedByUserId: actorUserId,
         },
         select: ASSIGNMENT_SELECT,
@@ -665,28 +659,27 @@ export async function assignInterviewer(
 }
 
 /**
- * Takes an interviewer off a round (FR-3.6).
+ * Takes an interviewer off a round.
  *
- * **A hard delete** (D-10, MIG-5). The `AuditLog` row written in the same
- * transaction is the record that the assignment existed and was removed; a
- * soft-delete column would be a second, weaker record of the same fact, and two
- * records of one fact eventually disagree.
+ * **A hard delete.** The `AuditLog` row written in the same transaction is the
+ * record that the assignment existed and was removed; a soft-delete column would
+ * be a second, weaker record of the same fact, and two records of one fact
+ * eventually disagree.
  *
  * **Not idempotent**: removing an assignment that is not there is `404`, not
- * `204` (FR-3.8, EC-08). A client that thinks it removed somebody who was never
- * on the panel has a bug worth surfacing.
+ * `204`. A client that thinks it removed somebody who was never on the panel has
+ * a bug worth surfacing.
  *
  * `deleteMany` rather than `delete`, so the miss is a `count` of 0 rather than a
  * `P2025` to catch — one statement either way, and no preceding read.
  *
- * **The interviewer loses read access immediately** (FR-3.10, AZ-8, EC-07):
- * authorization is a join against this table evaluated per request, not a claim
- * captured in their token, so their very next call answers `404` without them
- * re-authenticating (AC-B21).
+ * **The interviewer loses read access immediately**: authorization is a join
+ * against this table evaluated per request, not a claim captured in their token,
+ * so their very next call answers `404` without them re-authenticating.
  *
  * **It does not delete their feedback.** That is the feedback feature's decision
- * to state (feedback FR-6.4); `Feedback` has no foreign key to
- * `InterviewAssignment` for exactly this reason (FR-3.9).
+ * to state; `Feedback` has no foreign key to `InterviewAssignment` for exactly
+ * this reason.
  */
 export async function unassignInterviewer(
   interviewId: number,
@@ -730,20 +723,19 @@ export async function unassignInterviewer(
 }
 
 /* -------------------------------------------------------------------------
- * FR-4 — the reads
+ * The reads
  * ---------------------------------------------------------------------- */
 
 /**
- * One endpoint, both roles, two projections (FR-4.1, D-7).
+ * One endpoint, both roles, two projections.
  *
  * The scoping is entirely `buildInterviewWhere`'s, in the repository — this
  * function does not filter, and **must not start**: an interviewer's page is
  * narrow because the query was narrow, not because rows were dropped from a
- * wider one (AZ-4, XFE-2).
+ * wider one.
  *
  * An empty result is `200 { interviews: [], pagination }`, never a `404` and
- * never a `403` (EC-15). A page past the end is the same, with accurate
- * pagination (EC-16).
+ * never a `403`. A page past the end is the same, with accurate pagination.
  */
 export async function listInterviews(
   query: ListInterviewsQuery,
@@ -774,17 +766,17 @@ export async function listInterviews(
 }
 
 /**
- * One round by id, scoped in the query (FR-4.5).
+ * One round by id, scoped in the query.
  *
- * **No row is `404 NOT_FOUND`, never `403`** (FR-4.6, AZ-5, ERR-1). A `403`
- * would confirm the round exists, turning the endpoint into an enumeration
- * oracle; the `404` an unassigned interviewer gets is byte-identical to the one
- * a nonexistent id gets (AC-B18). This is the brief's sharpest check.
+ * **No row is `404 NOT_FOUND`, never `403`.** A `403` would confirm the round
+ * exists, turning the endpoint into an enumeration oracle; the `404` an
+ * unassigned interviewer gets is byte-identical to the one a nonexistent id
+ * gets.
  *
  * The miss is logged as `interview.scoped_read_miss` for a non-recruiter only —
  * the single most useful line for noticing someone probing the id space, and it
- * carries ids alone (FR-7.1, SEC-7, AC-B19). A recruiter's miss is an ordinary
- * `404` and says nothing about access.
+ * carries ids alone. A recruiter's miss is an ordinary `404` and says nothing
+ * about access.
  */
 export async function getInterview(
   interviewId: number,
@@ -809,7 +801,7 @@ export async function getInterview(
 }
 
 /**
- * Every round on one application, recruiter-only (FR-1.9, AZ-6).
+ * Every round on one application, recruiter-only.
  *
  * The application is resolved first so that a nonexistent one is a `404` rather
  * than an empty list — "this application has no rounds" and "there is no such

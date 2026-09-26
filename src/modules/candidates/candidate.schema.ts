@@ -2,26 +2,23 @@ import { z } from 'zod';
 import { ApplicationStatus, PipelineStage } from '../../../generated/prisma/enums.js';
 
 /**
- * The validation boundary for all three endpoints (Validation table).
+ * The validation boundary for all three endpoints.
  *
  * Unknown keys are dropped, as everywhere else in this codebase. That is how
- * **`name`, `email` and `role` are kept out of the `PATCH`** (FR-4.2, VAL-4):
- * a body of `{"phone":"+1","email":"attacker@evil.test","role":"RECRUITER"}`
- * reaches the service as `{ phone: '+1' }` — the tampered fields are not
- * rejected, they simply do not exist by the time any code could read one, and
- * the endpoint answers `200` having changed only the phone. **Rejecting would
- * tell an attacker which fields exist; dropping tells them nothing and changes
- * nothing** (SEC-9, AC-B28).
+ * **`name`, `email` and `role` are kept out of the `PATCH`**: a body of
+ * `{"phone":"+1","email":"attacker@evil.test","role":"RECRUITER"}` reaches the
+ * service as `{ phone: '+1' }` — the tampered fields are not rejected, they
+ * simply do not exist by the time any code could read one, and the endpoint
+ * answers `200` having changed only the phone. **Rejecting would tell an
+ * attacker which fields exist; dropping tells them nothing and changes nothing.**
  *
- * Validation runs AFTER `requireAuth` and `requireRole` (BE-4, VAL-7), so a
- * candidate sending a malformed `PATCH` gets `403` and learns nothing about the
- * body contract (AC-B40).
+ * Validation runs AFTER `requireAuth` and `requireRole`, so a candidate
+ * sending a malformed `PATCH` gets `403` and learns nothing about the body
+ * contract.
  *
- * **One rule in the Validation table is not here**: `?q=` from an interviewer
- * is a `400` (VAL-5, FR-3.8). It depends on the caller's role, which
- * `validateQuery` cannot see, so it is enforced at the top of
- * `candidate.service.listCandidates` — before any query runs, which is the
- * property VAL-8 actually asks for.
+ * **One rule is not here**: `?q=` from an interviewer is a `400`. It depends on
+ * the caller's role, which `validateQuery` cannot see, so it is enforced at the
+ * top of `candidate.service.listCandidates` — before any query runs.
  *
  * This is zod v4: enum messages are `z.enum(Values, 'message')`, not
  * `z.nativeEnum` or `{ message: … }`.
@@ -40,20 +37,19 @@ export const candidateIdParamSchema = z.object({
 });
 
 /**
- * The list's four optional filters and its pager (FR-3.4, FR-3.5).
+ * The list's four optional filters and its pager.
  *
  * `q` follows the shipped `listRolesQuerySchema` convention exactly: trimmed,
  * capped at 120, and an empty term becomes `undefined` so `?q=` renders an
- * unfiltered page rather than searching for nothing (VAL-1).
+ * unfiltered page rather than searching for nothing.
  *
  * `stage` and `status` come from the shipped Prisma enums, so `?stage=PROBATION`
- * is a `400` before any query runs — the brief's §6 requirement that bad input
- * is rejected before business logic (VAL-8, AC-B24).
+ * is a `400` before any query runs.
  *
- * `?pageSize=101` is a `400`, never a silent clamp (VAL-2, AC-B23), matching
+ * `?pageSize=101` is a `400`, never a silent clamp, matching
  * `listRolesQuerySchema`. **This is the only endpoint in the system whose
  * result set scales with the number of people**, which is why it is the only
- * one that must paginate (D-10, PERF-3).
+ * one that must paginate.
  */
 export const listCandidatesQuerySchema = z.object({
   q: z
@@ -83,25 +79,24 @@ export const listCandidatesQuerySchema = z.object({
 });
 
 /**
- * The contact patch — **three fields, and only three** (FR-4.1, FR-4.2, D-5).
+ * The contact patch — **three fields, and only three.**
  *
- * Every one is `.nullable().optional()`, and the pair is load-bearing (VAL-6,
- * FR-4.6): an explicit `null` CLEARS a field, an omitted key LEAVES IT
- * UNCHANGED, and the service distinguishes them by `!== undefined` rather than
- * by a sentinel string. "Remove this number" is therefore expressible, and a
- * client editing only the location cannot wipe a phone it never displayed
- * (EC-12, AC-B27).
+ * Every one is `.nullable().optional()`, and the pair is load-bearing: an
+ * explicit `null` CLEARS a field, an omitted key LEAVES IT UNCHANGED, and the
+ * service distinguishes them by `!== undefined` rather than by a sentinel
+ * string. "Remove this number" is therefore expressible, and a client editing
+ * only the location cannot wipe a phone it never displayed.
  *
  * `.trim()` runs before the length caps, so `"   "` stores an empty string
  * rather than failing — deliberate: there is no `.min(1)` here, because a POC
  * that argues with a recruiter about whitespace is worse than one that stores
- * what they typed (FR-2.3). There is **no format validation on `phone`** for
- * the same reason: rejecting a valid international number is the worse failure.
+ * what they typed. There is **no format validation on `phone`** for the same
+ * reason: rejecting a valid international number is the worse failure.
  *
  * The `.refine()` runs after unknown keys are dropped, so `{}` — and a body
  * carrying nothing but `name`/`email`/`role` — is a `400`. That issue has no
  * field path, so it is keyed `_` in `details`, matching `updateRoleSchema` and
- * the `zod-details` convention (VAL-3, AC-B29).
+ * the `zod-details` convention.
  */
 export const updateCandidateContactSchema = z
   .object({

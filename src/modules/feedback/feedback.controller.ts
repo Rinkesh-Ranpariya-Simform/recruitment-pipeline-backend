@@ -9,27 +9,14 @@ import type {
 } from './feedback.schema.js';
 
 /**
- * HTTP only: read the request, call a service, shape a response (BE-1). No
- * scoping, no Prisma, no transactions — the assignment predicate lives in
- * `feedback.repository.ts` and nowhere else (BE-2, AZ-2). **No handler composes
- * it**, and nothing here inspects a fetched row and decides what to send.
- *
- * Handlers don't catch — Express 5 forwards a rejected promise to the error
- * middleware, which is what keeps a Prisma code off the wire (ERR-6).
- *
- * Input comes from `req.validatedParams` and `req.body`, never the raw
- * `req.params`, whose values are un-coerced strings. Each cast is safe because
- * the route that reaches a handler is the route that installed its schema.
+ * Feedback controller handling HTTP request parsing and response formatting.
+ * Business logic and authorization predicates are handled in the service and repository layers.
+ * Unhandled rejections propagate to the error middleware for uniform error responses.
  */
 
 /**
- * The author of every row this feature writes, and the subject every scoped
- * lookup resolves against (FR-2.5, AZ-8).
- *
- * `req.user.id`, established by `requireAuth` from a verified token, and
- * **nothing else**. No body, query parameter or header supplies one — which is
- * why `interviewerId` is not a field in `createFeedbackSchema` and why a body
- * carrying one changes nothing (AC-B09).
+ * Extracts and returns the authenticated user's ID from the request.
+ * Throws an UnauthenticatedError if no authenticated user is present.
  */
 function actorId(req: Request): number {
   if (req.user === undefined) {
@@ -40,10 +27,8 @@ function actorId(req: Request): number {
 }
 
 /**
- * The caller's role, which the read scopes by.
- *
- * Read from `req.user` — a verified token claim — and never from anything the
- * caller controls. A client cannot ask to be read as a recruiter.
+ * Extracts and returns the authenticated user's role from the request.
+ * Throws an UnauthenticatedError if no authenticated user is present.
  */
 function actorRole(req: Request): UserRole {
   if (req.user === undefined) {
@@ -54,11 +39,8 @@ function actorRole(req: Request): UserRole {
 }
 
 /**
- * `201` with the created row and its author expanded (FR-2.9).
- *
- * The body is complete enough for a client to append optimistically, though
- * invalidating its feedback query is equally correct (XFE-11). There is no
- * candidate field anywhere in it (AC-B33).
+ * Handles feedback submission for an interview.
+ * Returns 201 Created with the created feedback record and expanded author details.
  */
 export async function submit(req: Request, res: Response): Promise<void> {
   const { interviewId } = req.validatedParams as InterviewIdParam;
@@ -74,8 +56,8 @@ export async function submit(req: Request, res: Response): Promise<void> {
 }
 
 /**
- * `200` with the whole row, not a diff, so the client doesn't have to merge its
- * own patch into cached state.
+ * Handles updating an existing feedback record.
+ * Returns 200 OK with the updated feedback record.
  */
 export async function update(req: Request, res: Response): Promise<void> {
   const { interviewId } = req.validatedParams as InterviewIdParam;
@@ -91,12 +73,8 @@ export async function update(req: Request, res: Response): Promise<void> {
 }
 
 /**
- * `200 { feedback: [...] }` — **no pagination envelope** (FR-5.7, XFE-9). A
- * round's panel is single digits, bounded by the unique index and by how many
- * interviewers a recruiter assigns.
- *
- * An empty round is `200` with `feedback: []`, never a `404`, provided the
- * caller may see the round at all (FR-5.8).
+ * Handles listing feedback records for an interview round.
+ * Returns 200 OK with an array of feedback entries visible to the user's role.
  */
 export async function list(req: Request, res: Response): Promise<void> {
   const { interviewId } = req.validatedParams as InterviewIdParam;

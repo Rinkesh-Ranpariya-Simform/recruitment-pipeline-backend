@@ -10,12 +10,12 @@ import * as applicationsService from './applications.service.js';
 
 /**
  * HTTP concerns only: read the request, call a service, shape a response. No
- * eligibility rules, no Prisma (BE-1).
+ * eligibility rules, no Prisma.
  *
  * **Nothing here filters a response.** The two reads pick which SERVICE
  * FUNCTION runs from `req.user.role`, and each of those has its own `where` and
- * its own select; no handler inspects a fetched row and decides what to send
- * (BE-4). The dispatch is a choice between two queries, made before either runs.
+ * its own select; no handler inspects a fetched row and decides what to send.
+ * The dispatch is a choice between two queries, made before either runs.
  *
  * Handlers don't catch — Express 5 forwards a rejected promise from an async
  * handler to the error middleware.
@@ -26,7 +26,7 @@ import * as applicationsService from './applications.service.js';
  *
  * This is the ONLY source of `candidateUserId` in the feature. It comes from
  * `req.user`, established by `requireAuth` from a verified token, and never from
- * a body, query parameter or header (AZ-5).
+ * a body, query parameter or header.
  */
 function actorId(req: Request): number {
   if (req.user === undefined) {

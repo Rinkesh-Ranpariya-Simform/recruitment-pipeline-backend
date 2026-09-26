@@ -8,7 +8,7 @@ import type {
 } from '../../../generated/prisma/enums.js';
 
 /**
- * **This is the file the brief's §7.3 question is answered in** (BE-2, SEC-1).
+ * **This is the file the exposure question is answered in.**
  *
  * > when an interviewer's endpoint returns candidate data, is the restricted
  * > contact information ever present in the row your database returned to your
@@ -25,14 +25,13 @@ import type {
  *
  * The two projections are **different objects, chosen by role before the query
  * runs** — not one select with a runtime branch and not one wide fetch narrowed
- * afterwards (FR-7.2, D-7). The recruiter's is larger in content, but it is not
- * a superset that the interviewer's is derived from: deriving one from the
- * other is precisely the design that leaks the first time someone edits the
- * wrong branch.
+ * afterwards. The recruiter's is larger in content, but it is not a superset
+ * that the interviewer's is derived from: deriving one from the other is
+ * precisely the design that leaks the first time someone edits the wrong branch.
  *
  * **If a field must be kept from an interviewer, it comes out of the select.**
  * There is no function in this module that removes a field from a fetched row,
- * and that absence is the design (FR-7.3, SEC-4, AC-B32).
+ * and that absence is the design.
  */
 
 /* -------------------------------------------------------------------------
@@ -40,12 +39,11 @@ import type {
  * ---------------------------------------------------------------------- */
 
 /**
- * A candidate's contact details, as a recruiter reads them (FR-2.5).
+ * A candidate's contact details, as a recruiter reads them.
  *
  * **Always an object, never `null`.** A candidate with no `CandidateProfile`
  * row gets three nulls rather than an absent object, so a client never has to
- * tell "no row" from "no value" — a distinction with no meaning here (EC-10,
- * XFE-6).
+ * tell "no row" from "no value" — a distinction with no meaning here.
  *
  * `updatedAt` is `null` in exactly that case, and is the one field that can
  * distinguish the two if anybody ever needs to.
@@ -57,18 +55,18 @@ export interface CandidateProfileView {
   updatedAt: Date | null;
 }
 
-/** One seat on a panel, as the recruiter detail renders it (FR-5.2). */
+/** One seat on a panel, as the recruiter detail renders it. */
 export interface CandidateAssignmentView {
   id: number;
   interviewer: { id: number; name: string };
 }
 
 /**
- * One assessment, with its `notes` (FR-5.4, D-12).
+ * One assessment, with its `notes`.
  *
  * The notes are here because a recruiter may read feedback on any round
- * already (feedback AZ-3), and withholding them on this surface would be an
- * inconsistency rather than a protection. **This type is reachable only from
+ * already, and withholding them on this surface would be an inconsistency
+ * rather than a protection. **This type is reachable only from
  * `RecruiterCandidateView`** — an interviewer's payload has no path to it.
  */
 export interface CandidateFeedbackView {
@@ -79,16 +77,14 @@ export interface CandidateFeedbackView {
    * **Neither is in the spec's contract sketch, and both are here on purpose.**
    * The client renders these entries with the feedback feature's own
    * `<FeedbackList>` fed straight from this payload — which is what makes a
-   * candidate with five rounds ONE request instead of six (frontend D-7, FE-7,
-   * XBE-6). That component's `Feedback` type declares both, so a payload
-   * without them could not be handed to it and the zero-request path the two
-   * specs agree on would not exist.
+   * candidate with five rounds ONE request instead of six. That component's
+   * `Feedback` type declares both, so a payload without them could not be
+   * handed to it and the zero-request path would not exist.
    *
    * Neither is restricted: `interviewId` is the id of the round this object is
    * already nested inside, and `updatedAt` is what tells a reader an assessment
-   * was revised. Both are already in every response `GET
-   * /api/interviews/:id/feedback` gives a recruiter, which they may read for any
-   * round (feedback AZ-3). **This adds nothing an interviewer can reach** —
+   * was revised. Both are already in every response the feedback list endpoint
+   * gives a recruiter. **This adds nothing an interviewer can reach** —
    * `INTERVIEWER_CANDIDATE_SELECT` does not reach `applications`, so it does not
    * reach this type at all.
    */
@@ -113,14 +109,14 @@ export interface CandidateInterviewView {
 }
 
 /**
- * One step of an application's stage timeline (FR-5.3, FR-5.5).
+ * One step of an application's stage timeline.
  *
  * `override` is non-null exactly when this transition used the override path,
  * and it carries the `reason` and the recruiter who performed it. **This is the
- * surface where the brief's §3.3 record is actually read**, which is why the
- * reason is returned in full rather than as a flag.
+ * surface where the override record is actually read**, which is why the reason
+ * is returned in full rather than as a flag.
  *
- * `fromStage` is `null` only on the entry into `APPLIED` (pipeline FR-5.3).
+ * `fromStage` is `null` only on the entry into `APPLIED`.
  */
 export interface CandidateStageHistoryView {
   id: number;
@@ -149,7 +145,7 @@ export interface RecruiterCandidateApplicationView {
   interviews: Array<CandidateInterviewView>;
 }
 
-/** What a RECRUITER gets from `GET /api/candidates/:candidateId` (FR-5.2). */
+/** What a RECRUITER gets from `GET /api/candidates/:candidateId`. */
 export interface RecruiterCandidateView {
   id: number;
   name: string;
@@ -159,7 +155,7 @@ export interface RecruiterCandidateView {
   applications: Array<RecruiterCandidateApplicationView>;
 }
 
-/** One row of a RECRUITER's `GET /api/candidates` page (FR-3.6). */
+/** One row of a RECRUITER's `GET /api/candidates` page. */
 export interface RecruiterCandidateRowView {
   id: number;
   name: string;
@@ -178,12 +174,12 @@ export interface RecruiterCandidateRowView {
 
 /**
  * **Everything an INTERVIEWER is told about a candidate, on both endpoints.**
- * Two fields (D-8, FR-3.7, FR-6.4).
+ * Two fields.
  *
  * There is no `email`, no `phone`, no `applications`, no `stageHistory` and no
- * `feedback` — **not optional, absent** (contract invariants 1–3). A shape with
- * `email?: string` would invite a caller to render it, and the whole point is
- * that there is nothing here to render.
+ * `feedback` — **not optional, absent**. A shape with `email?: string` would
+ * invite a caller to render it, and the whole point is that there is nothing
+ * here to render.
  */
 export interface InterviewerCandidateView {
   id: number;
@@ -191,7 +187,7 @@ export interface InterviewerCandidateView {
 }
 
 /**
- * One of the interviewer's OWN rounds with a candidate (FR-6.6, FR-6.7).
+ * One of the interviewer's OWN rounds with a candidate.
  *
  * It carries no panel and no feedback: an interviewer's payload does not name
  * their colleagues, and a candidate interviewed by three panels shows each one
@@ -228,7 +224,7 @@ const APPLICATIONS_NEWEST_FIRST: Array<Prisma.ApplicationOrderByWithRelationInpu
   { id: 'desc' },
 ];
 
-/** **Oldest first: a timeline reads forwards** (FR-5.3, frontend FR-5.1). */
+/** **Oldest first: a timeline reads forwards.** */
 const HISTORY_OLDEST_FIRST: Array<Prisma.StageHistoryOrderByWithRelationInput> = [
   { createdAt: 'asc' },
   { id: 'asc' },
@@ -255,19 +251,18 @@ const FEEDBACK_NEWEST_FIRST: Array<Prisma.FeedbackOrderByWithRelationInput> = [
  * ---------------------------------------------------------------------- */
 
 /**
- * The RECRUITER's candidate detail, in one nested `select` (FR-5.2, FR-5.7).
+ * The RECRUITER's candidate detail, in one nested `select`.
  *
  * Every relation here is fetched by Prisma's relation select, which JOINs.
  * There is no per-application loop and no second call: the statement count is
  * independent of how many applications, rounds or assessments this candidate
- * has (PERF-2, AC-B44).
+ * has.
  *
- * Ordering is fixed here rather than in a service, so the client never re-sorts
- * (FR-5.3, XFE, frontend FR-5.1): applications newest first, **stage history
- * oldest first because a timeline reads forwards**, rounds newest first,
- * feedback newest first. `id` is the tiebreak everywhere — two rows sharing a
- * timestamp, which one transaction can easily produce, must still have one
- * order.
+ * Ordering is fixed here rather than in a service, so the client never re-sorts:
+ * applications newest first, **stage history oldest first because a timeline
+ * reads forwards**, rounds newest first, feedback newest first. `id` is the
+ * tiebreak everywhere — two rows sharing a timestamp, which one transaction can
+ * easily produce, must still have one order.
  *
  * `candidateProfile` is joined HERE and only here. The interviewer's select
  * below does not name this relation at all.
@@ -343,7 +338,7 @@ export const RECRUITER_CANDIDATE_SELECT = {
 } as const;
 
 /**
- * **The projection the POC is judged on** (FR-6.4, SEC-1, AC-B13).
+ * **The projection the POC is judged on.**
  *
  * Two lines. It names no `email`. It joins no `candidateProfile`. It reaches no
  * `applications`, and therefore no stage history, no override reason, no panel
@@ -353,9 +348,9 @@ export const RECRUITER_CANDIDATE_SELECT = {
  * ever selected. That is the difference between a design that cannot leak and
  * one that has not leaked yet.
  *
- * It serves **both** interviewer reads — the list row and the by-id detail
- * (FR-3.7, FR-6.4) — so there is one answer to "what does an interviewer see of
- * a person", not two that can drift.
+ * It serves **both** interviewer reads — the list row and the by-id detail —
+ * so there is one answer to "what does an interviewer see of a person", not two
+ * that can drift.
  */
 export const INTERVIEWER_CANDIDATE_SELECT = {
   id: true,
@@ -367,11 +362,11 @@ export const INTERVIEWER_CANDIDATE_SELECT = {
  * ---------------------------------------------------------------------- */
 
 /**
- * The RECRUITER's list row (FR-3.6).
+ * The RECRUITER's list row.
  *
  * `_count` gives `applicationCount` in the same statement as the rows, and
  * `applications` carries enough for the walkthrough's applicants table without
- * a second call (US-04, frontend FR-9.2).
+ * a second call.
  *
  * `candidateProfile` is joined for `phone` alone — the list shows a phone
  * column and nothing else from the profile.
@@ -396,7 +391,7 @@ export const RECRUITER_CANDIDATE_LIST_SELECT = {
 } as const;
 
 /**
- * The interviewer's own rounds with one candidate (FR-6.6).
+ * The interviewer's own rounds with one candidate.
  *
  * `application` appears only as the path to the role — an `Interview` has no
  * `roleId` of its own. It selects the role's `{ id, title }` and **nothing
@@ -422,16 +417,15 @@ export const INTERVIEWER_CANDIDATE_ROUND_SELECT = {
  * contract is flat.
  *
  * **None of them removes anything from a row, and none of them may start.**
- * BE-2 rules out a step that fetches restricted columns and then takes them
- * back out — the failure mode where one missed call site leaks an email. There
- * is nothing here to take out: `INTERVIEWER_CANDIDATE_SELECT` never names a
- * restricted column, so the only function on an interviewer's path
- * (`toInterviewerRound`) touches nothing but a round's own fields.
+ * The architecture rules out a step that fetches restricted columns and then
+ * takes them back out — the failure mode where one missed call site leaks an
+ * email. There is nothing here to take out: `INTERVIEWER_CANDIDATE_SELECT`
+ * never names a restricted column, so the only function on an interviewer's
+ * path (`toInterviewerRound`) touches nothing but a round's own fields.
  *
  * They are deliberately named after what they build, not after any kind of
- * cleaning pass — a reviewer greps this module for those names and finds
- * nothing, which is the check AC-B32 makes. **If a field must be kept from a
- * reader, it comes out of the select above, never out of one of these.**
+ * cleaning pass. **If a field must be kept from a reader, it comes out of the
+ * select above, never out of one of these.**
  */
 
 /** Exactly the row `RECRUITER_CANDIDATE_SELECT` produces. */
@@ -451,11 +445,11 @@ interface RecruiterCandidateRow {
 
 /**
  * Publishes `candidateProfile` as `profile`, and **turns a missing row into
- * three nulls rather than a `null` object** (FR-2.5, EC-10).
+ * three nulls rather than a `null` object**.
  *
  * A candidate nobody has recorded anything about is the normal state, not a gap
- * (MIG-5) — so the client renders `—` per field and never has to handle a
- * "no profile" case that would mean the same thing.
+ * — so the client renders `—` per field and never has to handle a "no profile"
+ * case that would mean the same thing.
  */
 export function toRecruiterCandidateView(row: RecruiterCandidateRow): RecruiterCandidateView {
   return {

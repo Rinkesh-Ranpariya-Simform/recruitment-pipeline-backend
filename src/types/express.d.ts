@@ -3,7 +3,7 @@ import type { UserRole } from '../../generated/prisma/enums.js';
 
 /**
  * Declaration merging so `req.user`, `req.id` and `req.log` are typed
- * everywhere without a cast at each call site (R-5).
+ * everywhere without a cast at each call site.
  *
  * `user` is optional at the type level because it is genuinely absent on
  * anonymous routes. Handlers behind `requireAuth` still narrow it — the
@@ -13,7 +13,7 @@ import type { UserRole } from '../../generated/prisma/enums.js';
  *
  * `validatedParams` / `validatedQuery` carry the parsed output of
  * `validateParams()` / `validateQuery()`. They exist because `req.query` is a
- * getter in Express 5 and cannot be reassigned (BE-2.2, R-2).
+ * getter in Express 5 and cannot be reassigned.
  *
  * They are `unknown` rather than generic because a global augmentation cannot
  * be typed per route. Controllers cast at the point of use —

@@ -7,7 +7,7 @@ import type {
 } from '../../../generated/prisma/enums.js';
 
 /**
- * The stage transition timeline, and nothing else (BE-2).
+ * The stage transition timeline, and nothing else.
  *
  * **This file imports the Prisma enums and nothing more** — no `prisma`, no
  * Express, no logger, no error classes — for the same reason `pipeline.rules`
@@ -19,7 +19,7 @@ import type {
  * ## Why this is not `StageHistory`
  *
  * `StageHistory` records every change to `Application.currentStage`. The
- * timeline the brief's actors actually want is a different sequence:
+ * timeline the actors actually want is a different sequence:
  *
  * ```
  * Applied → Screened (phone screen) → Interview (technical) → Interview (system design) → Not selected
@@ -40,9 +40,9 @@ import type {
  * ## One builder, both audiences
  *
  * A recruiter and a candidate are shown the **same nodes**, built by this one
- * function (FR-5.5). That is deliberate: the brief's whole complaint is that
- * nobody outside one recruiter's head can tell where a candidate stands, and
- * two builders would eventually tell them two different stories.
+ * function. That is deliberate: nobody outside one recruiter's head should be
+ * unable to tell where a candidate stands, and two builders would eventually
+ * tell them two different stories.
  *
  * What differs is what the caller SELECTS before getting here, not what this
  * does with it — a candidate's rows carry no interviewer, no feedback and no
@@ -55,10 +55,9 @@ import type {
  * How a node reads.
  *
  * `PASSED` is green, `REJECTED` is red, `PENDING` is neutral — but the colours
- * are the client's business (frontend FE-4). What is settled here is that there
- * are exactly three, and that **`PENDING` is a round with no verdict yet**, not
- * a round with no date. An undated round is ordinary (FR-2.3) and is not a
- * different state.
+ * are the client's business. What is settled here is that there are exactly
+ * three, and that **`PENDING` is a round with no verdict yet**, not a round
+ * with no date. An undated round is ordinary and is not a different state.
  */
 export type TimelineNodeState = 'PASSED' | 'REJECTED' | 'PENDING';
 
@@ -68,7 +67,7 @@ export type TimelineNodeState = 'PASSED' | 'REJECTED' | 'PENDING';
  * Three kinds, not one free-text label, for the same reason `AuditEntityType`
  * is an enum: a label assembled on the server is a label the client cannot
  * translate, shorten for a phone, or render as a link. The server sends facts;
- * `features/applications/labels.ts` turns them into words.
+ * the frontend turns them into words.
  */
 export type TimelineNodeKind = 'APPLIED' | 'ROUND' | 'OUTCOME';
 
@@ -137,7 +136,7 @@ const stateOf = (outcome: InterviewOutcome | null): TimelineNodeState => {
 };
 
 /**
- * The timeline for one application (FR-5).
+ * The timeline for one application.
  *
  * ```
  *   applied ──► round ──► round ──► … ──► outcome
@@ -147,9 +146,9 @@ const stateOf = (outcome: InterviewOutcome | null): TimelineNodeState => {
  *   `createdAt`. Every application has one and it is never pending: applying is
  *   the act, not a request for permission.
  * - **One node per round, in CREATION order** — not scheduled order. A round
- *   may have no date (FR-2.3), and ordering by a nullable column would collapse
- *   every undated round to one end of a sequence that is supposed to be the
- *   order things happened in.
+ *   may have no date, and ordering by a nullable column would collapse every
+ *   undated round to one end of a sequence that is supposed to be the order
+ *   things happened in.
  * - **`CANCELLED` rounds are omitted.** A cancelled round did not happen, so it
  *   is not part of what happened. It is still readable on its own page, and its
  *   feedback and panel are untouched — this only decides what the timeline
@@ -161,7 +160,7 @@ const stateOf = (outcome: InterviewOutcome | null): TimelineNodeState => {
  *
  * `interviews` must already be ordered by `createdAt asc` — the caller's query
  * does it, served by `Interview_applicationId_createdAt_idx`, so there is no
- * sort here and none per application (PERF-2).
+ * sort here and none per application.
  */
 export function buildTimeline(
   application: TimelineApplicationRow,

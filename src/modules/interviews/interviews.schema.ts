@@ -7,21 +7,20 @@ import {
 } from '../../../generated/prisma/enums.js';
 
 /**
- * The validation boundary for all seven endpoints (Validation table).
+ * The validation boundary for all seven endpoints.
  *
- * **This is where the brief's §6 check lives for this feature**: a round type or
- * stage outside its enum is rejected *before any business logic runs* (VAL-1).
- * `{"type":"COFFEE_CHAT"}` never reaches Prisma and produces no `interview.*`
- * log line (AC-B03).
+ * A round type or stage outside its enum is rejected *before any business logic
+ * runs*. `{"type":"COFFEE_CHAT"}` never reaches Prisma and produces no
+ * `interview.*` log line.
  *
- * Unknown keys are dropped, as everywhere else in this codebase (VAL-5). A body
- * of `{"interviewerId":5,"assignedByUserId":999}` reaches the service as
+ * Unknown keys are dropped, as everywhere else in this codebase. A body of
+ * `{"interviewerId":5,"assignedByUserId":999}` reaches the service as
  * `{ interviewerId: 5 }` — the tampered field is not rejected, it simply does
- * not exist by the time any code could read one (AZ-7, AC-B37).
+ * not exist by the time any code could read one.
  *
- * Validation runs AFTER `requireAuth` and `requireRole` (BE-5, VAL-4), so an
- * interviewer POSTing a malformed body gets `403`, not a `400` that would teach
- * them the shape.
+ * Validation runs AFTER `requireAuth` and `requireRole`, so an interviewer
+ * POSTing a malformed body gets `403`, not a `400` that would teach them the
+ * shape.
  *
  * This is zod v4: enum messages are `z.enum(Values, 'message')`, not
  * `z.nativeEnum` or `{ message: … }`.
@@ -67,30 +66,28 @@ export const assignmentParamsSchema = z.object({
 });
 
 /**
- * A new round (FR-1.6).
+ * A new round.
  *
  * There is no `status` field: every round is created `SCHEDULED` by a literal in
- * the service (FR-1.5). There is no `createdByUserId` field either — the actor
- * is `req.user.id` and nothing in a body can set it (AZ-7).
+ * the service. There is no `createdByUserId` field either — the actor is
+ * `req.user.id` and nothing in a body can set it.
  *
- * **`scheduledAt` has no `.min(new Date())` refinement, deliberately** (VAL-3,
- * FR-1.7). Backfilling a round that already happened is a normal thing to do,
- * and refusing it would push recruiters to lie about the date.
+ * **`scheduledAt` has no `.min(new Date())` refinement, deliberately.**
+ * Backfilling a round that already happened is a normal thing to do, and
+ * refusing it would push recruiters to lie about the date.
  *
  * `z.iso.datetime()` before the coercion, so `{"scheduledAt": null}` and
  * `{"scheduledAt": 0}` are 400s rather than `new Date(null)` quietly becoming
- * the epoch. The contract is an ISO 8601 string (XFE-9); this is that contract
- * stated where it is enforced.
+ * the epoch. The contract is an ISO 8601 string; this is that contract stated
+ * where it is enforced.
  */
 export const createInterviewSchema = z.object({
   type: z.enum(InterviewType, TYPE_MESSAGE),
   stage: z.enum(PipelineStage, STAGE_MESSAGE),
   /**
-   * **OPTIONAL as of the applications feature** (applications FR-2.3).
-   *
-   * A recruiter starts a phone screen from the applications table with one
-   * click, before any date exists — the round is the decision to run it, and the
-   * date is a later fact. Omitting the key writes NULL; `PATCH
+   * **OPTIONAL.** A recruiter starts a phone screen from the applications
+   * table with one click, before any date exists — the round is the decision to
+   * run it, and the date is a later fact. Omitting the key writes NULL; `PATCH
    * /api/interviews/:id` fills it in.
    *
    * `.nullish()`, so `{"scheduledAt": null}` is accepted as well as the key
@@ -106,12 +103,11 @@ export const createInterviewSchema = z.object({
 });
 
 /**
- * A round's status change (FR-2.1).
+ * A round's status change.
  *
  * **The enum is the two TERMINAL values only.** `{"status":"SCHEDULED"}` is a
  * `400`, not a `409`: un-cancelling is not a supported action, and a validation
- * error states that more clearly than a conflict would (VAL-2, AC-B41,
- * mirroring pipeline VAL-4).
+ * error states that more clearly than a conflict would.
  */
 export const updateInterviewStatusSchema = z
   .object({
@@ -122,7 +118,7 @@ export const updateInterviewStatusSchema = z
       )
       .optional(),
     /**
-     * The date, set or changed after the fact (applications FR-2.4).
+     * The date, set or changed after the fact.
      *
      * This is the "edit date" control on a round's page, and it is the other
      * half of creating a round without one. `null` clears it back to undated,
@@ -131,7 +127,7 @@ export const updateInterviewStatusSchema = z
      *
      * Still no `.min(new Date())`, for the same reason as on create: backfilling
      * a round that already happened is normal, and refusing it would push
-     * recruiters to lie about the date (VAL-3).
+     * recruiters to lie about the date.
      */
     scheduledAt: z.iso
       .datetime({ offset: true, message: 'Scheduled time must be an ISO 8601 datetime' })
@@ -153,7 +149,7 @@ export const updateInterviewStatusSchema = z
   });
 
 /**
- * A round's verdict (applications FR-3.2).
+ * A round's verdict.
  *
  * **The enum is the two verdicts only**, and there is no `PENDING`: "not decided
  * yet" is the absence of a decision, not a decision, and an endpoint that could
@@ -161,18 +157,18 @@ export const updateInterviewStatusSchema = z
  *
  * There is no `decidedByUserId` field and no `decidedAt` field. Both are the
  * server's — `req.user.id` and `new Date()` — which is what makes the record
- * trustworthy, exactly as it is for a stage override (pipeline AZ-5).
+ * trustworthy.
  */
 export const interviewDecisionSchema = z.object({
   decision: z.enum(InterviewOutcome, 'Decision must be one of SELECTED, REJECTED'),
 });
 
 /**
- * An assignment (FR-3.2).
+ * An assignment.
  *
  * `interviewerId` is the only field. Whether that user is actually an
  * `INTERVIEWER` is not a zod concern — it is resolved by a `where` in the
- * service that simply does not match anybody else (FR-3.3).
+ * service that simply does not match anybody else.
  */
 export const assignInterviewerSchema = z.object({
   interviewerId: z.coerce
@@ -182,14 +178,14 @@ export const assignInterviewerSchema = z.object({
 });
 
 /**
- * The list's three optional filters and its pager (FR-4.4).
+ * The list's three optional filters and its pager.
  *
  * An interviewer may pass every one of these. They ARE ANDed with that
  * interviewer's assignment predicate in `buildInterviewWhere`, so a filter can
- * narrow within their own rounds and can never widen beyond them (FR-4.2,
- * EC-06) — which is why none of them needs to be rejected here.
+ * narrow within their own rounds and can never widen beyond them — which is why
+ * none of them needs to be rejected here.
  *
- * `?pageSize=101` is a 400, never a silent clamp (VAL-7), matching
+ * `?pageSize=101` is a 400, never a silent clamp, matching
  * `listRolesQuerySchema`.
  */
 export const listInterviewsQuerySchema = z.object({

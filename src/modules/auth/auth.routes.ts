@@ -7,16 +7,16 @@ import { loginSchema, signupSchema } from './auth.schema.js';
 export const authRouter = Router();
 
 /**
- * The three anonymous endpoints in the API (FR-7.3). Adding a fourth is a
- * spec-level decision, not a local one.
+ * The three anonymous endpoints in the API. Adding a fourth is a spec-level
+ * decision, not a local one.
  *
- * SEC-11.1 is CLOSED (candidate spec SEC-1): `/signup` can only create a
- * CANDIDATE — see `signupSchema`. Interviewers and recruiters come from
- * `npm run db:seed`. Do not reintroduce a role field or a second creation path.
+ * `/signup` can only create a CANDIDATE — see `signupSchema`. Interviewers and
+ * recruiters come from `npm run db:seed`. Do not reintroduce a role field or a
+ * second creation path.
  *
  * What is still accepted, and still POC-only: this endpoint has no rate limit,
  * no CAPTCHA and no email verification, so anyone who can reach it can create
- * unlimited *candidate* accounts (spec SEC-12).
+ * unlimited *candidate* accounts.
  */
 authRouter.post('/signup', validate(signupSchema), authController.signup);
 authRouter.post('/login', validate(loginSchema), authController.login);
@@ -25,5 +25,5 @@ authRouter.post('/login', validate(loginSchema), authController.login);
 authRouter.post('/refresh', authController.refresh);
 authRouter.post('/logout', authController.logout);
 
-// requireAuth before anything else on protected routes (PERF-7).
+// requireAuth before anything else on protected routes.
 authRouter.get('/me', requireAuth, authController.me);

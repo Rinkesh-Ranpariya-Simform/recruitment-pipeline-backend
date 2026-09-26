@@ -82,14 +82,14 @@ export const roleIdParamSchema = z.object({
  */
 export const listRolesQuerySchema = z.object({
   /**
-   * Title search (candidate spec FR-4.6, VAL-2, VAL-3).
+   * Title search.
    *
    * Capped at 120 — the same ceiling as `title`, since a term longer than the
    * column it searches cannot match anything and should not reach the database.
    *
    * `.transform` turns a term that is empty after trimming into `undefined`, so
    * `?q=` and no `q` at all produce the same page and a client clearing its
-   * search box needs no special case (EC-13).
+   * search box needs no special case.
    */
   q: z
     .string('Search term must be text')

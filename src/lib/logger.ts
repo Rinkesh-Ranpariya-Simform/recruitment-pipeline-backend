@@ -2,7 +2,7 @@ import { pino } from 'pino';
 import { env } from '../config/env.js';
 
 /**
- * Structured logging (BE-9). `console.log` is not used anywhere in `src/`.
+ * Structured logging. `console.log` is not used anywhere in `src/`.
  *
  * The `redact` list below is belt-and-braces: nothing in this codebase logs a
  * credential deliberately, and this catches the case where a future caller
@@ -27,16 +27,16 @@ const REDACTED_PATHS = [
   '*.passwordHash',
   '*.accessToken',
   '*.refreshToken',
-  // A stage override's free text (audit spec FR-8.3, SEC-7). Nothing logs an
-  // override's metadata today - `recordAudit` logs ids and enum values only -
-  // so this is here purely so that a future line which accidentally does
-  // prints `[redacted]` rather than a recruiter's own words about a candidate.
+  // A stage override's free text. Nothing logs an override's metadata today —
+  // `recordAudit` logs ids and enum values only — so this is here purely so
+  // that a future line which accidentally does prints `[redacted]` rather than
+  // a recruiter's own words about a candidate.
   'reason',
   '*.reason',
-  // An interviewer's assessment of a person (feedback FR-7.2, SEC-5). Nothing
-  // logs it deliberately - every `feedback.*` line carries ids and the rating
-  // alone - so like `reason` this is the second line of defence, for the future
-  // line that passes a whole feedback row into a log call by accident.
+  // An interviewer's assessment of a person. Nothing logs it deliberately —
+  // every `feedback.*` line carries ids and the rating alone — so like `reason`
+  // this is the second line of defence, for the future line that passes a whole
+  // feedback row into a log call by accident.
   'notes',
   '*.notes',
 ];

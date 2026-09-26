@@ -6,14 +6,14 @@ import * as authService from './auth.service.js';
 
 /**
  * HTTP concerns only: read the request, call a service, shape a response. No
- * hashing, no token minting, no Prisma (BE-1).
+ * hashing, no token minting, no Prisma.
  *
  * Express 5 forwards a rejected promise from an async handler to the error
  * middleware, so these deliberately do not catch — a thrown AppError becomes
  * the response, and anything else becomes a generic 500.
  */
 
-/** 201, safe user, and deliberately NO cookie and no token (FR-2.2, AC-B01). */
+/** 201, safe user, and deliberately NO cookie and no token. */
 export async function signup(req: Request, res: Response): Promise<void> {
   const user = await authService.signup(req.body as SignupInput, req.log);
 
@@ -24,7 +24,7 @@ export async function login(req: Request, res: Response): Promise<void> {
   const session = await authService.login(req.body as LoginInput, req.log);
 
   // The raw refresh token leaves the process here and only here — it is never
-  // part of the body (FR-5.3, AC-B09).
+  // part of the response body.
   setRefreshCookie(res, session.rawRefreshToken);
 
   res.status(200).json({
@@ -38,7 +38,7 @@ export async function refresh(req: Request, res: Response): Promise<void> {
   const rawToken: unknown = req.cookies?.[REFRESH_COOKIE_NAME];
 
   if (typeof rawToken !== 'string' || rawToken === '') {
-    throw new UnauthenticatedError(); // AC-B19
+    throw new UnauthenticatedError();
   }
 
   const rotated = await authService.refresh(rawToken, req.log);
@@ -49,9 +49,9 @@ export async function refresh(req: Request, res: Response): Promise<void> {
 }
 
 /**
- * Always 204, even with no cookie or an already-invalid one (FR-5.7, AC-B24).
- * The cookie is cleared regardless, so a client can never be left holding a
- * credential the server has forgotten.
+ * Always 204, even with no cookie or an already-invalid one. The cookie is
+ * cleared regardless, so a client can never be left holding a credential the
+ * server has forgotten.
  */
 export async function logout(req: Request, res: Response): Promise<void> {
   const rawToken: unknown = req.cookies?.[REFRESH_COOKIE_NAME];
@@ -72,7 +72,7 @@ export async function me(req: Request, res: Response): Promise<void> {
 
   if (user === null) {
     // The row disappeared between requireAuth and here. A token never implies
-    // existence (EC-11, AC-B16).
+    // existence.
     throw new UnauthenticatedError();
   }
 

@@ -4,12 +4,11 @@ import { prisma } from '../lib/prisma.js';
 import { verifyAccessToken } from '../lib/tokens.js';
 
 /**
- * Establishes `req.user` for every protected route (FR-7.1).
+ * Establishes `req.user` for every protected route.
  *
  * Every failure mode — no header, wrong scheme, bad signature, expired, claims
  * of the wrong shape, or a user row that no longer exists — produces the same
- * bare 401. The client learns that it is not authenticated and nothing else
- * (AC-B14, AC-B15, EC-15).
+ * bare 401. The client learns that it is not authenticated and nothing else.
  */
 export async function requireAuth(req: Request, _res: Response, next: NextFunction): Promise<void> {
   const header = req.get('authorization');
@@ -20,7 +19,7 @@ export async function requireAuth(req: Request, _res: Response, next: NextFuncti
   }
 
   // Exactly `Bearer <token>` — two parts, correct scheme. Anything else is a
-  // 401, never a 500 (EC-15).
+  // 401, never a 500.
   const [scheme, token, ...rest] = header.split(' ');
 
   if (scheme !== 'Bearer' || token === undefined || token === '' || rest.length > 0) {
@@ -38,7 +37,7 @@ export async function requireAuth(req: Request, _res: Response, next: NextFuncti
 
   // A valid signature proves the token was issued by us, not that its subject
   // still exists. Resolve the row; a deleted user is a 401, never a fabricated
-  // identity (EC-11, AC-B16). Exactly one query per request (PERF-4).
+  // identity. Exactly one query per request.
   const user = await prisma.user.findUnique({
     where: { id: claims.sub },
     select: { id: true, role: true },

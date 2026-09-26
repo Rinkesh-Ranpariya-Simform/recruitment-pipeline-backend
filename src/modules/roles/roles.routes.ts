@@ -17,19 +17,14 @@ export const rolesRouter = Router();
 
 /**
  * The three WRITES are recruiter-only. The two READS are not, as of the
- * candidate feature (spec FR-4.1, FR-4.2, and its "Revision to the roles
- * feature").
+ * candidate feature.
  *
- * That reverses this module's earlier rule deliberately: browsing open
- * positions is one-for-one with `GET /api/roles?status=OPEN`, so a second
- * module would have been the same query behind a second name.
+ * Browsing open positions is one-for-one with `GET /api/roles?status=OPEN`, so
+ * a second module would have been the same query behind a second name.
  *
- * **What widened is this guard, not the query.** A non-recruiter's rows are
+ * **What widened is the guard, not the query.** A non-recruiter's rows are
  * still narrowed to `status: OPEN` and `PUBLIC_ROLE_SELECT` — see
  * `buildRoleWhere` in the service.
- *
- * The cost, named: an interviewer regains a requisition read they were
- * previously denied. Accepted (spec SEC-12.5).
  *
  * Middleware order matters: auth and authorization run before validation, so an
  * anonymous caller always gets 401, and a non-recruiter gets 403 on a write

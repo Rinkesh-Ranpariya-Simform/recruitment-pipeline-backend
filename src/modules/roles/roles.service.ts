@@ -22,7 +22,7 @@ export interface Role {
   updatedAt: Date;
 }
 
-/** What a non-recruiter gets: `Role` minus `updatedAt` (FR-4.5). */
+/** What a non-recruiter gets: `Role` minus `updatedAt`. */
 export type PublicRole = Omit<Role, 'updatedAt'>;
 
 export interface Pagination {
@@ -33,17 +33,17 @@ export interface Pagination {
 }
 
 /**
- * THE role-aware query decision, shared by both read endpoints (FR-4.3).
+ * THE role-aware query decision, shared by both read endpoints.
  *
  * For a non-recruiter, `status: OPEN` goes into the `where` clause **before the
- * query runs** (FR-4.4, AZ-4) — for the page, for the `count` behind the pager,
- * and for the single-role read. A `CLOSED` requisition is never fetched, so it
- * cannot be leaked by a mapping mistake downstream.
+ * query runs** — for the page, for the `count` behind the pager, and for the
+ * single-role read. A `CLOSED` requisition is never fetched, so it cannot be
+ * leaked by a mapping mistake downstream.
  *
  * Predicates are ANDed rather than overwritten, which is why a candidate's
  * `?status=CLOSED` returns an empty page rather than being silently rewritten to
- * OPEN or rejected outright (FR-4.7, EC-04, AC-B17). `status = OPEN AND status =
- * CLOSED` matches nothing, which is the honest answer to that request.
+ * OPEN or rejected outright. `status = OPEN AND status = CLOSED` matches nothing,
+ * which is the honest answer to that request.
  */
 export function buildRoleWhere(
   query: Pick<ListRolesQuery, 'q' | 'status'>,
@@ -61,8 +61,8 @@ export function buildRoleWhere(
     and.push({ status: query.status });
   }
 
-  // Title only — `description` is deliberately not searched (FR-4.6, D-11).
-  // This is a parameterised Prisma filter, never interpolated SQL (SEC-7).
+  // Title only — `description` is deliberately not searched. This is a
+  // parameterised Prisma filter, never interpolated SQL.
   if (query.q !== undefined) {
     and.push({ title: { contains: query.q, mode: 'insensitive' } });
   }
@@ -137,11 +137,11 @@ export async function listRoles(
 /**
  * A well-formed id with no matching row is a 404, never an empty 200.
  *
- * For a non-recruiter the `OPEN` predicate is part of the lookup (FR-4.8), so a
- * `CLOSED` requisition and one that never existed produce the **same** 404 with
- * the same body. That indistinguishability is the point: a 403 here, or a
- * different message, would confirm the requisition exists and turn the endpoint
- * into an enumeration oracle (SEC-4, ERR-4, AC-B18/AC-B19).
+ * For a non-recruiter the `OPEN` predicate is part of the lookup, so a `CLOSED`
+ * requisition and one that never existed produce the **same** 404 with the same
+ * body. That indistinguishability is the point: a 403 here, or a different
+ * message, would confirm the requisition exists and turn the endpoint into an
+ * enumeration oracle.
  *
  * `findFirst`, not `findUnique`, because the predicate is id + status rather
  * than a unique key alone.
@@ -287,7 +287,7 @@ export async function deleteRole(roleId: number, actorId: number, log: Logger): 
 
       // An OPEN requisition is still in circulation: it has to be closed first.
       // Checked BEFORE the applications rule, so a recruiter is always told the
-      // first of the two steps they need (candidate spec FR-8.3, AC-B46).
+      // first of the two steps they need.
       if (existing.status !== RoleStatus.CLOSED) {
         throw new RoleNotClosedError();
       }
@@ -298,7 +298,7 @@ export async function deleteRole(roleId: number, actorId: number, log: Logger): 
     // `Application.roleId` is `onDelete: Restrict`, so Postgres refuses this
     // delete when anyone has applied. Derived from the constraint violation
     // rather than a preceding `count()`, which a concurrent apply would
-    // invalidate — see `RoleHasApplicationsError` (FR-8.1, FR-8.2, FR-8.4).
+    // invalidate.
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2003') {
       log.warn(
         { event: 'role.delete.refused', actorId, roleId, reason: 'has_applications' },

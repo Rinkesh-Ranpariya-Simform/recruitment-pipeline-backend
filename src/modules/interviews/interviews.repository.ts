@@ -11,18 +11,18 @@ import {
 import type { ListInterviewsQuery } from './interviews.schema.js';
 
 /**
- * **The one file that expresses the interviewer scope** (BE-3, AZ-4).
+ * **The one file that expresses the interviewer scope.**
  *
  * `buildInterviewWhere` below is the only place in this codebase that writes
  * `assignments: { some: … }`. Every read that could reach a round — the page,
- * the pager's `count` and the single by-id read — routes through it (FR-4.3).
+ * the pager's `count` and the single by-id read — routes through it.
  * **No handler filters a fetched list, and there is no
  * `if (interview.assignments.some(...))` anywhere in this module**; a reviewer
  * can confirm the scoping is correct by reading this file alone.
  *
  * If a third interviews read is ever added, it routes through
  * `buildInterviewWhere` too. A second copy of this decision is how the rule
- * rots (FR-4.3).
+ * rots.
  */
 
 /** Byte-identical in shape to the roles and audit pagers, so clients reuse it. */
@@ -34,29 +34,28 @@ export interface Pagination {
 }
 
 /**
- * THE role-aware query decision, shared by all three reads (FR-4.1, FR-4.3).
+ * THE role-aware query decision, shared by all three reads.
  *
  * It mirrors `buildRoleWhere` in `roles.service.ts` in shape, naming and ANDing
- * discipline, so a reader who has understood one has understood both (BE-3).
+ * discipline, so a reader who has understood one has understood both.
  *
  * For a NON-RECRUITER, `{ assignments: { some: { interviewerId: actorId } } }`
- * goes into the `where` **before the query runs** (FR-4.2, AZ-4). An unassigned
- * interviewer's request produces no row at all, so the restricted data is never
- * retrieved into application memory — the exact failure mode the brief §4 asks
- * to be designed out (SEC-2). The predicate is served by
- * `InterviewAssignment_interviewerId_createdAt_idx` (MIG-4, PERF-1), and it is a
- * JOIN rather than a two-step fetch: this module never loads an interviewer's
- * assignment ids and then queries interviews with an `in` list (PERF-2).
+ * goes into the `where` **before the query runs**. An unassigned interviewer's
+ * request produces no row at all, so the restricted data is never retrieved
+ * into application memory. The predicate is served by
+ * `InterviewAssignment_interviewerId_createdAt_idx`, and it is a JOIN rather
+ * than a two-step fetch: this module never loads an interviewer's assignment ids
+ * and then queries interviews with an `in` list.
  *
  * Predicates are **ANDed, never overwritten**, which is why an interviewer
  * passing `?applicationId=` for an application they have no round on gets an
  * empty page rather than somebody else's rounds: a filter narrows within their
- * scope and can never widen beyond it (FR-4.2, EC-06, AC-B20).
+ * scope and can never widen beyond it.
  *
  * The test is `!== RECRUITER` rather than `=== INTERVIEWER` so it fails CLOSED:
  * a role added later is scoped until someone decides otherwise. Candidates never
- * reach here — they are refused at the route (AZ-9) — but if that guard were
- * ever loosened this would not hand them the whole table.
+ * reach here — they are refused at the route — but if that guard were ever
+ * loosened this would not hand them the whole table.
  */
 export function buildInterviewWhere(
   query: Pick<ListInterviewsQuery, 'status' | 'applicationId' | 'roleId'>,
@@ -78,7 +77,7 @@ export function buildInterviewWhere(
   }
 
   // Through the application, because a round has no `roleId` of its own — the
-  // role is a property of the application it hangs off (FR-1.2).
+  // role is a property of the application it hangs off.
   if (query.roleId !== undefined) {
     and.push({ application: { roleId: query.roleId } });
   }
@@ -88,13 +87,13 @@ export function buildInterviewWhere(
 
 /**
  * A page of rounds, plus its `count`, in ONE transaction sharing ONE `where`
- * (FR-4.3, PERF-3) — so `total` always describes the same snapshot and the same
- * scope as the rows beside it. Two queries per request, never one per row.
+ * — so `total` always describes the same snapshot and the same scope as the
+ * rows beside it. Two queries per request, never one per row.
  *
  * Branched on role rather than a ternary on `select` alone, so each call keeps
- * its own inferred row type and the two projections cannot be confused
- * (FR-5.4). The recruiter's `assignments` come from a relation select, which
- * joins — not an N+1 per round (PERF-5).
+ * its own inferred row type and the two projections cannot be confused. The
+ * recruiter's `assignments` come from a relation select, which joins — not an
+ * N+1 per round.
  *
  * `id desc` is the tiebreak: without it two rounds sharing a `scheduledAt` could
  * be repeated or skipped across pages.
@@ -134,18 +133,18 @@ export async function findInterviewPage(
 }
 
 /**
- * One round, resolved with the **same** scoped `where` as the page (FR-4.5).
+ * One round, resolved with the **same** scoped `where` as the page.
  *
  * **The authorization condition is inside the database query.** An unassigned
  * interviewer's request returns `null` because the row never matched, not
  * because a check rejected it afterwards — so the round's data is never loaded
- * into memory at all (AZ-4, SEC-2, EC-05). The authorization costs nothing
- * extra: it is part of the query that was already being run (PERF-4).
+ * into memory at all. The authorization costs nothing extra: it is part of the
+ * query that was already being run.
  *
  * `findFirst`, not `findUnique`, because the predicate is id + assignment rather
  * than a unique key alone.
  *
- * The caller turns `null` into a `404` — never a `403` (FR-4.6, AZ-5).
+ * The caller turns `null` into a `404` — never a `403`.
  */
 export async function findInterviewById(
   interviewId: number,
@@ -164,18 +163,18 @@ export async function findInterviewById(
 }
 
 /**
- * Every round on one application, recruiter projection (FR-1.9).
+ * Every round on one application, recruiter projection.
  *
  * **This read has no interviewer path at all**, and it is not scoped: reaching
  * rounds through an application id would bypass the assignment predicate
- * entirely, so the route is recruiter-only and there is nothing here to bypass
- * (AZ-6, AC-B33). It deliberately does NOT call `buildInterviewWhere` — there is
- * no role decision to make, and passing a role it would then ignore would
- * suggest otherwise.
+ * entirely, so the route is recruiter-only and there is nothing here to bypass.
+ * It deliberately does NOT call `buildInterviewWhere` — there is no role
+ * decision to make, and passing a role it would then ignore would suggest
+ * otherwise.
  *
  * Unpaginated because it is bounded by the rounds on one application — a
  * single-digit number in practice. **50 rounds on one application is the
- * documented threshold at which this must gain a pager** (PERF-8).
+ * documented threshold at which this must gain a pager.**
  */
 export async function findInterviewsForApplication(
   applicationId: number,

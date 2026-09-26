@@ -2,12 +2,12 @@ import 'dotenv/config';
 import { z } from 'zod';
 
 /**
- * Boot-time environment validation (BE-8, EC-10).
+ * Boot-time environment validation.
  *
  * Parsed at import time so that a malformed environment kills the process
  * before anything binds a port. `JWT_SECRET` deliberately has no default and no
  * fallback — a server that cannot prove where its signing key came from must
- * not start (AC-B33).
+ * not start.
  */
 const booleanFromEnv = z.enum(['true', 'false']).transform((value) => value === 'true');
 

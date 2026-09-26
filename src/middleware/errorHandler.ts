@@ -9,12 +9,12 @@ interface ErrorBody {
 }
 
 /**
- * The only place a failure response body is built (BE-6).
+ * The only place a failure response body is built.
  *
  * A thrown `AppError` is a deliberate, client-visible outcome and is rendered
  * as-is. Anything else is a bug: it is logged in full server-side and becomes a
  * generic 500. A stack trace, a Prisma error code, a SQL fragment or an
- * exception message never reaches the client, in any environment (ERR-3, AC-B34).
+ * exception message never reaches the client, in any environment.
  */
 export function errorHandler(err: unknown, req: Request, res: Response, next: NextFunction): void {
   // If the response has already started, the only correct move is to hand back

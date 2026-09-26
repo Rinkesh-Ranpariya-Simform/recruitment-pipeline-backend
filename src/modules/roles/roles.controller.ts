@@ -34,7 +34,7 @@ function actorId(req: Request): number {
  * The caller's user role, which the two reads scope their query by.
  *
  * Read from `req.user` — established by `requireAuth` from a verified token —
- * and never from a body, query parameter or header (AZ-4).
+ * and never from a body, query parameter or header.
  */
 function actorRole(req: Request): UserRole {
   if (req.user === undefined) {
@@ -48,8 +48,7 @@ function actorRole(req: Request): UserRole {
  * An empty result is `200 { roles: [], pagination }`, never a 404.
  *
  * A non-recruiter's page contains only OPEN requisitions, and the pager's
- * `total` counts only those — enforced in the service's query, not here
- * (candidate spec FR-4.4).
+ * `total` counts only those — enforced in the service's query, not here.
  */
 export async function list(req: Request, res: Response): Promise<void> {
   const { roles, pagination } = await rolesService.listRoles(

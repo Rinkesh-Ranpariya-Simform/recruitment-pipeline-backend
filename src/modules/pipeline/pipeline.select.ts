@@ -1,31 +1,28 @@
 /**
- * The two projections every write in this feature returns (BE-1).
+ * The two projections every write in this feature returns.
  *
  * Both endpoints' success bodies are built from these, so `PATCH …/stage`,
  * `POST …/stage-override` and `PATCH …/outcome` cannot drift into three
- * different shapes — the same construction as `APPLICATION_SELECT` and
- * `ROLE_SELECT`.
+ * different shapes.
  */
 
 /**
- * What a recruiter gets back from a successful write (XFE-10).
+ * What a recruiter gets back from a successful write.
  *
  * Enough to update one board cell without a refetch — `status`, `currentStage`
  * and the `stageEnteredAt` the ageing column is computed from — and nothing
  * more.
  *
- * **`candidateUserId` is deliberately absent** (contract invariant 4). A
- * recruiter navigating to a candidate does it through `GET /api/candidates`,
- * which is scoped for that purpose and owned by the candidate-access feature;
- * handing back a raw user id here would invite a client to build its own
- * candidate link around an endpoint that never authorized one.
+ * **`candidateUserId` is deliberately absent.** A recruiter navigating to a
+ * candidate does it through `GET /api/candidates`, which is scoped for that
+ * purpose; handing back a raw user id here would invite a client to build its
+ * own candidate link around an endpoint that never authorized one.
  *
  * The nested role is `{ id, title }` and nothing more. There is **no
  * `candidate` relation in this list at all** — not a narrowed one — so no
- * response from this feature can carry a person's name, email or phone
- * (invariants 1–3, SEC-4). A shape that never selects the columns cannot leak
- * them; a shape that strips them afterwards is one missed call site away from
- * doing so.
+ * response from this feature can carry a person's name, email or phone. A shape
+ * that never selects the columns cannot leak them; a shape that strips them
+ * afterwards is one missed call site away from doing so.
  */
 export const PIPELINE_APPLICATION_SELECT = {
   id: true,
@@ -36,16 +33,15 @@ export const PIPELINE_APPLICATION_SELECT = {
 } as const;
 
 /**
- * The override row as `POST …/stage-override` returns it (FR-4.7).
+ * The override row as `POST …/stage-override` returns it.
  *
  * `performedBy` is expanded to `{ id, name }` — and **this is the one name any
- * endpoint in this feature returns** (invariant 3). It is a recruiter's, not a
- * candidate's: the record is only accountable if it says who made the
- * exception, which is the whole of brief §3.3.
+ * endpoint in this feature returns**. It is a recruiter's, not a candidate's:
+ * the record is only accountable if it says who made the exception.
  *
  * `reason` is here because the recruiter who just typed it is the one reading
  * the response. It is also in the pino `redact` list, so it is returned but
- * never logged (SEC-5).
+ * never logged.
  *
  * `applicationId` is absent: the response already carries the application it
  * belongs to, one key across.
@@ -60,19 +56,18 @@ export const STAGE_OVERRIDE_SELECT = {
 } as const;
 
 /**
- * The pre-flight read every write performs (PERF-7).
+ * The pre-flight read every write performs.
  *
  * A primary-key lookup: five columns plus `Role` joined on its own primary key.
  * The role title is fetched here rather than by re-reading the application
  * after the update, because once the guarded update reports success everything
  * else the response needs is already known — the stage is the one we asked for,
  * `stageEnteredAt` is the timestamp we passed, and `status` is whatever the
- * write set. That keeps the transaction to the four statements PERF-6 allows
- * instead of adding a fifth read to it.
+ * write set. That keeps the transaction to four statements instead of adding a
+ * fifth read to it.
  *
  * It selects **no candidate relation**, so the application row this feature
- * loads carries no person on it at any point — not even to be dropped later
- * (SEC-4).
+ * loads carries no person on it at any point — not even to be dropped later.
  */
 export const APPLICATION_STATE_SELECT = {
   id: true,

@@ -5,19 +5,18 @@ import { ApplicationStatus, PipelineStage } from '../../../generated/prisma/enum
  * Unknown keys are stripped (zod object default), which is what makes the
  * impersonation case a non-case: a body of
  * `{ roleId: 1, candidateUserId: 99, status: "HIRED" }` reaches the service as
- * `{ roleId: 1 }` (EC-10, AC-B34).
+ * `{ roleId: 1 }`.
  */
 export const createApplicationSchema = z.object({
   /**
    * There is deliberately NO `candidateUserId` field, and no `status` or
-   * `currentStage` field (FR-5.3, FR-5.4).
+   * `currentStage` field.
    *
    * The candidate is `req.user.id`, from a verified token. The status and stage
    * are literals in the service. A field the client cannot send is a field no
    * one has to remember to validate.
    *
-   * Coerced here, so a non-numeric `roleId` is a 400 before any query runs
-   * (VAL-4, AC-B33).
+   * Coerced here, so a non-numeric `roleId` is a 400 before any query runs.
    */
   roleId: z.coerce
     .number('Role id must be a positive integer')
@@ -26,7 +25,7 @@ export const createApplicationSchema = z.object({
 });
 
 /**
- * `GET /api/applications/:applicationId` — the by-id read (applications FR-4.1).
+ * `GET /api/applications/:applicationId` — the by-id read.
  *
  * Coerced, so `/api/applications/abc` is a 400 at the boundary rather than a
  * 500 further down. Declared here rather than imported from `pipeline.schema`
@@ -42,7 +41,7 @@ export const applicationIdParamSchema = z.object({
 });
 
 /**
- * The RECRUITER list's filters and pager (applications FR-1.4).
+ * The RECRUITER list's filters and pager.
  *
  * **A candidate never reaches this schema.** Their `GET /api/applications` takes
  * no parameters at all and is not paged — the list is their own, and it is
@@ -50,9 +49,9 @@ export const applicationIdParamSchema = z.object({
  * cannot branch on a role, so a candidate sending `?page=2` has it parsed and
  * then ignored by a service that reads none of it. That is deliberate and it is
  * not a widening: no filter here can reach the candidate's query, which has a
- * hardcoded `where: { candidateUserId }` and nothing else (AZ-2).
+ * hardcoded `where: { candidateUserId }` and nothing else.
  *
- * `?pageSize=101` is a 400, never a silent clamp (VAL-7), matching
+ * `?pageSize=101` is a 400, never a silent clamp, matching
  * `listRolesQuerySchema` and `listInterviewsQuerySchema`.
  */
 export const listApplicationsQuerySchema = z.object({

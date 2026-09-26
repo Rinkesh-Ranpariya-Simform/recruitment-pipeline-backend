@@ -9,10 +9,10 @@ import type { TimelineNode } from './timeline.js';
 
 /**
  * Every projection this module fetches, and **the role decides which one is
- * used before the query runs** — not which fields are removed after it returns
- * (BE-4). The same construction as `interview.select.ts`: the recruiter's is a
- * superset in content but a DIFFERENT OBJECT, so there is no code path here in
- * which a candidate's query loads a column and a later step drops it.
+ * used before the query runs** — not which fields are removed after it returns.
+ * The recruiter's is a superset in content but a DIFFERENT OBJECT, so there is
+ * no code path here in which a candidate's query loads a column and a later
+ * step drops it.
  *
  * Four selects, in two pairs:
  *
@@ -31,19 +31,17 @@ import type { TimelineNode } from './timeline.js';
  * ---------------------------------------------------------------------- */
 
 /**
- * The single definition of the candidate-facing application projection
- * (candidate FR-6.3, FR-6.4, FR-6.5).
+ * The single definition of the candidate-facing application projection.
  *
  * A candidate must never see interviewer feedback, a rating, an internal note,
  * an interviewer's identity, or an override reason. **None of them is a column
  * this select names**, and the timeline assembled beside it carries none either
  * — see `timeline.ts`.
  *
- * `interviews` IS selected here as of the applications feature, and it is the
- * one addition: four columns per round, none of which says anything about who
- * ran it or what they thought. It exists so `buildTimeline` can tell a
- * candidate where they stand, which is the whole point of showing them a
- * timeline at all (FR-5.4).
+ * `interviews` IS selected here, and it is the one addition: four columns per
+ * round, none of which says anything about who ran it or what they thought. It
+ * exists so `buildTimeline` can tell a candidate where they stand, which is the
+ * whole point of showing them a timeline at all.
  *
  * The nested role select is `{ id, title }` and nothing more. Widening it would
  * turn a candidate's application list into a second, unpaged view of the
@@ -69,7 +67,7 @@ export const APPLICATION_SELECT = {
     },
     // Creation order, matching `buildTimeline`'s contract. Served by
     // `Interview_applicationId_createdAt_idx`, so there is no sort step and no
-    // per-application query — Prisma batches the relation load (PERF-2).
+    // per-application query — Prisma batches the relation load.
     orderBy: { createdAt: 'asc' },
   },
 } as const;
@@ -89,7 +87,7 @@ export const CANDIDATE_APPLICATION_DETAIL_SELECT = APPLICATION_SELECT;
  * ---------------------------------------------------------------------- */
 
 /**
- * One row of the recruiter's applications table (FR-1.2).
+ * One row of the recruiter's applications table.
  *
  * `candidate` is `{ id, name }` — **not `email`**, and no `candidateProfile`
  * join. A recruiter may see contact details, but not here: this is a list of
@@ -98,8 +96,8 @@ export const CANDIDATE_APPLICATION_DETAIL_SELECT = APPLICATION_SELECT;
  *
  * `_count.interviews` rather than the rounds themselves: the table shows how
  * many rounds a candidate has had, and loading every round of every application
- * to render a number is the shape the brief's §6 forbids by name. Prisma
- * resolves it as a correlated subquery, not as N queries (PERF-3).
+ * to render a number is the wrong shape. Prisma resolves it as a correlated
+ * subquery, not as N queries.
  */
 export const RECRUITER_APPLICATION_SELECT = {
   id: true,
@@ -113,7 +111,7 @@ export const RECRUITER_APPLICATION_SELECT = {
 } as const;
 
 /**
- * One application, as a recruiter opens it (FR-4.2).
+ * One application, as a recruiter opens it.
  *
  * The rounds are fetched in full here — with their panel — because this IS the
  * page a recruiter runs a candidate's process from, and every round on it is
@@ -181,12 +179,12 @@ export interface RecruiterApplicationInterviewView extends ApplicationInterviewV
  * round list they cannot open. `toCandidateApplication` below is what drops
  * them.
  *
- * That is not the post-fetch filtering BE-4 forbids, and the distinction is the
- * same one `toInterviewerView` documents: **nothing restricted is fetched**.
- * The select names eight neutral columns per round and no interviewer, rating
- * or note, so there is nothing here to strip and nothing a future call site
- * could leak. If a field ever needs keeping from a candidate, **it comes out of
- * the select above, not out of that function.**
+ * That is not the post-fetch filtering the architecture forbids, and the
+ * distinction is the same one `toInterviewerView` documents: **nothing
+ * restricted is fetched**. The select names eight neutral columns per round and
+ * no interviewer, rating or note, so there is nothing here to strip and nothing
+ * a future call site could leak. If a field ever needs keeping from a candidate,
+ * **it comes out of the select above, not out of that function.**
  */
 export interface CandidateApplicationView {
   id: number;

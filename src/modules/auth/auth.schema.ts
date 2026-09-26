@@ -2,14 +2,13 @@ import { z } from 'zod';
 
 /**
  * Both schemas strip unknown keys (zod object default), so an unexpected field
- * is dropped rather than carried into a Prisma `data` object (BE-2.3, VAL-4).
+ * is dropped rather than carried into a Prisma `data` object.
  */
 
 /**
- * Normalisation lives in the schema, not in a service (VAL-3). `validate()`
- * replaces `req.body` with the parsed result, so every downstream consumer sees
- * the trimmed, lowercased value and no code path can forget to normalise
- * (EC-07, AC-B05).
+ * Normalisation lives in the schema, not in a service. `validate()` replaces
+ * `req.body` with the parsed result, so every downstream consumer sees the
+ * trimmed, lowercased value and no code path can forget to normalise.
  */
 const emailField = z
   .string()
@@ -28,20 +27,20 @@ export const signupSchema = z.object({
     .string()
     .min(8, 'Password must be at least 8 characters')
     // bcrypt silently truncates beyond 72 bytes; rejecting instead means two
-    // different long passwords can never authenticate the same account
-    // (VAL-1, EC-08). Bytes, not characters — a multi-byte password hits this
-    // sooner than its length suggests.
+    // different long passwords can never authenticate the same account. Bytes,
+    // not characters — a multi-byte password hits this sooner than its length
+    // suggests.
     .refine((value) => Buffer.byteLength(value, 'utf8') <= 72, 'Password must be at most 72 bytes'),
-  // THERE IS DELIBERATELY NO `role` FIELD (candidate spec FR-2.2, SEC-1).
+  // THERE IS DELIBERATELY NO `role` FIELD.
   // Signup is anonymous and is the only HTTP account-creation path, so a `role`
   // it honoured would let anyone mint a RECRUITER. A body carrying one is
-  // stripped, answering 201 with a CANDIDATE account (FR-2.3, AC-B04).
+  // stripped, answering 201 with a CANDIDATE account.
   //
   // Do not add it back — see `auth.service.signup`.
 });
 
 /**
- * Shape only — deliberately NO password length minimum (VAL-6, AC-B08).
+ * Shape only — deliberately NO password length minimum.
  *
  * Applying the signup rules here would return 400 where 401 belongs, and would
  * reveal that no account can have a short password. Credential correctness is

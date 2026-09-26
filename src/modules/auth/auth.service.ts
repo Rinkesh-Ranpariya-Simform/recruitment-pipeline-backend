@@ -16,7 +16,7 @@ import type { LoginInput, SignupInput } from './auth.schema.js';
 
 /**
  * All password, token and rotation logic lives here. Controllers perform none
- * of it — they shape HTTP and delegate (BE-1).
+ * of it — they shape HTTP and delegate.
  */
 
 export interface SafeUser {
@@ -31,7 +31,7 @@ export interface Session {
   user: SafeUser;
   accessToken: string;
   expiresIn: number;
-  /** Raw refresh token. Goes into `Set-Cookie` and nowhere else (FR-5.4). */
+  /** Raw refresh token. Goes into `Set-Cookie` and nowhere else. */
   rawRefreshToken: string;
 }
 
@@ -41,7 +41,7 @@ function refreshTokenExpiry(): Date {
 
 /**
  * Starts a brand-new rotation family. Called on every login, so a second login
- * never disturbs a session already running on another device (FR-4.5, AC-B11).
+ * never disturbs a session already running on another device.
  */
 async function issueSession(user: SafeUser): Promise<Session> {
   const rawRefreshToken = generateRefreshToken();
@@ -62,15 +62,13 @@ async function issueSession(user: SafeUser): Promise<Session> {
 }
 
 /**
- * The only code path in the entire API that writes a `User` row (contract
- * invariant 5, AC-B00). Creates only — it issues no token and sets no cookie
- * (FR-2.2, AC-B01).
+ * The only code path in the entire API that writes a `User` row. Creates only —
+ * it issues no token and sets no cookie.
  *
- * **It can only ever create a `CANDIDATE`** (candidate spec FR-2.4). `role` is a
- * literal below, not `input.role`, and `signupSchema` has no such field to read
- * — so there is no input to validate and no escalation path (SEC-11.1). No HTTP
- * path creates an `INTERVIEWER` or `RECRUITER`; both come from `npm run db:seed`
- * (FR-3.1, FR-3.2, FR-3.4).
+ * **It can only ever create a `CANDIDATE`.** `role` is a literal below, not
+ * `input.role`, and `signupSchema` has no such field to read — so there is no
+ * input to validate and no escalation path. No HTTP path creates an
+ * `INTERVIEWER` or `RECRUITER`; both come from `npm run db:seed`.
  */
 export async function signup(input: SignupInput, log: Logger): Promise<SafeUser> {
   const passwordHash = await hashPassword(input.password);
@@ -86,7 +84,7 @@ export async function signup(input: SignupInput, log: Logger): Promise<SafeUser>
       select: SAFE_USER_SELECT,
     });
 
-    // No actor field: no authenticated user can create another (FR-2.6, SEC-10).
+    // No actor field: no authenticated user can create another.
     log.info(
       { event: 'user.created', createdUserId: user.id, role: user.role, source: 'signup' },
       'user created',
@@ -95,8 +93,7 @@ export async function signup(input: SignupInput, log: Logger): Promise<SafeUser>
     return user;
   } catch (error) {
     // Derived from the database constraint, not a preceding findUnique — a
-    // check-then-insert loses under a race and can produce a 500 or two rows
-    // (ERR-4, EC-06).
+    // check-then-insert loses under a race and can produce a 500 or two rows.
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
       throw new EmailTakenError();
     }
@@ -116,18 +113,17 @@ export async function signup(input: SignupInput, log: Logger): Promise<SafeUser>
  * still-unexpired row is precisely what a replayed token is matched against:
  * delete it and `refresh` reads the replay as `unknown` instead of `reused`,
  * answers the same 401, and silently leaves the rest of the stolen family
- * usable — the tripwire in FR-5.6 would fire on nothing.
+ * usable — the tripwire would fire on nothing.
  *
  * What is knowingly given up is narrower: once a stolen token is itself past
  * `expiresAt`, replaying it no longer revokes its family, because the row it
- * would have matched is gone. Accepted, and the standard line — such a token is
- * refused on its own expiry and confers no access either way, so all that is
- * lost is the *detection* of a replay that could not have succeeded. Retention
- * for the whole window in which a token can still be redeemed is intact.
+ * would have matched is gone. Accepted — such a token is refused on its own
+ * expiry and confers no access either way, so all that is lost is the
+ * *detection* of a replay that could not have succeeded.
  *
  * Runs at login: a new family is starting, the request is already paying ~200ms
  * of bcrypt, and it is one indexed delete on `@@index([userId])`. Deliberately
- * NOT in `refresh`, which answers to a 50ms budget (PERF-2).
+ * NOT in `refresh`, which has a tight latency budget.
  */
 async function pruneExpiredRefreshTokens(userId: number, log: Logger): Promise<void> {
   try {
@@ -150,8 +146,7 @@ async function pruneExpiredRefreshTokens(userId: number, log: Logger): Promise<v
 
 /**
  * Unknown email and wrong password are indistinguishable to the caller: the
- * same error object, and the same bcrypt cost on both paths (SEC-2, SEC-3,
- * AC-B07, AC-B08).
+ * same error object, and the same bcrypt cost on both paths (timing-safe).
  */
 export async function login(input: LoginInput, log: Logger): Promise<Session> {
   const record = await prisma.user.findUnique({
@@ -161,7 +156,7 @@ export async function login(input: LoginInput, log: Logger): Promise<Session> {
 
   if (record === null) {
     // Burn the same ~200ms bcrypt cost so response timing does not reveal that
-    // no such account exists (BE-3.3).
+    // no such account exists.
     await verifyDummyPassword(input.password);
     log.warn(
       { event: 'auth.login.failure', email: input.email, reason: 'invalid_credentials' },
@@ -198,9 +193,9 @@ export async function login(input: LoginInput, log: Logger): Promise<Session> {
  * That split is not stylistic. A throw inside `prisma.$transaction` rolls the
  * transaction back, so raising the 401 from inside it would also undo the
  * family revocation that the 401 is supposed to accompany — the tripwire would
- * log that it fired and then quietly leave every stolen token usable (AC-B18).
- * Failure outcomes are therefore returned, acted on after the commit, and only
- * then converted into an error.
+ * log that it fired and then quietly leave every stolen token usable. Failure
+ * outcomes are therefore returned, acted on after the commit, and only then
+ * converted into an error.
  */
 type RotationOutcome =
   | {
@@ -216,18 +211,18 @@ type RotationOutcome =
   | { kind: 'reused'; userId: number; familyId: string };
 
 /**
- * Rotation with reuse detection (BE-5, FR-5.5, FR-5.6).
+ * Rotation with reuse detection.
  *
  * The presented token is claimed with a CONDITIONAL update (`revokedAt: null`
- * in the WHERE) rather than a read followed by a write. That is what makes
- * AC-B21 hold: under two genuinely concurrent requests carrying the same token,
- * Postgres serialises the two UPDATEs and re-evaluates the predicate after the
- * first commits, so the second matches zero rows. A read-then-write inside a
- * transaction would let both proceed under READ COMMITTED.
+ * in the WHERE) rather than a read followed by a write. Under two genuinely
+ * concurrent requests carrying the same token, Postgres serialises the two
+ * UPDATEs and re-evaluates the predicate after the first commits, so the second
+ * matches zero rows. A read-then-write inside a transaction would let both
+ * proceed under READ COMMITTED.
  *
  * The loser of that race then finds the row revoked and trips reuse detection,
  * killing the family. That is the specified behaviour, not a bug: correctness
- * (a stolen token is always detected) is chosen over convenience (EC-04).
+ * (a stolen token is always detected) is chosen over convenience.
  */
 export async function refresh(
   rawToken: string,
@@ -300,10 +295,10 @@ export async function refresh(
   });
 
   if (outcome.kind === 'reused') {
-    // The stolen-token tripwire (FR-5.6, EC-03, AC-B18). Committed in its own
-    // statement, AFTER the deciding transaction, so revoking the lineage
-    // survives the 401 we are about to raise. The legitimate session dies too —
-    // that is the point: theft becomes visible rather than silent.
+    // The stolen-token tripwire. Committed in its own statement, AFTER the
+    // deciding transaction, so revoking the lineage survives the 401 we are
+    // about to raise. The legitimate session dies too — that is the point:
+    // theft becomes visible rather than silent.
     await prisma.refreshToken.updateMany({
       where: { familyId: outcome.familyId, revokedAt: null },
       data: { revokedAt: new Date() },
@@ -323,8 +318,7 @@ export async function refresh(
   }
 
   if (outcome.kind !== 'rotated') {
-    // Unknown or expired: the same bare 401 as every other refresh failure
-    // (EC-02, AC-B20).
+    // Unknown or expired: the same bare 401 as every other refresh failure.
     throw new UnauthenticatedError();
   }
 
@@ -341,12 +335,12 @@ export async function refresh(
 }
 
 /**
- * Revokes the presented token's entire family (FR-5.7).
+ * Revokes the presented token's entire family.
  *
  * Never throws for a missing, unknown or already-revoked token — logout is
- * idempotent and the controller answers 204 regardless (EC-05, AC-B24). Unlike
- * `refresh`, presenting a revoked token here is not treated as reuse: a client
- * logging out twice is not a theft signal.
+ * idempotent and the controller answers 204 regardless. Unlike `refresh`,
+ * presenting a revoked token here is not treated as reuse: a client logging out
+ * twice is not a theft signal.
  */
 export async function logout(rawToken: string | undefined, log: Logger): Promise<void> {
   if (rawToken === undefined || rawToken === '') {
@@ -373,7 +367,7 @@ export async function logout(rawToken: string | undefined, log: Logger): Promise
   );
 }
 
-/** Reads the authenticated user's own record, explicit-select only (PERF-3). */
+/** Reads the authenticated user's own record, explicit-select only. */
 export async function getById(id: number): Promise<SafeUser | null> {
   return prisma.user.findUnique({ where: { id }, select: SAFE_USER_SELECT });
 }
