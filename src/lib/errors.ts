@@ -65,7 +65,7 @@ export class InvalidCredentialsError extends AppError {
 }
 
 /**
- * 401 — "We don't know who you are". Recoverable via /api/auth/refresh.
+ * 401 — "We don't know who you are". Recoverable via /api/auth/session/refresh.
  * Carries no reason: the client never learns whether a token was malformed,
  * expired, revoked, or belonged to a deleted user.
  */

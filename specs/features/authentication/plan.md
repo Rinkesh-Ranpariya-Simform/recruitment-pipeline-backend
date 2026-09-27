@@ -288,14 +288,14 @@ If a non-empty `User` table ever exists in a deployed environment, this becomes 
 
 All **NEW** — no existing endpoint changes shape, so nothing here is BREAKING.
 
-| Endpoint            | Method | Request                           | Response                                                | Errors           | Auth               |
-| ------------------- | ------ | --------------------------------- | ------------------------------------------------------- | ---------------- | ------------------ |
-| `/api/auth/signup`  | POST   | `{ name, email, password, role }` | `201 { user }`                                          | 400, 409, 500    | anonymous          |
-| `/api/auth/login`   | POST   | `{ email, password }`             | `200 { user, accessToken, expiresIn }` + `Set-Cookie`   | 400, 401, 500    | anonymous          |
-| `/api/auth/refresh` | POST   | — (cookie)                        | `200 { accessToken, expiresIn }` + rotated `Set-Cookie` | 401, 500         | refresh cookie     |
-| `/api/auth/logout`  | POST   | — (cookie)                        | `204` + cleared cookie                                  | — (never errors) | refresh cookie     |
-| `/api/auth/me`      | GET    | —                                 | `200 { user }`                                          | 401              | Bearer             |
-| `/api/users`        | GET    | —                                 | `200 { users: [] }`                                     | 401, 403, 500    | Bearer + RECRUITER |
+| Endpoint                    | Method | Request                           | Response                                                | Errors           | Auth               |
+| --------------------------- | ------ | --------------------------------- | ------------------------------------------------------- | ---------------- | ------------------ |
+| `/api/auth/signup`          | POST   | `{ name, email, password, role }` | `201 { user }`                                          | 400, 409, 500    | anonymous          |
+| `/api/auth/login`           | POST   | `{ email, password }`             | `200 { user, accessToken, expiresIn }` + `Set-Cookie`   | 400, 401, 500    | anonymous          |
+| `/api/auth/session/refresh` | POST   | — (cookie)                        | `200 { accessToken, expiresIn }` + rotated `Set-Cookie` | 401, 500         | refresh cookie     |
+| `/api/auth/session/logout`  | POST   | — (cookie)                        | `204` + cleared cookie                                  | — (never errors) | refresh cookie     |
+| `/api/auth/me`              | GET    | —                                 | `200 { user }`                                          | 401              | Bearer             |
+| `/api/users`                | GET    | —                                 | `200 { users: [] }`                                     | 401, 403, 500    | Bearer + RECRUITER |
 
 **`POST /api/users` is not implemented.** The route is never registered, so it falls through to `notFound` like any unknown path. Do not add it as a `403`-returning or `405`-returning stub (R-12).
 
@@ -317,7 +317,7 @@ Full bodies and headers: [spec.md § API Contract](./spec.md#api-contract).
 | Error `code` strings                                     | Backend               | Every `switch` on `body.code` in error handling                                                          |
 | `details` keyed by body field name                       | Backend               | `setError` field mapping in forms                                                                        |
 | Cookie name `refresh_token`                              | Backend               | `middleware.ts` cookie-presence check                                                                    |
-| Cookie `Path=/api/auth`                                  | Backend               | Whether the cookie is sent at all on refresh/logout                                                      |
+| Cookie `Path=/api/auth/session`                          | Backend               | Whether the cookie is sent at all on refresh/logout                                                      |
 | `Authorization: Bearer` scheme                           | Backend               | `apiFetch` header construction                                                                           |
 | `expiresIn: 900`                                         | Backend               | Any client-side expiry assumption (currently none — the client is reactive)                              |
 | `401` = recoverable, `403` = terminal                    | Backend               | The refresh interceptor's entire branch logic                                                            |
@@ -378,7 +378,7 @@ The shape of the pass — capture a token once, reuse it:
 curl -i -c cookies.txt -X POST localhost:3000/api/auth/login \
   -H 'Content-Type: application/json' \
   -d '{"email":"recruiter@demo.test","password":"Password123!"}'
-#    proves: 200, Set-Cookie has HttpOnly + SameSite=Lax + Path=/api/auth,
+#    proves: 200, Set-Cookie has HttpOnly + SameSite=Lax + Path=/api/auth/session,
 #            body has accessToken and NO passwordHash
 
 TOKEN=<accessToken from above>
@@ -418,8 +418,8 @@ These are the criteria a careless `curl` will appear to pass while the guarantee
 - **AC-B18 (reuse detection)** — three steps: refresh once to rotate, replay the original, then check that the **successor** is also dead _and_ that every row in the family has `revokedAt` set (`psql`: `SELECT "revokedAt" FROM "RefreshToken" WHERE "familyId" = …`). Seeing only the `401` misses the point.
 - **AC-B21 (concurrent refresh)** — fire both in one shell so they genuinely overlap, then read the database:
   ```bash
-  curl -s -o a.txt -w '%{http_code}\n' -b cookies.txt -X POST localhost:3000/api/auth/refresh &
-  curl -s -o b.txt -w '%{http_code}\n' -b cookies.txt -X POST localhost:3000/api/auth/refresh &
+  curl -s -o a.txt -w '%{http_code}\n' -b cookies.txt -X POST localhost:3000/api/auth/session/refresh &
+  curl -s -o b.txt -w '%{http_code}\n' -b cookies.txt -X POST localhost:3000/api/auth/session/refresh &
   wait
   psql "$DATABASE_URL" -c 'SELECT count(*) FROM "RefreshToken" WHERE "familyId" = '"'"'…'"'"' AND "revokedAt" IS NULL;'
   ```
@@ -448,7 +448,7 @@ None is forced by this plan. The frontend plan owns its own manual pass.
 | R-7  | **Nothing here is automated.** With no test suite, a regression in rotation, reuse detection or the safe-`select` discipline is caught only by someone repeating the manual pass.                  | Silent breakage as later features build on `req.user` and the error contract.            | Treat § Acceptance Criteria Mapping as a standing manual script and re-run it in full before any merge touching `src/modules/auth/` or `src/lib/`. Revisit a test runner once the auth surface stops changing.                                                                                                          |
 | R-8  | **Manual verification mutates the development database.** Several criteria need a deleted user, a revoked family, or an emptied table.                                                             | Losing the seeded state mid-pass, and checks that no longer start from a known baseline. | `npm run db:seed` is idempotent (AC-B36) — re-run it to restore the baseline between checks, and do destructive checks last.                                                                                                                                                                                            |
 | R-9  | **Prisma 7 `prisma-client` generator**, not `prisma-client-js`. Output is `generated/prisma` and gitignored.                                                                                       | Imports from `@prisma/client` fail; CI without a `prisma generate` step fails.           | Import from `../generated/prisma/client.js`. Add `prisma generate` to a `postinstall` script.                                                                                                                                                                                                                           |
-| R-10 | **Cookie `Path=/api/auth`** means the cookie is not sent to other endpoints — correct, but easy to misread as a bug when debugging.                                                                | Time lost chasing a non-issue.                                                           | Comment it in `lib/cookies.ts` referencing BE-7.4.                                                                                                                                                                                                                                                                      |
+| R-10 | **Cookie `Path=/api/auth/session`** means the cookie is not sent to other endpoints — correct, but easy to misread as a bug when debugging.                                                        | Time lost chasing a non-issue.                                                           | Comment it in `lib/cookies.ts` referencing BE-7.4.                                                                                                                                                                                                                                                                      |
 | R-11 | **Anonymous role-accepting signup is the _only_ creation path**, so it carries the whole of provisioning with no lower-privileged alternative beside it.                                           | Anyone reaching the API can mint a RECRUITER, and there is no safer path to prefer.      | Accepted and documented (SEC-11.1). **Not mitigated by this plan.** Binding to localhost is the only thing standing in front of it. Before any exposure: gate signup behind an operator secret or delete it in favour of the seed. Raise this explicitly at implementation review rather than letting it pass silently. |
 | R-12 | **An absent endpoint is easy to half-build.** A `POST /api/users` route that merely 403s, or a `405` stub, both look "done" in a diff.                                                             | The spec says `404`; anything else opens an authenticated write path to `User`.          | Verify by route enumeration _and_ by `curl` as a recruiter (see § Verification Commands). AC-B00 and AC-B26 are both required — neither alone catches it.                                                                                                                                                               |
 
@@ -490,7 +490,7 @@ The third column is the **manual check** — this repo has no automated tests. R
 | AC-B03 — short password → 400, no row                  | `auth.schema.signupSchema`, `middleware/validate.ts`              | Signup with a 4-character password → `400`; no new row in `"User"`                                                                                            |
 | AC-B04 — missing role → 400                            | `auth.schema.signupSchema` (required, no default)                 | Signup with `role` omitted → `400 VALIDATION_ERROR`                                                                                                           |
 | AC-B05 — email normalised, case-insensitive login      | `auth.schema` `.transform()`, `validate.ts` body replacement      | Sign up `"  Ada@Example.COM "`, then log in as `ada@example.com` → `200`; the stored email is lowercased and trimmed                                          |
-| AC-B06 — login 200 + cookie attributes                 | `auth.service.login`, `lib/cookies.ts`                            | `curl -i .../login` → read the `Set-Cookie` line: `HttpOnly`, `SameSite=Lax`, `Path=/api/auth` all present                                                    |
+| AC-B06 — login 200 + cookie attributes                 | `auth.service.login`, `lib/cookies.ts`                            | `curl -i .../login` → read the `Set-Cookie` line: `HttpOnly`, `SameSite=Lax`, `Path=/api/auth/session` all present                                            |
 | AC-B07 — wrong password → 401                          | `auth.service.login`, `InvalidCredentialsError`                   | Correct email, wrong password → `401 INVALID_CREDENTIALS`                                                                                                     |
 | AC-B08 — unknown email response **deep-equals** AC-B07 | `auth.service.login` dummy-hash path, `lib/password.ts`           | Save both responses with `curl -is -o` and `diff` them — status, body and headers identical (see § Verification Commands)                                     |
 | AC-B09 — no hash or token in login body                | `user.select.ts` `SAFE_USER_SELECT`                               | `grep passwordHash` over the login response → no match                                                                                                        |

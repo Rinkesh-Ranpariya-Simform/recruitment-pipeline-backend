@@ -341,7 +341,7 @@ The obligations this backend places on the Next.js client. The rest of the front
 [../../../../frontend/specs/features/candidate/spec.md](../../../../frontend/specs/features/candidate/spec.md).
 
 - **XFE-1** Transport is unchanged: `Authorization: Bearer <accessToken>` on every call, `credentials:
-'include'` so the `Path=/api/auth` refresh cookie is sent. `apiFetch` needs no modification.
+'include'` so the `Path=/api/auth/session` refresh cookie is sent. `apiFetch` needs no modification.
 - **XFE-2** CORS is unchanged — `origin: env.FRONTEND_ORIGIN`, `credentials: true`. Signup is same-origin-policy
   identical to login; no preflight change.
 - **XFE-3** The client **must remove `role` from its signup request body.** Sending it is harmless (FR-2.3)
@@ -650,8 +650,8 @@ model Application {
 | --------------------------- | --------- | -------------------------- | -------------------------- | --------- |
 | `POST /api/auth/signup`     | ✅ 201    | ✅ 201                     | ✅ 201                     | ✅ 201    |
 | `POST /api/auth/login`      | ✅        | ✅                         | ✅                         | ✅        |
-| `POST /api/auth/refresh`    | cookie    | cookie                     | cookie                     | cookie    |
-| `POST /api/auth/logout`     | ✅ 204    | ✅ 204                     | ✅ 204                     | ✅ 204    |
+| `POST /api/auth/session/refresh`    | cookie    | cookie                     | cookie                     | cookie    |
+| `POST /api/auth/session/logout`     | ✅ 204    | ✅ 204                     | ✅ 204                     | ✅ 204    |
 | `GET /api/auth/me`          | 401       | ✅                         | ✅                         | ✅        |
 | `GET /api/users`            | 401       | **403**                    | 403                        | ✅        |
 | `GET /api/roles`            | 401       | ✅ **OPEN only**           | ✅ **OPEN only**           | ✅ all    |

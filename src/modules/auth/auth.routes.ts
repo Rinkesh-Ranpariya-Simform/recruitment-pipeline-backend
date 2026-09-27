@@ -22,8 +22,8 @@ authRouter.post('/signup', validate(signupSchema), authController.signup);
 authRouter.post('/login', validate(loginSchema), authController.login);
 
 // Cookie-gated, no body — so no `validate()` in the chain.
-authRouter.post('/refresh', authController.refresh);
-authRouter.post('/logout', authController.logout);
+authRouter.post('/session/refresh', authController.refresh);
+authRouter.post('/session/logout', authController.logout);
 
 // requireAuth before anything else on protected routes.
 authRouter.get('/me', requireAuth, authController.me);

@@ -11,11 +11,11 @@ import { env } from '../config/env.js';
 export const REFRESH_COOKIE_NAME = 'refresh_token';
 
 /**
- * `Path=/api/auth/refresh` scopes the refresh token to the dedicated refresh
+ * `Path=/api/auth/session` scopes the refresh token to the dedicated session
  * endpoint only. This keeps the credential off the rest of the API surface and
- * matches the server's actual use: rotating with `/api/auth/refresh`.
+ * matches the server's actual use: rotating with `/api/auth/session/refresh`.
  */
-const COOKIE_PATH = '/api/auth/refresh';
+const COOKIE_PATH = '/api/auth/session';
 
 function baseOptions() {
   return {

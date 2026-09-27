@@ -138,9 +138,9 @@ Settled, not open:
 - **FR-5.2** It is presented on protected requests as `Authorization: Bearer <token>`.
 - **FR-5.3** The **refresh token** is a cryptographically random opaque string with a **1-day** lifetime, delivered as an `HttpOnly; SameSite; Secure-in-prod` cookie. It never appears in a response body.
 - **FR-5.4** The server stores **only the SHA-256 hash** of the refresh token. The raw value exists in the cookie and nowhere else.
-- **FR-5.5** `POST /api/auth/refresh` reads the cookie, validates the token, **rotates** it (issues a new one, revokes the presented one), and returns a fresh access token.
+- **FR-5.5** `POST /api/auth/session/refresh` reads the cookie, validates the token, **rotates** it (issues a new one, revokes the presented one), and returns a fresh access token.
 - **FR-5.6** **Reuse detection:** if an already-revoked refresh token is presented, the server revokes **every token in that family** and responds `401`. This is the stolen-token tripwire.
-- **FR-5.7** `POST /api/auth/logout` revokes the presented token's **entire family** and clears the cookie. It responds `204` even when no valid cookie was presented (idempotent).
+- **FR-5.7** `POST /api/auth/session/logout` revokes the presented token's **entire family** and clears the cookie. It responds `204` even when no valid cookie was presented (idempotent).
 - **FR-5.8** **Expired refresh tokens are deleted, not kept forever (added during review).** Rotation only ever wrote rows and revoked them, so an active session grew the table by roughly one row per access-token lifetime — about 96 a day — with nothing removing any of it. `login` now deletes that user's rows whose `expiresAt` has passed.
   - **Only expired rows.** A revoked but still-unexpired row is what a replayed token is matched against; removing those would turn a detected theft into an ordinary `unknown` 401 and leave the stolen family alive (FR-5.6).
   - Knowingly given up: a token replayed _after its own expiry_ no longer revokes its family. It is refused on its expiry regardless, so only the detection of an already-futile replay is lost.
@@ -184,7 +184,7 @@ Settled, not open:
 
 Full frontend behaviour is specified in [../../../../frontend/specs/features/authentication/spec.md](../../../../frontend/specs/features/authentication/spec.md). Only the obligations this backend **depends on or must accommodate** are recorded here:
 
-- **XFE-1** The client holds the access token **in memory only** and sends it as `Authorization: Bearer`. The backend therefore must **not** rely on a cookie for access-token transport, and must not assume the client can recover a token after a page reload — that is what `POST /api/auth/refresh` is for.
+- **XFE-1** The client holds the access token **in memory only** and sends it as `Authorization: Bearer`. The backend therefore must **not** rely on a cookie for access-token transport, and must not assume the client can recover a token after a page reload — that is what `POST /api/auth/session/refresh` is for.
 - **XFE-2** The client sends credentialed cross-origin requests (`credentials: 'include'`), so CORS must be configured with an explicit origin and `credentials: true` (BE-7).
 - **XFE-3** The client treats any `401` as "refresh once, then replay once". The backend must therefore make `401` genuinely recoverable via `/refresh` and must not return `401` for authorization failures — those are `403` (AZ-2).
 - **XFE-4** The client maps `details` from a `400 VALIDATION_ERROR` onto individual form fields, so `details` must be keyed by **request-body field name** (VAL-5). **The login form is the only form in the client**, so in practice this applies to `POST /api/auth/login` alone — but the rule is a contract-wide guarantee, not a login-specific one.
@@ -235,7 +235,7 @@ backend/src/
 
 ### BE-5 — Refresh rotation
 
-On `POST /api/auth/refresh`, inside a **single transaction**:
+On `POST /api/auth/session/refresh`, inside a **single transaction**:
 
 1. Hash the presented raw token; look the row up by `tokenHash`.
 2. Not found → `401`.
@@ -253,8 +253,8 @@ A single Express error middleware converts every thrown `AppError` into the flat
 
 - **BE-7.1** `cors({ origin: FRONTEND_ORIGIN, credentials: true, maxAge: 600 })` — an explicit origin, never `*` (which is incompatible with credentialed requests anyway). `maxAge` was **added during review**: every call this API serves carries `Authorization` or `Content-Type: application/json`, neither CORS-safelisted, so each is preceded by an `OPTIONS`. With no `maxAge` the browser's own default applies — 5 seconds in Chrome — so in practice every request paid two round trips. It caches the preflight for 10 minutes and widens nothing.
 - **BE-7.2** `cookie-parser` is added to read the refresh cookie.
-- **BE-7.3** Cookie attributes: name `refresh_token`, `HttpOnly`, `SameSite=Lax`, `Path=/api/auth`, `Max-Age=86400`, and `Secure` whenever `NODE_ENV === 'production'`.
-- **BE-7.4** `Path=/api/auth` scopes the cookie so it is not attached to ordinary API calls — only to `refresh` and `logout`.
+- **BE-7.3** Cookie attributes: name `refresh_token`, `HttpOnly`, `SameSite=Lax`, `Path=/api/auth/session`, `Max-Age=86400`, and `Secure` whenever `NODE_ENV === 'production'`.
+- **BE-7.4** `Path=/api/auth/session` scopes the cookie so it is not attached to ordinary API calls — only to `refresh` and `logout`.
 - **BE-7.5** **Deployment note:** `localhost:3000` and `localhost:3001` are the same site, so `SameSite=Lax` works in local development. If backend and frontend are ever served from different registrable domains, the cookie must become `SameSite=None; Secure` — and the CSRF posture in SEC-6 must be revisited at the same time.
 
 ### BE-8 — Environment configuration
@@ -333,12 +333,12 @@ Errors: `400 VALIDATION_ERROR` · `409 EMAIL_TAKEN` · `500 INTERNAL_ERROR`
 ```
 
 ```http
-Set-Cookie: refresh_token=<opaque>; HttpOnly; SameSite=Lax; Path=/api/auth; Max-Age=86400
+Set-Cookie: refresh_token=<opaque>; HttpOnly; SameSite=Lax; Path=/api/auth/session; Max-Age=86400
 ```
 
 Errors: `400 VALIDATION_ERROR` · `401 INVALID_CREDENTIALS` · `500 INTERNAL_ERROR`
 
-### `POST /api/auth/refresh` — refresh cookie
+### `POST /api/auth/session/refresh` — refresh cookie
 
 No request body. Requires the `refresh_token` cookie.
 
@@ -348,14 +348,14 @@ No request body. Requires the `refresh_token` cookie.
 ```
 
 ```http
-Set-Cookie: refresh_token=<new opaque>; HttpOnly; SameSite=Lax; Path=/api/auth; Max-Age=86400
+Set-Cookie: refresh_token=<new opaque>; HttpOnly; SameSite=Lax; Path=/api/auth/session; Max-Age=86400
 ```
 
 Errors: `401 UNAUTHENTICATED` (missing / unknown / expired / revoked-and-reused) · `500 INTERNAL_ERROR`
 
-### `POST /api/auth/logout` — refresh cookie
+### `POST /api/auth/session/logout` — refresh cookie
 
-No request body. `204 No Content` with `Set-Cookie: refresh_token=; Max-Age=0; Path=/api/auth`.
+No request body. `204 No Content` with `Set-Cookie: refresh_token=; Max-Age=0; Path=/api/auth/session`.
 
 Returns `204` **even when no cookie was sent or the token was already invalid** — idempotent, never `401`.
 
@@ -464,24 +464,24 @@ model RefreshToken {
 
 ### Credentials
 
-| Credential    | Form                              | Lifetime | Server-side storage            | Transport                           |
-| ------------- | --------------------------------- | -------- | ------------------------------ | ----------------------------------- |
-| Access token  | Signed JWT (`sub`, `role`, `exp`) | 15 min   | none (stateless)               | `Authorization: Bearer`             |
-| Refresh token | Opaque random 32 bytes            | 1 day    | SHA-256 hash in `RefreshToken` | `HttpOnly` cookie, `Path=/api/auth` |
+| Credential    | Form                              | Lifetime | Server-side storage            | Transport                                   |
+| ------------- | --------------------------------- | -------- | ------------------------------ | ------------------------------------------- |
+| Access token  | Signed JWT (`sub`, `role`, `exp`) | 15 min   | none (stateless)               | `Authorization: Bearer`                     |
+| Refresh token | Opaque random 32 bytes            | 1 day    | SHA-256 hash in `RefreshToken` | `HttpOnly` cookie, `Path=/api/auth/session` |
 
 **Rationale, for the walkthrough:** the access token is attached to most requests, so it is the credential most exposed to client-side compromise — keeping it short-lived and stateless limits the blast radius. The refresh token is long-lived, so it is kept where script cannot reach it (`HttpOnly`) and where the server _can_ revoke it (a database row). Neither credential is ever persisted in browser storage.
 
 ### Authorization matrix
 
-| Endpoint                 | Anonymous              | INTERVIEWER  | RECRUITER    |
-| ------------------------ | ---------------------- | ------------ | ------------ |
-| `POST /api/auth/signup`  | ✅                     | ✅           | ✅           |
-| `POST /api/auth/login`   | ✅                     | ✅           | ✅           |
-| `POST /api/auth/refresh` | cookie-gated           | cookie-gated | cookie-gated |
-| `POST /api/auth/logout`  | ✅ (204)               | ✅           | ✅           |
-| `GET /api/auth/me`       | ❌ 401                 | ✅           | ✅           |
-| `GET /api/users`         | ❌ 401                 | ❌ **403**   | ✅           |
-| `POST /api/users`        | ❌ 404 — route removed | ❌ 404       | ❌ 404       |
+| Endpoint                         | Anonymous              | INTERVIEWER  | RECRUITER    |
+| -------------------------------- | ---------------------- | ------------ | ------------ |
+| `POST /api/auth/signup`          | ✅                     | ✅           | ✅           |
+| `POST /api/auth/login`           | ✅                     | ✅           | ✅           |
+| `POST /api/auth/session/refresh` | cookie-gated           | cookie-gated | cookie-gated |
+| `POST /api/auth/session/logout`  | ✅ (204)               | ✅           | ✅           |
+| `GET /api/auth/me`               | ❌ 401                 | ✅           | ✅           |
+| `GET /api/users`                 | ❌ 401                 | ❌ **403**   | ✅           |
+| `POST /api/users`                | ❌ 404 — route removed | ❌ 404       | ❌ 404       |
 
 ### Non-negotiable rules
 
@@ -578,7 +578,7 @@ Flat, with `message` at the top level — chosen so the frontend's existing `api
 - **SEC-3 — Timing equalisation.** A bcrypt comparison against a constant dummy hash runs on the unknown-email path (BE-3.3).
 - **SEC-4 — Credential storage limits blast radius.** The access token is stateless and short-lived; the refresh token is `HttpOnly` and script-unreadable. The API never instructs the client to persist a credential.
 - **SEC-5 — Refresh-token theft is detectable.** Rotation plus family revocation (FR-5.6) means a stolen token's use invalidates the legitimate session, making theft visible rather than silent.
-- **SEC-6 — CSRF posture.** The only cookie-authenticated endpoints are `/api/auth/refresh` and `/api/auth/logout`. Both are `POST`; `SameSite=Lax` blocks cross-site `POST` cookie attachment; and `Path=/api/auth` keeps the cookie off ordinary API calls. All other state-changing endpoints authenticate by `Authorization` header, which a cross-site form cannot set. **If the cookie ever becomes `SameSite=None`, a CSRF token or origin check becomes mandatory** — recorded here so the change cannot be made casually.
+- **SEC-6 — CSRF posture.** The only cookie-authenticated endpoints are `/api/auth/session/refresh` and `/api/auth/session/logout`. Both are `POST`; `SameSite=Lax` blocks cross-site `POST` cookie attachment; and `Path=/api/auth/session` keeps the cookie off ordinary API calls. All other state-changing endpoints authenticate by `Authorization` header, which a cross-site form cannot set. **If the cookie ever becomes `SameSite=None`, a CSRF token or origin check becomes mandatory** — recorded here so the change cannot be made casually.
 - **SEC-7 — Strict CORS.** Explicit `origin`, `credentials: true`, never a wildcard.
 - **SEC-8 — Secrets from the environment only.** `JWT_SECRET` is validated at boot with a minimum length and has no fallback (EC-10). `.env` is gitignored; `.env.example` carries placeholders only.
 - **SEC-9 — Hashing.** bcrypt cost 12, per-password salt (bcrypt's default), verified with `bcrypt.compare` and never a string equality check.
@@ -596,7 +596,7 @@ Flat, with `message` at the top level — chosen so the frontend's existing `api
 ## Performance Requirements
 
 - **PERF-1** `POST /api/auth/login` completes in **< 400 ms** p95 locally. bcrypt cost 12 dominates (~150–250 ms) and that cost is intentional.
-- **PERF-2** `POST /api/auth/refresh` completes in **< 50 ms** p95 — one indexed lookup on `tokenHash @unique`, one update, one insert, in a single transaction. **No bcrypt on this path.**
+- **PERF-2** `POST /api/auth/session/refresh` completes in **< 50 ms** p95 — one indexed lookup on `tokenHash @unique`, one update, one insert, in a single transaction. **No bcrypt on this path.**
 - **PERF-3** `GET /api/auth/me` completes in **< 30 ms** p95 — one primary-key lookup with an explicit `select`.
 - **PERF-4** `requireAuth` performs **at most one** database query per request. JWT verification is in-process.
 - **PERF-5** Every refresh-token lookup uses the `tokenHash` unique index; family revocation uses the `familyId` index. **No query in this feature sequentially scans `RefreshToken`.**
@@ -622,7 +622,7 @@ Checking against the **real PostgreSQL database** is not optional: the query-lev
 
 ### Login
 
-- **AC-B06** — **Given** a recruiter exists with a known password, **when** `POST /api/auth/login` is called with correct credentials, **then** the response is `200`, the body contains `user`, `accessToken` and `expiresIn: 900`, and a `Set-Cookie` for `refresh_token` is present with `HttpOnly`, `SameSite=Lax` and `Path=/api/auth`.
+- **AC-B06** — **Given** a recruiter exists with a known password, **when** `POST /api/auth/login` is called with correct credentials, **then** the response is `200`, the body contains `user`, `accessToken` and `expiresIn: 900`, and a `Set-Cookie` for `refresh_token` is present with `HttpOnly`, `SameSite=Lax` and `Path=/api/auth/session`.
 - **AC-B07** — **Given** that user, **when** login is attempted with the wrong password, **then** the response is `401` with `{ code: "INVALID_CREDENTIALS", message: "Invalid email or password" }` and no `Set-Cookie`.
 - **AC-B08** — **Given** no user exists with `nobody@example.com`, **when** login is attempted with that email, **then** the response status and body are **deep-equal** to the AC-B07 response — the two cases are indistinguishable.
 - **AC-B09** — **Given** a successful login, **when** the response body is inspected, **then** it contains no `passwordHash`, no `refreshToken`, and no refresh-token value anywhere outside the `Set-Cookie` header.
@@ -639,17 +639,17 @@ Checking against the **real PostgreSQL database** is not optional: the query-lev
 
 ### Refresh & rotation
 
-- **AC-B17** — **Given** a valid refresh cookie, **when** `POST /api/auth/refresh` is called, **then** the response is `200` with a **new** access token and a `Set-Cookie` carrying a refresh token **different** from the one presented.
+- **AC-B17** — **Given** a valid refresh cookie, **when** `POST /api/auth/session/refresh` is called, **then** the response is `200` with a **new** access token and a `Set-Cookie` carrying a refresh token **different** from the one presented.
 - **AC-B18** — **Given** a refresh token that has been rotated away, **when** it is presented again, **then** the response is `401`, **and** every `RefreshToken` row sharing its `familyId` has a non-null `revokedAt`, **and** the previously valid rotated token is now also rejected.
-- **AC-B19** — **Given** no refresh cookie, **when** `POST /api/auth/refresh` is called, **then** the response is `401`.
+- **AC-B19** — **Given** no refresh cookie, **when** `POST /api/auth/session/refresh` is called, **then** the response is `401`.
 - **AC-B20** — **Given** a refresh token whose `expiresAt` is in the past, **when** it is presented, **then** the response is `401` and no new token is issued.
-- **AC-B21** — **Given** a valid refresh token, **when** two `POST /api/auth/refresh` requests are fired **concurrently** with that same token, **then** at most one succeeds, the other returns `401`, and the database contains no two simultaneously-unrevoked tokens for that family.
+- **AC-B21** — **Given** a valid refresh token, **when** two `POST /api/auth/session/refresh` requests are fired **concurrently** with that same token, **then** at most one succeeds, the other returns `401`, and the database contains no two simultaneously-unrevoked tokens for that family.
 
 ### Logout
 
-- **AC-B22** — **Given** an authenticated session, **when** `POST /api/auth/logout` is called, **then** the response is `204`, the cookie is cleared with `Max-Age=0`, and every `RefreshToken` row in that family has `revokedAt` set.
-- **AC-B23** — **Given** a logged-out session, **when** its refresh cookie is presented to `POST /api/auth/refresh`, **then** the response is `401`.
-- **AC-B24** — **Given** no cookie at all, **when** `POST /api/auth/logout` is called, **then** the response is `204` — never an error.
+- **AC-B22** — **Given** an authenticated session, **when** `POST /api/auth/session/logout` is called, **then** the response is `204`, the cookie is cleared with `Max-Age=0`, and every `RefreshToken` row in that family has `revokedAt` set.
+- **AC-B23** — **Given** a logged-out session, **when** its refresh cookie is presented to `POST /api/auth/session/refresh`, **then** the response is `401`.
+- **AC-B24** — **Given** no cookie at all, **when** `POST /api/auth/session/logout` is called, **then** the response is `204` — never an error.
 
 ### Authorization
 
