@@ -11,12 +11,11 @@ import { env } from '../config/env.js';
 export const REFRESH_COOKIE_NAME = 'refresh_token';
 
 /**
- * `Path=/api/auth` scopes the cookie to `/refresh` and `/logout` only, so it is
- * NOT attached to ordinary API calls. This looks like a bug when debugging — it
- * isn't. Ordinary endpoints authenticate via the `Authorization` header; keeping
- * the cookie off them is also what makes the CSRF posture hold.
+ * `Path=/api/auth/refresh` scopes the refresh token to the dedicated refresh
+ * endpoint only. This keeps the credential off the rest of the API surface and
+ * matches the server's actual use: rotating with `/api/auth/refresh`.
  */
-const COOKIE_PATH = '/api/auth';
+const COOKIE_PATH = '/api/auth/refresh';
 
 function baseOptions() {
   return {
