@@ -26,11 +26,12 @@
     "isolatedModules": true,
     "noUncheckedSideEffectImports": true,
     "moduleDetection": "force",
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "rewriteRelativeImportExtensions": true
   },
 
   // `src` and the generated Prisma client both live under the project root and are
   // compiled into `dist` together. `prisma/seed.ts` and `prisma.config.ts` are
   // checked separately by `tsconfig.scripts.json`.
-  "include": ["src/**/*.ts", "generated/**/*.ts"]
+  "include": ["src/**/*.ts", "generated/**/*.ts", "prisma/seed.ts"]
 }
